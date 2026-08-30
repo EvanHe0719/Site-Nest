@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
+const http = require("node:http");
 const fsp = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -8,7 +9,7 @@ const test = require("node:test");
 const projectRoot = path.resolve(__dirname, "..", "..");
 const electronPath = require("electron");
 
-function runElectron({ userData, route, width = 1060, height = 700 }) {
+function runElectron({ userData, route, width = 1060, height = 700, baseUrl = "" }) {
   const capturePath = path.join(userData, `capture-${route}.png`);
   return new Promise((resolve, reject) => {
     const child = spawn(electronPath, [projectRoot], {
@@ -22,6 +23,7 @@ function runElectron({ userData, route, width = 1060, height = 700 }) {
         QIYE_CAPTURE_ROUTE: route,
         QIYE_CAPTURE_WIDTH: String(width),
         QIYE_CAPTURE_HEIGHT: String(height),
+        ...(baseUrl ? { QIYE_TAB_PROBE_BASE_URL: baseUrl } : {}),
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -109,9 +111,9 @@ test(
     await fsp.writeFile(dataFile, JSON.stringify(v2Fixture, null, 2), "utf8");
 
     const first = await runElectron({ userData, route: "state-probe" });
-    assert.match(first.stdout, /"version":10/);
+    assert.match(first.stdout, /"version":11/);
     const migrated = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(migrated.version, 10);
+    assert.equal(migrated.version, 11);
     assert.equal(migrated.activeWorkspaceId, "personal");
     assert.deepEqual(
       migrated.workspaces.map((workspace) => workspace.id),
@@ -163,7 +165,7 @@ test(
 
     const dataFile = path.join(userData, "site-nest-data.json");
     const persisted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(persisted.version, 10);
+    assert.equal(persisted.version, 11);
     assert.equal(persisted.localTasks.length, 1);
     assert.equal(persisted.localTasks[0].title, "IPC 本地任务已更新");
     assert.equal(persisted.taskReminders.length, 1);
@@ -178,5 +180,59 @@ test(
     const restarted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
     assert.equal(restarted.localTasks.length, 1);
     assert.equal(restarted.taskReminders[0].state, "snoozed");
+  },
+);
+
+test(
+  "双线时间轴按年惰性读取、切换视图、生成任务草稿并持久化",
+  { timeout: 90000 },
+  async (t) => {
+    const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-timeline-integration-"));
+    t.after(async () => {
+      await fsp.rm(userData, { recursive: true, force: true });
+    });
+
+    const server = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end('<!doctype html><title>时间轴网页来源</title><p id="timeline-selection">仅保存用户选中的这一段</p>');
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    t.after(() => new Promise((resolve) => server.close(resolve)));
+    const address = server.address();
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const probe = await runElectron({ userData, route: "timeline-probe", width: 1400, height: 900, baseUrl });
+    const line = probe.stdout.split(/\r?\n/).find((item) => item.includes('"timelineProbe"'));
+    assert.ok(line, probe.stdout);
+    const result = JSON.parse(line).timelineProbe;
+    assert.deepEqual(result.beforeTracks, ["work", "personal"]);
+    assert.equal(result.eventCount, 3);
+    assert.equal(result.timelineCardCount, 3);
+    assert.equal(result.listRowCount, 3);
+    assert.equal(result.draft.title, "转为时间轴草稿");
+    assert.equal(result.draft.summary, "任务备注");
+    assert.equal(result.draft.relatedTaskIds.length, 1);
+    assert.ok(result.draft.relatedTaskIds[0]);
+    assert.equal(result.countBeforeDraft, result.countAfterDraft, "opening a task draft must not auto-save");
+    assert.equal(result.searchId, result.addedId);
+    assert.equal(result.emptyYearCount, 1, "ongoing responsibility remains visible in later years");
+    assert.equal(result.reviewTotal, 3);
+    assert.equal(result.pageDraft.title, "时间轴网页来源");
+    assert.equal(result.pageDraft.summary, "仅保存用户选中的这一段");
+    assert.equal(result.pageDraft.sourceHostname, "127.0.0.1");
+    const sourceUrl = new URL(result.pageDraft.sourceUrl);
+    assert.equal(sourceUrl.searchParams.get("id"), "42");
+    assert.equal(sourceUrl.searchParams.has("token"), false);
+    assert.equal(sourceUrl.searchParams.has("code"), false);
+    assert.equal(sourceUrl.hash, "");
+    assert.equal(result.route, "plan");
+    assert.equal(result.view, "timeline");
+    assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
+
+    const persisted = JSON.parse(await fsp.readFile(path.join(userData, "site-nest-data.json"), "utf8"));
+    assert.equal(persisted.version, 11);
+    assert.deepEqual(persisted.timelineTracks.map((track) => track.id), ["work", "personal"]);
+    assert.equal(persisted.timelineEvents.filter((event) => !event.deletedAt).length, 3);
+    assert.equal(persisted.timelineUiSettings.viewMode, "timeline");
+    assert.equal(persisted.localTasks.length, 1);
   },
 );

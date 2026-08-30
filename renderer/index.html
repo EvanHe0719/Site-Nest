@@ -442,7 +442,7 @@
                 <div>
                   <span class="section-kicker">LOCAL PLAN</span>
                   <h1>计划</h1>
-                  <p>周计划、月计划和提醒只保存在这台电脑，不接入外部日历。</p>
+                  <p>任务用于计划未来；时间轴用于记录已经发生或持续的重要经历，均只保存在这台电脑。</p>
                 </div>
                 <button class="primary-button" id="planAddTaskButton" type="button"><span data-icon="plus"></span>添加任务</button>
               </header>
@@ -451,6 +451,7 @@
                 <button type="button" data-task-view="month" role="tab">本月</button>
                 <button type="button" data-task-view="all" role="tab">全部任务</button>
                 <button type="button" data-task-view="completed" role="tab">已完成</button>
+                <button type="button" data-task-view="timeline" role="tab">时间轴</button>
               </div>
               <section class="plan-view-panel" id="taskWeekPanel" data-task-panel="week">
                 <div class="plan-period-toolbar">
@@ -468,6 +469,37 @@
               </section>
               <section class="plan-view-panel" id="taskAllPanel" data-task-panel="all" hidden><div class="task-list-page" id="taskAllList"></div></section>
               <section class="plan-view-panel" id="taskCompletedPanel" data-task-panel="completed" hidden><div class="task-list-page" id="taskCompletedList"></div></section>
+              <section class="plan-view-panel timeline-panel" id="timelinePanel" data-task-panel="timeline" hidden>
+                <div class="timeline-toolbar">
+                  <div class="timeline-year-control">
+                    <button type="button" data-timeline-year-move="-1" aria-label="上一年"><span data-icon="arrow-left"></span></button>
+                    <label><span class="visually-hidden">时间轴年份</span><input id="timelineYearInput" type="number" min="1" max="9999" /></label>
+                    <button type="button" data-timeline-year-move="0">当前年</button>
+                    <button type="button" data-timeline-year-move="1" aria-label="下一年"><span data-icon="arrow-right"></span></button>
+                  </div>
+                  <div class="timeline-filter-control">
+                    <label class="timeline-track-filter"><input id="timelineShowWork" type="checkbox" checked /><span class="timeline-track-dot timeline-track-dot--work"></span>工作线</label>
+                    <label class="timeline-track-filter"><input id="timelineShowPersonal" type="checkbox" checked /><span class="timeline-track-dot timeline-track-dot--personal"></span>个人线</label>
+                    <select id="timelineTypeFilter" aria-label="事件类型筛选">
+                      <option value="all">全部类型</option><option value="achievement">成就</option><option value="turningPoint">重大转折</option><option value="responsibility">职责变化</option><option value="projectMilestone">项目里程碑</option><option value="decision">重要决定</option><option value="growth">成长经历</option><option value="personalEvent">个人事件</option><option value="other">其他</option>
+                    </select>
+                    <label class="timeline-search"><span data-icon="search"></span><input id="timelineSearchInput" type="search" maxlength="200" placeholder="搜索时间轴" /></label>
+                  </div>
+                  <div class="timeline-action-control">
+                    <div class="timeline-view-switch" id="timelineViewSwitch" role="group" aria-label="时间轴视图"><button class="is-active" type="button" data-timeline-view="timeline">双轨</button><button type="button" data-timeline-view="list">列表</button></div>
+                    <button class="secondary-button compact-button" id="timelineReviewButton" type="button">年度回顾</button>
+                    <button class="secondary-button compact-button" id="timelineExportMarkdown" type="button">导出 MD</button>
+                    <button class="secondary-button compact-button" id="timelineExportJson" type="button">导出 JSON</button>
+                    <button class="primary-button compact-button" id="timelineAddButton" type="button"><span data-icon="plus"></span>添加记录</button>
+                  </div>
+                </div>
+                <div class="timeline-month-nav" id="timelineMonthNav" aria-label="月份导航">
+                  <button type="button" data-timeline-month="1">1 月</button><button type="button" data-timeline-month="2">2 月</button><button type="button" data-timeline-month="3">3 月</button><button type="button" data-timeline-month="4">4 月</button><button type="button" data-timeline-month="5">5 月</button><button type="button" data-timeline-month="6">6 月</button><button type="button" data-timeline-month="7">7 月</button><button type="button" data-timeline-month="8">8 月</button><button type="button" data-timeline-month="9">9 月</button><button type="button" data-timeline-month="10">10 月</button><button type="button" data-timeline-month="11">11 月</button><button type="button" data-timeline-month="12">12 月</button>
+                </div>
+                <div class="timeline-status-row"><span id="timelineResultSummary">尚未加载时间轴</span><span>记录仅保存在本机，不计入待办数量</span></div>
+                <div class="timeline-canvas" id="timelineCanvas" aria-live="polite"></div>
+                <div class="timeline-list" id="timelineList" hidden></div>
+              </section>
             </div>
           </section>
 
@@ -1339,6 +1371,54 @@
           <label class="form-field"><span>标签 <small>用逗号分隔</small></span><input id="taskTags" maxlength="500" placeholder="客户, SAP, 跟进" /></label>
           <div class="modal-actions"><button class="text-button text-button--quiet is-hidden" id="deleteTaskButton" type="button">删除任务</button><button class="secondary-button" type="button" data-close-modal="taskModal">取消</button><button class="primary-button" type="submit">保存任务</button></div>
         </form>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="timelineEventModal" role="dialog" aria-modal="true" aria-labelledby="timelineEventModalTitle">
+      <div class="modal-card timeline-event-modal-card">
+        <div class="modal-header"><div><span class="section-kicker">LOCAL TIMELINE</span><h2 id="timelineEventModalTitle">添加时间轴记录</h2></div><button class="icon-button" type="button" data-close-modal="timelineEventModal" aria-label="关闭"><span data-icon="close"></span></button></div>
+        <form id="timelineEventForm">
+          <input id="timelineEventId" type="hidden" />
+          <input id="timelineSourceType" type="hidden" />
+          <input id="timelineSourceId" type="hidden" />
+          <input id="timelineSourceTitle" type="hidden" />
+          <input id="timelineSourceUrl" type="hidden" />
+          <input id="timelineSourceHostname" type="hidden" />
+          <input id="timelineRelatedTaskIds" type="hidden" />
+          <label class="form-field"><span>标题</span><input id="timelineEventTitle" maxlength="300" required placeholder="例如：接手售后部门管理" /></label>
+          <div class="form-field-row task-form-field-row--three">
+            <label class="form-field"><span>轨道</span><select id="timelineEventTrack"><option value="work">工作线</option><option value="personal">个人线</option></select></label>
+            <label class="form-field"><span>所属空间</span><select id="timelineEventWorkspace"><option value="personal">个人</option><option value="work">工作</option><option value="research">研究</option></select></label>
+            <label class="form-field"><span>类型</span><select id="timelineEventType"><option value="achievement">成就</option><option value="turningPoint">重大转折</option><option value="responsibility">职责变化</option><option value="projectMilestone">项目里程碑</option><option value="decision">重要决定</option><option value="growth">成长经历</option><option value="personalEvent">个人事件</option><option value="other">其他</option></select></label>
+          </div>
+          <div class="form-field-row timeline-date-fields">
+            <label class="form-field"><span>时间精度</span><select id="timelineDatePrecision"><option value="day">日</option><option value="month">月</option><option value="year">年</option></select></label>
+            <label class="form-field"><span>开始</span><input id="timelineStartDate" type="date" required /></label>
+            <label class="form-field"><span>结束</span><input id="timelineEndDate" type="date" /></label>
+            <label class="form-field"><span>重要程度</span><select id="timelineImportance"><option value="normal">普通</option><option value="important">重要</option><option value="major">重大</option></select></label>
+          </div>
+          <label class="settings-switch-row timeline-ongoing-row"><span><strong>持续至今</strong><small>适合职责、项目或成长阶段</small></span><input id="timelineOngoing" type="checkbox" /></label>
+          <label class="form-field"><span>摘要</span><textarea id="timelineSummary" rows="2" maxlength="5000" placeholder="一两句话说明这件事"></textarea></label>
+          <div class="timeline-detail-grid">
+            <label class="form-field"><span>背景</span><textarea id="timelineBackground" rows="3" maxlength="5000"></textarea></label>
+            <label class="form-field"><span>行动</span><textarea id="timelineAction" rows="3" maxlength="5000"></textarea></label>
+            <label class="form-field"><span>结果</span><textarea id="timelineResult" rows="3" maxlength="5000"></textarea></label>
+            <label class="form-field"><span>影响</span><textarea id="timelineImpact" rows="3" maxlength="5000"></textarea></label>
+          </div>
+          <label class="form-field"><span>证据</span><textarea id="timelineEvidence" rows="2" maxlength="5000" placeholder="数字、项目、工单、文件或链接"></textarea></label>
+          <label class="form-field"><span>标签 <small>用逗号分隔</small></span><input id="timelineTags" maxlength="500" /></label>
+          <div class="timeline-source-preview" id="timelineSourcePreview" hidden></div>
+          <div class="modal-actions"><button class="text-button text-button--quiet is-hidden" id="deleteTimelineEventButton" type="button">删除记录</button><button class="secondary-button" type="button" data-close-modal="timelineEventModal">取消</button><button class="primary-button" type="submit">保存记录</button></div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="timelineReviewModal" role="dialog" aria-modal="true" aria-labelledby="timelineReviewTitle">
+      <div class="modal-card timeline-review-modal-card">
+        <div class="modal-header"><div><span class="section-kicker">ANNUAL REVIEW</span><h2 id="timelineReviewTitle">年度回顾</h2></div><button class="icon-button" type="button" data-close-modal="timelineReviewModal" aria-label="关闭"><span data-icon="close"></span></button></div>
+        <div class="timeline-review-stats" id="timelineReviewStats"></div>
+        <pre class="timeline-review-text" id="timelineReviewText"></pre>
+        <div class="modal-actions"><button class="secondary-button" id="timelineCopyReview" type="button"><span data-icon="copy"></span>复制回顾文本</button><button class="secondary-button" id="timelineReviewExportMarkdown" type="button">导出 Markdown</button><button class="primary-button" id="timelineReviewExportJson" type="button">导出 JSON</button></div>
       </div>
     </div>
 

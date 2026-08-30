@@ -5269,6 +5269,9 @@ svg {
 .task-priority--high { color: #8b6223; background: #fbf2df; }
 .task-priority--urgent { color: #9b4b43; background: #f9e8e5; }
 .task-reminder-indicator { display: inline-flex; color: #27856e; }
+.task-timeline-button { display: inline-flex; grid-column: 2; justify-self: start; align-items: center; gap: 5px; align-self: center; border: 0; border-radius: 8px; padding: 6px 8px; color: #28735f; background: #edf5f1; font: 700 11px/1 inherit; cursor: pointer; }
+.task-timeline-button:hover { background: #dfeee7; }
+.task-timeline-button svg { width: 14px; height: 14px; }
 
 .task-month-layout {
   display: grid;
@@ -5404,6 +5407,134 @@ svg {
 .task-reminder-fieldset legend { padding: 0 5px; color: #596861; font-weight: 700; }
 .task-reminder-fieldset label { display: flex; align-items: center; gap: 5px; color: #58665f; font-size: 13px; }
 .task-reminder-fieldset input[type="number"] { width: 100px; border: 1px solid #d1dcd6; border-radius: 7px; padding: 5px 7px; }
+
+/* Work and personal timeline */
+.timeline-panel {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.timeline-panel[hidden] { display: none; }
+
+.timeline-toolbar {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dfe6e1;
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 7px 20px rgba(47, 65, 58, 0.05);
+}
+
+.timeline-year-control,
+.timeline-filter-control,
+.timeline-action-control,
+.timeline-view-switch {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.timeline-year-control button,
+.timeline-view-switch button,
+.timeline-month-nav button {
+  border: 1px solid #d6dfda;
+  border-radius: 9px;
+  color: #53615b;
+  background: #fff;
+  min-height: 34px;
+  padding: 6px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.timeline-year-control button:hover,
+.timeline-view-switch button:hover,
+.timeline-month-nav button:hover { border-color: #91b7a9; color: #176f5c; }
+
+.timeline-year-control button svg { width: 15px; height: 15px; }
+.timeline-year-control input { width: 92px; border: 1px solid #cfdad4; border-radius: 9px; padding: 7px 9px; font-weight: 800; color: #203d34; }
+.timeline-filter-control { flex: 1; }
+.timeline-filter-control select { min-height: 36px; border: 1px solid #d3ddd7; border-radius: 9px; background: #fff; padding: 6px 9px; }
+.timeline-track-filter { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 9px; border-radius: 9px; background: #f5f7f5; color: #4e5f58; font-size: 13px; font-weight: 700; }
+.timeline-track-dot { width: 8px; height: 8px; border-radius: 50%; border: 2px solid currentColor; }
+.timeline-track-dot--work { color: #19755f; }
+.timeline-track-dot--personal { color: #7354a8; }
+.timeline-search { display: flex; align-items: center; gap: 7px; flex: 1 1 210px; min-width: 180px; max-width: 420px; min-height: 36px; padding: 0 9px; border: 1px solid #d3ddd7; border-radius: 9px; background: #fff; }
+.timeline-search svg { width: 16px; height: 16px; color: #77877f; }
+.timeline-search input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; }
+.timeline-action-control { padding-top: 2px; border-top: 1px solid #edf0ee; }
+.timeline-view-switch { margin-right: auto; padding: 3px; border-radius: 10px; background: #eff3f0; }
+.timeline-view-switch button { min-height: 30px; border: 0; background: transparent; }
+.timeline-view-switch button.is-active { color: #116b58; background: #fff; box-shadow: 0 2px 8px rgba(35, 67, 56, 0.1); }
+
+.timeline-month-nav {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding: 4px 2px 9px;
+  scrollbar-width: thin;
+  cursor: grab;
+  user-select: none;
+}
+.timeline-month-nav.is-dragging { cursor: grabbing; }
+.timeline-month-nav button { flex: 0 0 auto; min-width: 62px; }
+.timeline-month-nav button.is-active { border-color: #2c8a72; color: #126a57; background: #ebf5f1; font-weight: 800; }
+.timeline-status-row { display: flex; justify-content: space-between; gap: 16px; color: #75827c; font-size: 12px; }
+
+.timeline-canvas { display: grid; gap: 18px; padding-bottom: 30px; }
+.timeline-empty { display: grid; place-items: center; min-height: 260px; padding: 30px; border: 1px dashed #cdd8d2; border-radius: 16px; color: #6f7d76; background: #fafbf9; text-align: center; }
+.timeline-month-section { position: relative; scroll-margin-top: 20px; }
+.timeline-month-heading { display: grid; grid-template-columns: minmax(0, 1fr) 92px minmax(0, 1fr); align-items: center; margin-bottom: 9px; }
+.timeline-month-heading::before,
+.timeline-month-heading::after { content: ""; height: 1px; background: #dfe5e1; }
+.timeline-month-heading strong { text-align: center; color: #53615b; font-size: 13px; }
+.timeline-month-grid { display: grid; grid-template-columns: minmax(0, 1fr) 92px minmax(0, 1fr); min-height: 74px; }
+.timeline-track-column { display: grid; align-content: start; gap: 9px; min-width: 0; }
+.timeline-track-column--work { padding-right: 17px; }
+.timeline-track-column--personal { padding-left: 17px; }
+.timeline-axis { position: relative; display: flex; justify-content: center; }
+.timeline-axis::before { content: ""; position: absolute; top: -10px; bottom: -18px; width: 2px; border-radius: 2px; background: #cddbd5; }
+.timeline-axis-node { position: relative; z-index: 1; display: grid; place-items: center; width: 30px; height: 30px; margin-top: 4px; border: 5px solid #f7f8f6; border-radius: 50%; color: #356f60; background: #86b8a9; font-size: 10px; font-weight: 800; }
+
+.timeline-event-card { position: relative; display: grid; gap: 7px; padding: 13px 14px; border: 1px solid #dce4df; border-radius: 13px; color: #273a33; background: #fff; box-shadow: 0 6px 16px rgba(48, 67, 60, 0.05); cursor: pointer; }
+.timeline-event-card:hover { border-color: #9ab9ae; box-shadow: 0 9px 22px rgba(42, 72, 62, 0.09); }
+.timeline-event-card[data-track="work"] { border-left: 4px solid #2b8871; }
+.timeline-event-card[data-track="personal"] { border-right: 4px solid #7e61ad; }
+.timeline-event-card[data-importance="important"] { border-style: double; }
+.timeline-event-card[data-importance="major"] { border-width: 2px; box-shadow: 0 8px 24px rgba(121, 85, 48, 0.12); }
+.timeline-event-card.is-focused { outline: 3px solid rgba(42, 139, 112, 0.24); outline-offset: 3px; }
+.timeline-event-topline { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #6d7b75; font-size: 11px; }
+.timeline-event-card h3 { margin: 0; font-size: 15px; line-height: 1.4; }
+.timeline-event-card p { margin: 0; color: #617068; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
+.timeline-event-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.timeline-event-tags span,
+.timeline-event-badge { display: inline-flex; align-items: center; min-height: 21px; padding: 2px 7px; border-radius: 999px; color: #5a685f; background: #f0f3f1; font-size: 10px; font-weight: 800; }
+.timeline-event-badge--major { color: #855328; background: #f8ecdc; }
+.timeline-event-source { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #277561; font-size: 11px; }
+
+.timeline-list { display: grid; gap: 7px; padding-bottom: 30px; }
+.timeline-list-header,
+.timeline-list-row { display: grid; grid-template-columns: 130px 80px 110px minmax(180px, 1fr) 80px minmax(100px, .65fr) 145px 80px; align-items: center; gap: 10px; min-width: 920px; }
+.timeline-list-header { padding: 0 12px 6px; color: #7b8881; font-size: 11px; font-weight: 800; }
+.timeline-list-row { padding: 11px 12px; border: 1px solid #e0e6e2; border-radius: 11px; background: #fff; color: #53615a; font-size: 12px; }
+.timeline-list-row strong { color: #263a32; font-size: 13px; }
+.timeline-list-row button { border: 0; color: #19725e; background: transparent; font-weight: 800; cursor: pointer; }
+
+.timeline-event-modal-card { width: min(900px, calc(100vw - 32px)); max-height: calc(100vh - 34px); overflow: auto; }
+.timeline-event-modal-card form { display: grid; gap: 12px; }
+.timeline-date-fields { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.timeline-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.timeline-ongoing-row { margin: 0; padding: 10px 0; }
+.timeline-source-preview { padding: 10px 12px; border-radius: 10px; color: #4e6259; background: #eef5f1; font-size: 12px; overflow-wrap: anywhere; }
+.timeline-review-modal-card { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 40px); overflow: auto; }
+.timeline-review-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 13px; }
+.timeline-review-stats article { padding: 11px; border-radius: 11px; background: #f3f6f4; }
+.timeline-review-stats strong { display: block; margin-top: 4px; color: #174f40; font-size: 22px; }
+.timeline-review-stats small { color: #6e7c75; }
+.timeline-review-text { max-height: 50vh; overflow: auto; margin: 0; padding: 15px; border: 1px solid #dfe6e1; border-radius: 12px; color: #34463f; background: #fbfcfb; white-space: pre-wrap; font: 13px/1.7 inherit; }
 
 /* User scripts */
 .userscript-panel-heading {
@@ -5794,6 +5925,8 @@ svg {
   .userscript-panel-heading,
   .userscript-card-main { grid-template-columns: auto minmax(0, 1fr); }
   .userscript-toggle { grid-column: 2; }
+  .timeline-toolbar { position: static; }
+  .timeline-list { overflow-x: auto; }
 }
 
 @media (max-width: 760px) {
@@ -5802,6 +5935,17 @@ svg {
   .userscript-card-actions { flex-wrap: wrap; }
   .userscript-hash { width: 100%; }
   .browser-memory-grid { grid-template-columns: 1fr; }
+  .timeline-month-heading { grid-template-columns: 1fr 64px 1fr; }
+  .timeline-month-grid { grid-template-columns: 1fr; gap: 9px; }
+  .timeline-axis { order: -1; height: 34px; }
+  .timeline-axis::before { top: 0; bottom: 0; }
+  .timeline-track-column--work,
+  .timeline-track-column--personal { padding: 0; }
+  .timeline-event-card[data-track="personal"] { border-right-width: 1px; border-left: 4px solid #7e61ad; }
+  .timeline-event-card::before { content: attr(data-track-label); color: #66756e; font-size: 10px; font-weight: 800; }
+  .timeline-date-fields,
+  .timeline-detail-grid,
+  .timeline-review-stats { grid-template-columns: 1fr; }
 }
 
 .page-action-panel {

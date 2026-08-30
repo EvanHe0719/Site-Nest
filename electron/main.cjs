@@ -112,6 +112,18 @@ const {
   updateTaskSettingsInState,
 } = require("./tasks/index.cjs");
 const {
+  TimelineSearchIndex,
+  addTimelineEventToState,
+  buildAnnualReview,
+  buildTimelineJsonExport,
+  buildTimelineMarkdown,
+  deleteTimelineEventFromState,
+  sanitizeTimelineSourceUrl,
+  timelineEventsForYear,
+  updateTimelineEventInState,
+  updateTimelineUiSettingsInState,
+} = require("./timeline/index.cjs");
+const {
   UserScriptEngine,
   UserScriptSourceService,
   USER_SCRIPT_WORLD_ID,
@@ -232,6 +244,8 @@ let userScriptSourceService;
 let pageResourceService;
 let webViewLifecycleManager;
 const globalSearchService = new GlobalSearchService();
+const timelineSearchIndex = new TimelineSearchIndex();
+let timelineSearchIndexReady = false;
 const navigationPerformanceTracer = new NavigationPerformanceTracer();
 const pageCapabilityOrchestrator = new PageCapabilityOrchestrator({
   idleDelayMs: 350,
@@ -4084,6 +4098,177 @@ async function markTaskCompleted(taskId) {
   return mutateTaskState((current) => updateTaskInState(current, { id: task.id, status: "done" }));
 }
 
+function timelineReviewSnapshot(review) {
+  return {
+    year: review.year,
+    stats: review.stats,
+    text: review.text,
+    months: review.months.map((month) => ({
+      month: month.month,
+      count: month.events.length,
+      titles: month.events.map((event) => event.title),
+    })),
+  };
+}
+
+function timelineSnapshot(state = cachedState, requestedYear = null) {
+  const settings = state?.timelineUiSettings || {};
+  const parsedYear = Number(requestedYear);
+  const year = Number.isInteger(parsedYear) && parsedYear >= 1 && parsedYear <= 9999
+    ? parsedYear
+    : Number(settings.selectedYear) || new Date().getFullYear();
+  const tracks = Array.isArray(state?.timelineTracks) ? state.timelineTracks : [];
+  const events = timelineEventsForYear(state?.timelineEvents, year);
+  return {
+    year,
+    tracks,
+    events,
+    settings,
+    review: timelineReviewSnapshot(buildAnnualReview(year, tracks, events)),
+  };
+}
+
+function emitTimelineChanged(focusEventId = null) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const event = cachedState?.timelineEvents?.find((item) => item.id === focusEventId);
+  const year = event ? Number(String(event.startDate).slice(0, 4)) : null;
+  mainWindow.webContents.send("timeline:changed", {
+    ...timelineSnapshot(cachedState, year),
+    focusEventId,
+  });
+}
+
+async function mutateTimelineState(mutator) {
+  const state = await getState();
+  const result = mutator(state);
+  cachedState = result.state;
+  await persistState();
+  if (result.event) timelineSearchIndex.upsert(result.event);
+  emitTimelineChanged(result.event?.deletedAt ? null : result.event?.id || null);
+  const year = result.event ? Number(String(result.event.startDate).slice(0, 4)) : null;
+  return { event: result.event, ...timelineSnapshot(cachedState, year) };
+}
+
+async function ensureTimelineSearchIndex() {
+  if (!timelineSearchIndexReady) {
+    const state = await getState();
+    timelineSearchIndex.replace(state.timelineEvents);
+    timelineSearchIndexReady = true;
+  }
+  return timelineSearchIndex;
+}
+
+function localDateValue(date = new Date()) {
+  return [
+    String(date.getFullYear()).padStart(4, "0"),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function extractSapNoteId(rawUrl) {
+  try {
+    const parsed = new URL(String(rawUrl || ""));
+    const hostname = parsed.hostname.toLowerCase();
+    if (![
+      "support.sap.com",
+      "me.sap.com",
+      "launchpad.support.sap.com",
+    ].includes(hostname)) return null;
+    const candidates = [
+      parsed.searchParams.get("note"),
+      parsed.searchParams.get("noteId"),
+      parsed.pathname.match(/(?:^|\/)notes?\/(\d{6,10})(?=\/|$)/i)?.[1],
+      parsed.hash.match(/(?:^|[#/])notes?\/(\d{6,10})(?=\/|$)/i)?.[1],
+    ];
+    return candidates.map((value) => String(value || "").trim()).find((value) => /^\d{6,10}$/.test(value)) || null;
+  } catch {
+    return null;
+  }
+}
+
+async function currentPageTimelineDraft() {
+  const context = activeBrowserContext();
+  if (!context?.view || context.view.webContents.isDestroyed()) {
+    throw new Error("当前没有可记录的网页");
+  }
+  const adapter = new PageContextAdapter({
+    getWebContents: () => context.view?.webContents,
+  });
+  const page = await adapter.getCurrentContext({ includeSelection: true });
+  const state = await getState();
+  const workspaceId = context.workspaceId || state.activeWorkspaceId;
+  const trackId = workspaceId === "work"
+    ? "work"
+    : workspaceId === "personal"
+      ? "personal"
+      : state.timelineUiSettings?.lastTrackId || "personal";
+  const reliable = context.reliableContext && typeof context.reliableContext === "object"
+    ? context.reliableContext
+    : null;
+  const zohoTicketId = reliable?.system === "zoho-desk" && reliable?.objectType === "ticket"
+    ? String(reliable.objectId || "")
+    : extractZohoDeskTicketId(page.url);
+  const sapNoteId = extractSapNoteId(page.url);
+  const sourceId = /^\d{6,30}$/.test(zohoTicketId || "")
+    ? `zoho-ticket:${zohoTicketId}`
+    : sapNoteId
+      ? `sap-note:${sapNoteId}`
+      : null;
+  return {
+    trackId,
+    workspaceId,
+    type: "other",
+    title: page.title || page.hostname || "网页记录",
+    summary: String(page.selectedText || "").slice(0, 1000),
+    evidence: sourceId ? `可靠页面标识：${sourceId}` : "",
+    startDate: localDateValue(),
+    endDate: null,
+    datePrecision: "day",
+    ongoing: false,
+    importance: "normal",
+    tags: [],
+    relatedTaskIds: [],
+    sourceType: "webpage",
+    sourceId,
+    sourceTitle: page.title || null,
+    sourceUrl: sanitizeTimelineSourceUrl(page.url),
+    sourceHostname: page.hostname,
+    iconKey: "globe",
+    accentKey: trackId,
+  };
+}
+
+async function exportTimelineYear(payload = {}) {
+  const state = await getState();
+  const year = Number(payload.year) || state.timelineUiSettings.selectedYear || new Date().getFullYear();
+  const format = payload.format === "json" ? "json" : "markdown";
+  const tracks = state.timelineTracks;
+  const events = timelineEventsForYear(state.timelineEvents, year);
+  const exportedAt = new Date().toISOString();
+  const content = format === "json"
+    ? `${JSON.stringify(buildTimelineJsonExport({
+      tracks,
+      events,
+      year,
+      exportedAt,
+      appVersion: app.getVersion(),
+      schemaVersion: state.version,
+    }), null, 2)}\n`
+    : buildTimelineMarkdown({ tracks, events, year, exportedAt });
+  const extension = format === "json" ? "json" : "md";
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: `导出 ${year} 年时间轴`,
+    defaultPath: path.join(app.getPath("documents"), `栖页-${year}-时间轴.${extension}`),
+    filters: format === "json"
+      ? [{ name: "JSON", extensions: ["json"] }]
+      : [{ name: "Markdown", extensions: ["md"] }],
+  });
+  if (result.canceled || !result.filePath) return { canceled: true, format, year };
+  await fsp.writeFile(result.filePath, content, "utf8");
+  return { canceled: false, format, year, filePath: result.filePath };
+}
+
 async function snoozeTaskReminder(reminderId, minutes) {
   const duration = Math.max(5, Math.min(1440, Number(minutes) || 10));
   const result = await mutateTaskState((state) => updateReminderInState(state, reminderId, {
@@ -4320,7 +4505,10 @@ async function runUserScriptsForContext(context, runAt) {
 }
 
 function registerIpc() {
-  ipcMain.handle("state:get", () => getState());
+  ipcMain.handle("state:get", async () => {
+    const state = await getState();
+    return { ...state, timelineEvents: [] };
+  });
   ipcMain.handle("settings:update-ui", async (_event, patch) => {
     const state = await getState();
     const result = updateUiSettingsInState(state, patch, {
@@ -4781,6 +4969,32 @@ function registerIpc() {
     emitTasksChanged();
     return taskSnapshot(cachedState);
   });
+  ipcMain.handle("timeline:get", async (_event, payload) =>
+    timelineSnapshot(await getState(), payload?.year),
+  );
+  ipcMain.handle("timeline:add", (_event, payload) =>
+    mutateTimelineState((state) => addTimelineEventToState(state, payload)),
+  );
+  ipcMain.handle("timeline:update", (_event, payload) =>
+    mutateTimelineState((state) => updateTimelineEventInState(state, payload)),
+  );
+  ipcMain.handle("timeline:delete", (_event, eventId) =>
+    mutateTimelineState((state) => deleteTimelineEventFromState(state, eventId)),
+  );
+  ipcMain.handle("timeline:update-settings", async (_event, patch) => {
+    const state = await getState();
+    const result = updateTimelineUiSettingsInState(state, patch);
+    cachedState = result.state;
+    await persistState();
+    emitTimelineChanged();
+    return timelineSnapshot(cachedState, result.timelineUiSettings.selectedYear);
+  });
+  ipcMain.handle("timeline:search", async (_event, payload) => {
+    const index = await ensureTimelineSearchIndex();
+    return { events: index.search(payload?.query, payload?.limit) };
+  });
+  ipcMain.handle("timeline:page-draft", () => currentPageTimelineDraft());
+  ipcMain.handle("timeline:export", (_event, payload) => exportTimelineYear(payload));
   ipcMain.handle("userscripts:list", async () => userScriptSnapshot(await getState()));
   ipcMain.handle("userscripts:review-pasted", (_event, payload) =>
     getUserScriptServices().sources.review({
@@ -5751,6 +5965,90 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
               },
             }),
           );
+        } else if (CAPTURE_ROUTE === "timeline-probe") {
+          let pageDraft = null;
+          if (isSafeWebUrl(TAB_PROBE_BASE_URL)) {
+            const pageUrl = new URL("/timeline-source?id=42&token=secret&code=oauth#auth=bad", TAB_PROBE_BASE_URL).toString();
+            await activateWorkspaceBrowserContext("personal", { restore: false });
+            await openTransientBrowserTab("personal", pageUrl, { background: false });
+            const context = activeBrowserContext();
+            for (let attempt = 0; attempt < 30; attempt += 1) {
+              try {
+                const ready = await context.view.webContents.executeJavaScript("document.readyState !== 'loading'");
+                if (ready) break;
+              } catch {
+                // The WebContents may still be committing its first document.
+              }
+              await new Promise((resolve) => setTimeout(resolve, 50));
+            }
+            await context.view.webContents.executeJavaScript(`(() => {
+              const node = document.getElementById('timeline-selection');
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              const selection = window.getSelection();
+              selection.removeAllRanges();
+              selection.addRange(range);
+            })()`);
+            pageDraft = await currentPageTimelineDraft();
+          }
+          const result = await mainWindow.webContents.executeJavaScript(`(async () => {
+            const before = await window.siteNest.getTimeline(2026);
+            const day = await window.siteNest.addTimelineEvent({
+              trackId: 'work', workspaceId: 'work', type: 'achievement', title: 'IPC 工作成就',
+              startDate: '2026-08-30', datePrecision: 'day', importance: 'major', tags: ['SAP']
+            });
+            await window.siteNest.addTimelineEvent({
+              trackId: 'personal', workspaceId: 'personal', type: 'growth', title: 'IPC 个人成长',
+              startDate: '2026-08', datePrecision: 'month', importance: 'important'
+            });
+            await window.siteNest.addTimelineEvent({
+              trackId: 'work', workspaceId: 'work', type: 'responsibility', title: 'IPC 持续职责',
+              startDate: '2026', datePrecision: 'year', ongoing: true
+            });
+            const configured = await window.siteNest.updateTimelineSettings({ selectedYear: 2026, viewMode: 'timeline' });
+            applyTimelineSnapshot(configured);
+            currentTaskView = 'timeline';
+            navigateTo('plan');
+            await loadTimelineYear(2026, { force: true });
+            const timelineCardCount = document.querySelectorAll('[data-timeline-event-id]').length;
+            const listSnapshot = await window.siteNest.updateTimelineSettings({ viewMode: 'list' });
+            applyTimelineSnapshot(listSnapshot);
+            renderTimeline();
+            const listRowCount = document.querySelectorAll('.timeline-list-row').length;
+            const restored = await window.siteNest.updateTimelineSettings({ viewMode: 'timeline' });
+            applyTimelineSnapshot(restored);
+            const taskResult = await window.siteNest.addTask({ title: '转为时间轴草稿', workspaceId: 'work', status: 'done', notes: '任务备注' });
+            applyTaskSnapshot(taskResult);
+            const completedTask = taskState.tasks.find((item) => item.title === '转为时间轴草稿');
+            const countBeforeDraft = timelineState.events.length;
+            openTaskAsTimelineDraft(completedTask);
+            const draft = {
+              title: document.getElementById('timelineEventTitle').value,
+              summary: document.getElementById('timelineSummary').value,
+              relatedTaskIds: JSON.parse(document.getElementById('timelineRelatedTaskIds').value || '[]')
+            };
+            closeModal(document.getElementById('timelineEventModal'));
+            const countAfterDraft = (await window.siteNest.getTimeline(2026)).events.length;
+            const search = await window.siteNest.searchTimeline('工作成就', 5);
+            const emptyYear = await window.siteNest.getTimeline(2027);
+            return {
+              beforeTracks: before.tracks.map((item) => item.id),
+              eventCount: timelineState.events.length,
+              timelineCardCount,
+              listRowCount,
+              draft,
+              countBeforeDraft,
+              countAfterDraft,
+              searchId: search.events[0]?.id || null,
+              addedId: day.event.id,
+              emptyYearCount: emptyYear.events.length,
+              reviewTotal: timelineState.review.stats.total,
+              route: currentRoute,
+              view: currentTaskView
+            };
+          })()`);
+          console.log(JSON.stringify({ timelineProbe: { ...result, pageDraft } }));
+          await new Promise((resolve) => setTimeout(resolve, 700));
         } else if (CAPTURE_ROUTE === "state-probe") {
           const result = await mainWindow.webContents.executeJavaScript(`(async () => {
             const state = await window.siteNest.getState();

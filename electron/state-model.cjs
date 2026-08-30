@@ -15,13 +15,18 @@ const {
   normalizeTaskSettings,
 } = require("./tasks/task-model.cjs");
 const {
+  normalizeTimelineEvents,
+  normalizeTimelineTracks,
+  normalizeTimelineUiSettings,
+} = require("./timeline/timeline-model.cjs");
+const {
   normalizeExecutions: normalizeUserScriptExecutions,
   normalizePermissions: normalizeUserScriptPermissions,
   normalizeUserScripts,
   normalizeValues: normalizeUserScriptValues,
 } = require("./userscripts/model.cjs");
 
-const CURRENT_SCHEMA_VERSION = 10;
+const CURRENT_SCHEMA_VERSION = 11;
 const DEFAULT_WORKSPACE_ID = "personal";
 const DEFAULT_BROWSER_PROFILE_ID = "default";
 const SAP_BROWSER_PROFILE_ID = "sap-support";
@@ -815,6 +820,7 @@ function createInitialState(options = {}) {
     sites,
     browserProfileIds,
   );
+  const timelineTracks = normalizeTimelineTracks([], { now });
   return {
     version: CURRENT_SCHEMA_VERSION,
     workspaces,
@@ -836,6 +842,11 @@ function createInitialState(options = {}) {
     localTasks: [],
     taskReminders: [],
     taskSettings: normalizeTaskSettings(),
+    timelineTracks,
+    timelineEvents: [],
+    timelineUiSettings: normalizeTimelineUiSettings({}, {
+      currentYear: new Date(now).getUTCFullYear(),
+    }),
     timeZone: deviceTimeZone(),
     userScripts: normalizeUserScripts([], { now }),
     userScriptPermissions: [],
@@ -934,6 +945,13 @@ function normalizeStateV4(value, options = {}) {
       normalizedTaskReminders.filter((reminder) => reminder.taskId === task.id),
     ),
   );
+  const timelineTracks = normalizeTimelineTracks(input.timelineTracks, { now });
+  const timelineEvents = normalizeTimelineEvents(input.timelineEvents, {
+    now,
+    trackIds: timelineTracks.map((track) => track.id),
+    workspaceIds: Array.from(workspaceIds),
+    defaultWorkspaceId: activeWorkspaceId,
+  });
   const userScripts = normalizeUserScripts(input.userScripts, { now });
   const userScriptIds = userScripts.map((script) => script.id);
 
@@ -968,6 +986,11 @@ function normalizeStateV4(value, options = {}) {
     localTasks,
     taskReminders,
     taskSettings: normalizeTaskSettings(input.taskSettings),
+    timelineTracks,
+    timelineEvents,
+    timelineUiSettings: normalizeTimelineUiSettings(input.timelineUiSettings, {
+      currentYear: new Date(now).getUTCFullYear(),
+    }),
     timeZone: String(input.timeZone || deviceTimeZone()).slice(0, 100),
     userScripts,
     userScriptPermissions: normalizeUserScriptPermissions(input.userScriptPermissions, userScriptIds),
@@ -1660,6 +1683,7 @@ const normalizeStateV7 = normalizeStateV4;
 const normalizeStateV8 = normalizeStateV4;
 const normalizeStateV9 = normalizeStateV4;
 const normalizeStateV10 = normalizeStateV4;
+const normalizeStateV11 = normalizeStateV4;
 
 module.exports = {
   CURRENT_SCHEMA_VERSION,
@@ -1693,6 +1717,7 @@ module.exports = {
   normalizeStateV8,
   normalizeStateV9,
   normalizeStateV10,
+  normalizeStateV11,
   updateUiSettingsInState,
   upsertConnectorConnectionInState,
   appendConnectorExecutionInState,

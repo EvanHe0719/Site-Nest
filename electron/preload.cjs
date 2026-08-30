@@ -79,6 +79,14 @@ contextBridge.exposeInMainWorld("siteNest", {
   snoozeTaskReminder: (reminderId, minutes) => ipcRenderer.invoke("tasks:snooze", { reminderId, minutes }),
   dismissTaskReminder: (reminderId) => ipcRenderer.invoke("tasks:dismiss-reminder", reminderId),
   updateTaskSettings: (patch) => ipcRenderer.invoke("tasks:update-settings", patch),
+  getTimeline: (year) => ipcRenderer.invoke("timeline:get", { year }),
+  addTimelineEvent: (event) => ipcRenderer.invoke("timeline:add", event),
+  updateTimelineEvent: (event) => ipcRenderer.invoke("timeline:update", event),
+  deleteTimelineEvent: (eventId) => ipcRenderer.invoke("timeline:delete", eventId),
+  updateTimelineSettings: (patch) => ipcRenderer.invoke("timeline:update-settings", patch),
+  searchTimeline: (query, limit = 20) => ipcRenderer.invoke("timeline:search", { query, limit }),
+  getTimelinePageDraft: () => ipcRenderer.invoke("timeline:page-draft"),
+  exportTimeline: (year, format) => ipcRenderer.invoke("timeline:export", { year, format }),
   getUserScripts: () => ipcRenderer.invoke("userscripts:list"),
   reviewPastedUserScript: (sourceCode, options = {}) => ipcRenderer.invoke("userscripts:review-pasted", { sourceCode, ...options }),
   reviewRemoteUserScript: (sourceUrl, options = {}) => ipcRenderer.invoke("userscripts:review-remote", { sourceUrl, ...options }),
@@ -157,6 +165,11 @@ contextBridge.exposeInMainWorld("siteNest", {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on("tasks:changed", listener);
     return () => ipcRenderer.removeListener("tasks:changed", listener);
+  },
+  onTimelineChanged: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("timeline:changed", listener);
+    return () => ipcRenderer.removeListener("timeline:changed", listener);
   },
   onOpenTask: (callback) => {
     const listener = (_event, value) => callback(value);

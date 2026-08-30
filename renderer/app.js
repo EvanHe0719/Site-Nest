@@ -239,6 +239,56 @@ const dom = {
   taskSelectedDayList: document.getElementById("taskSelectedDayList"),
   taskAllList: document.getElementById("taskAllList"),
   taskCompletedList: document.getElementById("taskCompletedList"),
+  timelinePanel: document.getElementById("timelinePanel"),
+  timelineYearInput: document.getElementById("timelineYearInput"),
+  timelineShowWork: document.getElementById("timelineShowWork"),
+  timelineShowPersonal: document.getElementById("timelineShowPersonal"),
+  timelineTypeFilter: document.getElementById("timelineTypeFilter"),
+  timelineSearchInput: document.getElementById("timelineSearchInput"),
+  timelineViewSwitch: document.getElementById("timelineViewSwitch"),
+  timelineReviewButton: document.getElementById("timelineReviewButton"),
+  timelineExportMarkdown: document.getElementById("timelineExportMarkdown"),
+  timelineExportJson: document.getElementById("timelineExportJson"),
+  timelineAddButton: document.getElementById("timelineAddButton"),
+  timelineMonthNav: document.getElementById("timelineMonthNav"),
+  timelineResultSummary: document.getElementById("timelineResultSummary"),
+  timelineCanvas: document.getElementById("timelineCanvas"),
+  timelineList: document.getElementById("timelineList"),
+  timelineEventModal: document.getElementById("timelineEventModal"),
+  timelineEventForm: document.getElementById("timelineEventForm"),
+  timelineEventModalTitle: document.getElementById("timelineEventModalTitle"),
+  timelineEventId: document.getElementById("timelineEventId"),
+  timelineEventTitle: document.getElementById("timelineEventTitle"),
+  timelineEventTrack: document.getElementById("timelineEventTrack"),
+  timelineEventWorkspace: document.getElementById("timelineEventWorkspace"),
+  timelineEventType: document.getElementById("timelineEventType"),
+  timelineDatePrecision: document.getElementById("timelineDatePrecision"),
+  timelineStartDate: document.getElementById("timelineStartDate"),
+  timelineEndDate: document.getElementById("timelineEndDate"),
+  timelineImportance: document.getElementById("timelineImportance"),
+  timelineOngoing: document.getElementById("timelineOngoing"),
+  timelineSummary: document.getElementById("timelineSummary"),
+  timelineBackground: document.getElementById("timelineBackground"),
+  timelineAction: document.getElementById("timelineAction"),
+  timelineResult: document.getElementById("timelineResult"),
+  timelineImpact: document.getElementById("timelineImpact"),
+  timelineEvidence: document.getElementById("timelineEvidence"),
+  timelineTags: document.getElementById("timelineTags"),
+  timelineSourceType: document.getElementById("timelineSourceType"),
+  timelineSourceId: document.getElementById("timelineSourceId"),
+  timelineSourceTitle: document.getElementById("timelineSourceTitle"),
+  timelineSourceUrl: document.getElementById("timelineSourceUrl"),
+  timelineSourceHostname: document.getElementById("timelineSourceHostname"),
+  timelineRelatedTaskIds: document.getElementById("timelineRelatedTaskIds"),
+  timelineSourcePreview: document.getElementById("timelineSourcePreview"),
+  deleteTimelineEventButton: document.getElementById("deleteTimelineEventButton"),
+  timelineReviewModal: document.getElementById("timelineReviewModal"),
+  timelineReviewTitle: document.getElementById("timelineReviewTitle"),
+  timelineReviewStats: document.getElementById("timelineReviewStats"),
+  timelineReviewText: document.getElementById("timelineReviewText"),
+  timelineCopyReview: document.getElementById("timelineCopyReview"),
+  timelineReviewExportMarkdown: document.getElementById("timelineReviewExportMarkdown"),
+  timelineReviewExportJson: document.getElementById("timelineReviewExportJson"),
   taskModal: document.getElementById("taskModal"),
   taskForm: document.getElementById("taskForm"),
   taskModalTitle: document.getElementById("taskModalTitle"),
@@ -401,6 +451,9 @@ let appState = {
   localTasks: [],
   taskReminders: [],
   taskSettings: {},
+  timelineTracks: [],
+  timelineEvents: [],
+  timelineUiSettings: {},
   userScripts: [],
   userScriptPermissions: [],
   userScriptExecutions: [],
@@ -417,6 +470,25 @@ let pageActionRequestId = 0;
 let pageActionRefreshTimer = 0;
 let translationStatusCache = null;
 let taskState = { tasks: [], reminders: [], settings: {}, timeZone: "UTC" };
+let timelineState = {
+  loadedYear: null,
+  tracks: [],
+  events: [],
+  settings: {
+    viewMode: "timeline",
+    selectedYear: new Date().getFullYear(),
+    showWork: true,
+    showPersonal: true,
+    typeFilter: "all",
+    search: "",
+    lastTrackId: "personal",
+  },
+  review: null,
+  loading: false,
+};
+let timelineFocusEventId = null;
+let timelineMonthNavDrag = null;
+let timelineSearchTimer = 0;
 let userScriptState = { scripts: [], executions: [] };
 let pageResourceState = { items: [], detecting: false, detectionEndsAt: null };
 let browserLifecycleState = { settings: { mode: "standard", inactiveMinutes: 15 }, counts: { active: 0, warm: 0, suspended: 0 } };
@@ -742,6 +814,27 @@ async function buildGlobalSearchItems() {
     ));
   }
   const items = localSearchMatches(query);
+  if (typeof window.siteNest?.searchTimeline === "function") {
+    try {
+      const timeline = await window.siteNest.searchTimeline(query, 5);
+      (timeline?.events || []).forEach((event) => items.push(globalResult(
+        "时间轴",
+        `timeline:${event.id}`,
+        event.title,
+        `${String(event.startDate || "")} · ${event.trackId === "work" ? "工作线" : "个人线"}`,
+        "时间轴",
+        async () => {
+          const year = Number(String(event.startDate || "").slice(0, 4)) || new Date().getFullYear();
+          timelineFocusEventId = event.id;
+          currentTaskView = "timeline";
+          navigateTo("plan");
+          await setTimelineYear(year, { focusEventId: event.id });
+        },
+      )));
+    } catch {
+      // Local timeline search failures must not block normal web search.
+    }
+  }
   let target = null;
   try {
     target = await window.siteNest.resolveSearchInput(query, dom.globalSearchEngine.value);
@@ -2983,6 +3076,17 @@ function translationFormPayload() {
 
 const TASK_PRIORITY_LABELS = { low: "低", normal: "普通", high: "高", urgent: "紧急" };
 const TASK_STATUS_LABELS = { todo: "待办", doing: "进行中", done: "已完成", cancelled: "已取消" };
+const TIMELINE_TYPE_LABELS = {
+  achievement: "成就",
+  turningPoint: "重大转折",
+  responsibility: "职责变化",
+  projectMilestone: "项目里程碑",
+  decision: "重要决定",
+  growth: "成长经历",
+  personalEvent: "个人事件",
+  other: "其他",
+};
+const TIMELINE_IMPORTANCE_LABELS = { normal: "普通", important: "重要", major: "重大" };
 
 function localDateKey(value) {
   const date = value instanceof Date ? value : new Date(value);
@@ -3023,6 +3127,442 @@ function taskSort(left, right) {
   const leftTime = Date.parse(left.dueAt || left.startAt || "9999-12-31");
   const rightTime = Date.parse(right.dueAt || right.startAt || "9999-12-31");
   return leftTime - rightTime || priority[left.priority] - priority[right.priority] || String(left.orderKey).localeCompare(String(right.orderKey));
+}
+
+function timelineEventForId(eventId) {
+  return timelineState.events.find((event) => event.id === String(eventId || "")) || null;
+}
+
+function timelineTrackName(trackId) {
+  return timelineState.tracks.find((track) => track.id === trackId)?.name || (trackId === "work" ? "工作线" : "个人线");
+}
+
+function timelineDateLabel(event) {
+  const [year, month, day] = String(event.startDate || "").split("-");
+  const start = event.datePrecision === "year"
+    ? `${year} 年`
+    : event.datePrecision === "month"
+      ? `${year} 年 ${Number(month)} 月`
+      : `${year} 年 ${Number(month)} 月 ${Number(day)} 日`;
+  if (event.ongoing) return `${start}至今`;
+  if (!event.endDate) return start;
+  const [endYear, endMonth, endDay] = String(event.endDate).split("-");
+  const end = event.datePrecision === "year"
+    ? `${endYear} 年`
+    : event.datePrecision === "month"
+      ? `${endYear} 年 ${Number(endMonth)} 月`
+      : `${endYear} 年 ${Number(endMonth)} 月 ${Number(endDay)} 日`;
+  return `${start}—${end}`;
+}
+
+function timelineDateValueForPrecision(value, precision) {
+  const text = String(value || "");
+  if (precision === "year") return text.slice(0, 4);
+  if (precision === "month") {
+    if (/^\d{4}$/.test(text)) return `${text}-01`;
+    return text.slice(0, 7);
+  }
+  if (/^\d{4}$/.test(text)) return `${text}-01-01`;
+  if (/^\d{4}-\d{2}$/.test(text)) return `${text}-01`;
+  return text.slice(0, 10);
+}
+
+function configureTimelineDateInput(input, precision, value = input.value) {
+  input.type = precision === "year" ? "number" : precision;
+  if (precision === "year") {
+    input.min = "1";
+    input.max = "9999";
+    input.step = "1";
+  } else {
+    input.removeAttribute("min");
+    input.removeAttribute("max");
+    input.removeAttribute("step");
+  }
+  input.value = timelineDateValueForPrecision(value, precision);
+}
+
+function timelineDefaultTrack(workspaceId) {
+  if (workspaceId === "work") return "work";
+  if (workspaceId === "personal") return "personal";
+  return timelineState.settings.lastTrackId || "personal";
+}
+
+function openTimelineEventModal(event = null, draft = {}) {
+  const value = event || draft || {};
+  const workspaceId = value.workspaceId || activeWorkspaceId();
+  const precision = value.datePrecision || "day";
+  dom.timelineEventForm.reset();
+  dom.timelineEventId.value = event?.id || "";
+  dom.timelineEventModalTitle.textContent = event ? "编辑时间轴记录" : "添加时间轴记录";
+  dom.timelineEventTitle.value = value.title || "";
+  dom.timelineEventTrack.value = value.trackId || timelineDefaultTrack(workspaceId);
+  dom.timelineEventWorkspace.value = workspaceId;
+  dom.timelineEventType.value = value.type || "other";
+  dom.timelineDatePrecision.value = precision;
+  configureTimelineDateInput(dom.timelineStartDate, precision, value.startDate || localDateKey(new Date()));
+  configureTimelineDateInput(dom.timelineEndDate, precision, value.endDate || "");
+  dom.timelineImportance.value = value.importance || "normal";
+  dom.timelineOngoing.checked = value.ongoing === true;
+  dom.timelineEndDate.disabled = dom.timelineOngoing.checked;
+  dom.timelineSummary.value = value.summary || "";
+  dom.timelineBackground.value = value.background || "";
+  dom.timelineAction.value = value.action || "";
+  dom.timelineResult.value = value.result || "";
+  dom.timelineImpact.value = value.impact || "";
+  dom.timelineEvidence.value = value.evidence || "";
+  dom.timelineTags.value = (value.tags || []).join(", ");
+  dom.timelineSourceType.value = value.sourceType || "manual";
+  dom.timelineSourceId.value = value.sourceId || "";
+  dom.timelineSourceTitle.value = value.sourceTitle || "";
+  dom.timelineSourceUrl.value = value.sourceUrl || "";
+  dom.timelineSourceHostname.value = value.sourceHostname || "";
+  dom.timelineRelatedTaskIds.value = JSON.stringify(value.relatedTaskIds || []);
+  const sourceLabel = value.sourceUrl
+    ? `来源网页：${value.sourceTitle || value.sourceHostname || value.sourceUrl}\n${value.sourceUrl}`
+    : value.relatedTaskIds?.length
+      ? `关联任务：${value.relatedTaskIds.join("、")}`
+      : "";
+  dom.timelineSourcePreview.hidden = !sourceLabel;
+  dom.timelineSourcePreview.textContent = sourceLabel;
+  dom.deleteTimelineEventButton.classList.toggle("is-hidden", !event);
+  openModal(dom.timelineEventModal);
+}
+
+function timelineEventFormPayload() {
+  let relatedTaskIds = [];
+  try { relatedTaskIds = JSON.parse(dom.timelineRelatedTaskIds.value || "[]"); } catch { relatedTaskIds = []; }
+  const trackId = dom.timelineEventTrack.value;
+  return {
+    id: dom.timelineEventId.value || undefined,
+    trackId,
+    workspaceId: dom.timelineEventWorkspace.value,
+    type: dom.timelineEventType.value,
+    title: dom.timelineEventTitle.value.trim(),
+    summary: dom.timelineSummary.value,
+    background: dom.timelineBackground.value,
+    action: dom.timelineAction.value,
+    result: dom.timelineResult.value,
+    impact: dom.timelineImpact.value,
+    evidence: dom.timelineEvidence.value,
+    startDate: dom.timelineStartDate.value,
+    endDate: dom.timelineOngoing.checked ? null : dom.timelineEndDate.value || null,
+    datePrecision: dom.timelineDatePrecision.value,
+    ongoing: dom.timelineOngoing.checked,
+    importance: dom.timelineImportance.value,
+    tags: dom.timelineTags.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean),
+    relatedTaskIds,
+    sourceType: dom.timelineSourceType.value || "manual",
+    sourceId: dom.timelineSourceId.value || null,
+    sourceTitle: dom.timelineSourceTitle.value || null,
+    sourceUrl: dom.timelineSourceUrl.value || null,
+    sourceHostname: dom.timelineSourceHostname.value || null,
+    iconKey: trackId === "work" ? "grid" : "home",
+    accentKey: trackId,
+  };
+}
+
+function openTaskAsTimelineDraft(task) {
+  if (!task || task.status !== "done") return;
+  openTimelineEventModal(null, {
+    trackId: timelineDefaultTrack(task.workspaceId),
+    workspaceId: task.workspaceId,
+    type: "achievement",
+    title: task.title,
+    summary: task.notes || "",
+    startDate: localDateKey(task.completedAt || new Date()),
+    datePrecision: "day",
+    importance: ["urgent", "high"].includes(task.priority) ? "important" : "normal",
+    tags: task.tags || [],
+    relatedTaskIds: [task.id],
+    sourceType: "task",
+    sourceId: task.id,
+    sourceTitle: task.title,
+    iconKey: "check",
+    accentKey: timelineDefaultTrack(task.workspaceId),
+  });
+}
+
+async function openCurrentPageAsTimelineDraft() {
+  try {
+    const draft = await window.siteNest.getTimelinePageDraft();
+    openTimelineEventModal(null, draft);
+  } catch (error) {
+    showToast("无法读取当前页面", error?.message || "请确认网页仍然打开", "error");
+  }
+}
+
+function timelineEventMonth(event) {
+  const selectedYear = Number(timelineState.loadedYear || timelineState.settings.selectedYear);
+  const startYear = Number(String(event.startDate || "").slice(0, 4));
+  if (startYear < selectedYear) return 1;
+  return Math.max(1, Math.min(12, Number(String(event.startDate || "").slice(5, 7)) || 1));
+}
+
+function filteredTimelineEvents() {
+  const settings = timelineState.settings;
+  const query = String(settings.search || "").trim().toLocaleLowerCase("zh-CN");
+  return timelineState.events.filter((event) => {
+    if (event.trackId === "work" && !settings.showWork) return false;
+    if (event.trackId === "personal" && !settings.showPersonal) return false;
+    if (settings.typeFilter !== "all" && event.type !== settings.typeFilter) return false;
+    if (!query) return true;
+    return [
+      event.title,
+      event.summary,
+      event.background,
+      event.action,
+      event.result,
+      event.impact,
+      event.evidence,
+      event.sourceTitle,
+      event.sourceHostname,
+      ...(event.tags || []),
+    ].join(" ").toLocaleLowerCase("zh-CN").includes(query);
+  });
+}
+
+function createTimelineEventCard(event) {
+  const card = document.createElement("article");
+  card.className = "timeline-event-card";
+  card.dataset.timelineEventId = event.id;
+  card.dataset.track = event.trackId;
+  card.dataset.trackLabel = timelineTrackName(event.trackId);
+  card.dataset.importance = event.importance;
+  if (event.id === timelineFocusEventId) card.classList.add("is-focused");
+  const top = document.createElement("div");
+  top.className = "timeline-event-topline";
+  const date = document.createElement("span");
+  date.textContent = timelineDateLabel(event);
+  const badge = document.createElement("span");
+  badge.className = `timeline-event-badge${event.importance === "major" ? " timeline-event-badge--major" : ""}`;
+  badge.textContent = `${TIMELINE_TYPE_LABELS[event.type] || "其他"} · ${TIMELINE_IMPORTANCE_LABELS[event.importance] || "普通"}`;
+  top.append(date, badge);
+  const title = document.createElement("h3");
+  title.textContent = event.title;
+  card.append(top, title);
+  if (event.summary) {
+    const summary = document.createElement("p");
+    summary.textContent = event.summary;
+    card.appendChild(summary);
+  }
+  if (event.tags?.length) {
+    const tags = document.createElement("div");
+    tags.className = "timeline-event-tags";
+    event.tags.slice(0, 5).forEach((tag) => {
+      const item = document.createElement("span");
+      item.textContent = tag;
+      tags.appendChild(item);
+    });
+    card.appendChild(tags);
+  }
+  if (event.sourceHostname || event.relatedTaskIds?.length) {
+    const source = document.createElement("span");
+    source.className = "timeline-event-source";
+    source.textContent = event.sourceHostname
+      ? `来源：${event.sourceHostname}`
+      : `关联 ${event.relatedTaskIds.length} 个任务`;
+    card.appendChild(source);
+  }
+  card.addEventListener("click", () => openTimelineEventModal(event));
+  return card;
+}
+
+function renderTimelineCanvas(events) {
+  dom.timelineCanvas.replaceChildren();
+  for (let month = 1; month <= 12; month += 1) {
+    const monthEvents = events.filter((event) => timelineEventMonth(event) === month);
+    const section = document.createElement("section");
+    section.className = "timeline-month-section";
+    section.dataset.timelineMonthSection = String(month);
+    const heading = document.createElement("div");
+    heading.className = "timeline-month-heading";
+    const label = document.createElement("strong");
+    label.textContent = `${month} 月 · ${monthEvents.length}`;
+    heading.appendChild(label);
+    const grid = document.createElement("div");
+    grid.className = "timeline-month-grid";
+    const work = document.createElement("div");
+    work.className = "timeline-track-column timeline-track-column--work";
+    const personal = document.createElement("div");
+    personal.className = "timeline-track-column timeline-track-column--personal";
+    monthEvents.filter((event) => event.trackId === "work").forEach((event) => work.appendChild(createTimelineEventCard(event)));
+    monthEvents.filter((event) => event.trackId !== "work").forEach((event) => personal.appendChild(createTimelineEventCard(event)));
+    const axis = document.createElement("div");
+    axis.className = "timeline-axis";
+    const node = document.createElement("span");
+    node.className = "timeline-axis-node";
+    node.textContent = String(month);
+    axis.appendChild(node);
+    grid.append(work, axis, personal);
+    section.append(heading, grid);
+    dom.timelineCanvas.appendChild(section);
+  }
+}
+
+function renderTimelineList(events) {
+  dom.timelineList.replaceChildren();
+  const header = document.createElement("div");
+  header.className = "timeline-list-header";
+  ["日期", "轨道", "类型", "标题", "程度", "标签", "最近修改", "操作"].forEach((label) => {
+    const cell = document.createElement("span");
+    cell.textContent = label;
+    header.appendChild(cell);
+  });
+  dom.timelineList.appendChild(header);
+  if (!events.length) {
+    const empty = document.createElement("div");
+    empty.className = "timeline-empty";
+    empty.textContent = "当前筛选条件下没有时间轴记录。";
+    dom.timelineList.appendChild(empty);
+    return;
+  }
+  events.forEach((event) => {
+    const row = document.createElement("article");
+    row.className = "timeline-list-row";
+    row.dataset.timelineEventId = event.id;
+    if (event.id === timelineFocusEventId) row.classList.add("is-focused");
+    const values = [
+      timelineDateLabel(event),
+      timelineTrackName(event.trackId),
+      TIMELINE_TYPE_LABELS[event.type] || "其他",
+      event.title,
+      TIMELINE_IMPORTANCE_LABELS[event.importance] || "普通",
+      (event.tags || []).join("、") || "—",
+      new Date(event.updatedAt).toLocaleString("zh-CN"),
+    ];
+    values.forEach((value, index) => {
+      const cell = document.createElement(index === 3 ? "strong" : "span");
+      cell.textContent = value;
+      row.appendChild(cell);
+    });
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.textContent = "编辑";
+    edit.addEventListener("click", () => openTimelineEventModal(event));
+    row.appendChild(edit);
+    dom.timelineList.appendChild(row);
+  });
+}
+
+function renderTimeline() {
+  if (!dom.timelinePanel || currentTaskView !== "timeline") return;
+  const settings = timelineState.settings;
+  if (document.activeElement !== dom.timelineYearInput) dom.timelineYearInput.value = String(timelineState.loadedYear || settings.selectedYear);
+  dom.timelineShowWork.checked = settings.showWork !== false;
+  dom.timelineShowPersonal.checked = settings.showPersonal !== false;
+  dom.timelineTypeFilter.value = settings.typeFilter || "all";
+  if (document.activeElement !== dom.timelineSearchInput) dom.timelineSearchInput.value = settings.search || "";
+  dom.timelineViewSwitch.querySelectorAll("[data-timeline-view]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.timelineView === settings.viewMode);
+  });
+  const events = filteredTimelineEvents();
+  dom.timelineResultSummary.textContent = timelineState.loading
+    ? "正在读取本机时间轴…"
+    : `${timelineState.loadedYear || settings.selectedYear} 年 · ${events.length} 条记录`;
+  dom.timelineCanvas.hidden = settings.viewMode === "list";
+  dom.timelineList.hidden = settings.viewMode !== "list";
+  if (settings.viewMode === "list") renderTimelineList(events);
+  else renderTimelineCanvas(events);
+  const activeMonth = Number(document.querySelector(".timeline-month-nav button.is-active")?.dataset.timelineMonth) || 1;
+  dom.timelineMonthNav.querySelectorAll("[data-timeline-month]").forEach((button) => {
+    button.classList.toggle("is-active", Number(button.dataset.timelineMonth) === activeMonth);
+  });
+  if (timelineFocusEventId) {
+    requestAnimationFrame(() => {
+      const target = document.querySelector(`[data-timeline-event-id="${CSS.escape(timelineFocusEventId)}"]`);
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+}
+
+function applyTimelineSnapshot(snapshot = {}) {
+  timelineState = {
+    ...timelineState,
+    loadedYear: Number(snapshot.year) || timelineState.loadedYear,
+    tracks: Array.isArray(snapshot.tracks) ? snapshot.tracks : timelineState.tracks,
+    events: Array.isArray(snapshot.events) ? snapshot.events : timelineState.events,
+    settings: snapshot.settings || timelineState.settings,
+    review: snapshot.review || timelineState.review,
+    loading: false,
+  };
+  appState.timelineTracks = timelineState.tracks;
+  appState.timelineEvents = timelineState.events;
+  appState.timelineUiSettings = timelineState.settings;
+  renderTimeline();
+}
+
+async function loadTimelineYear(year, options = {}) {
+  const targetYear = Number(year) || new Date().getFullYear();
+  if (!options.force && timelineState.loadedYear === targetYear && !timelineState.loading) {
+    renderTimeline();
+    return timelineState;
+  }
+  const requestId = (timelineState.requestId || 0) + 1;
+  timelineState = { ...timelineState, loading: true, requestId };
+  renderTimeline();
+  try {
+    const snapshot = await window.siteNest.getTimeline(targetYear);
+    if (timelineState.requestId !== requestId) return timelineState;
+    applyTimelineSnapshot(snapshot);
+  } catch (error) {
+    timelineState.loading = false;
+    renderTimeline();
+    showToast("无法读取时间轴", error?.message || "请稍后重试", "error");
+  }
+  return timelineState;
+}
+
+async function setTimelineSettings(patch) {
+  try {
+    const snapshot = await window.siteNest.updateTimelineSettings(patch);
+    applyTimelineSnapshot(snapshot);
+    return snapshot;
+  } catch (error) {
+    showToast("无法保存时间轴视图", error?.message || "请稍后重试", "error");
+    return null;
+  }
+}
+
+async function setTimelineYear(year, options = {}) {
+  const target = Math.max(1, Math.min(9999, Number(year) || new Date().getFullYear()));
+  if (options.focusEventId) timelineFocusEventId = options.focusEventId;
+  const snapshot = await setTimelineSettings({ selectedYear: target });
+  if (!snapshot || Number(snapshot.year) !== target) await loadTimelineYear(target, { force: true });
+  return timelineState;
+}
+
+function showTimelineReview() {
+  const review = timelineState.review;
+  if (!review) return;
+  dom.timelineReviewTitle.textContent = `${review.year} 年度回顾`;
+  dom.timelineReviewStats.replaceChildren();
+  [
+    ["年度事件", review.stats.total],
+    ["工作线", review.stats.work],
+    ["个人线", review.stats.personal],
+    ["成就", review.stats.achievements],
+    ["重大转折", review.stats.turningPoints],
+    ["重大事件", review.stats.major],
+  ].forEach(([label, value]) => {
+    const item = document.createElement("article");
+    const small = document.createElement("small");
+    small.textContent = label;
+    const strong = document.createElement("strong");
+    strong.textContent = String(value || 0);
+    item.append(small, strong);
+    dom.timelineReviewStats.appendChild(item);
+  });
+  dom.timelineReviewText.textContent = review.text || "本年度暂无记录。";
+  openModal(dom.timelineReviewModal);
+}
+
+async function exportTimeline(format) {
+  try {
+    const result = await window.siteNest.exportTimeline(timelineState.loadedYear || timelineState.settings.selectedYear, format);
+    if (!result.canceled) showToast("时间轴已导出", result.filePath);
+  } catch (error) {
+    showToast("无法导出时间轴", error?.message || "请稍后重试", "error");
+  }
 }
 
 async function setTaskCompleted(task, completed) {
@@ -3072,6 +3612,18 @@ function createTaskCard(task, options = {}) {
   }
   copy.append(title, meta);
   card.append(checkbox, copy);
+  if (task.status === "done") {
+    const timeline = document.createElement("button");
+    timeline.type = "button";
+    timeline.className = "task-timeline-button";
+    timeline.title = "记录为时间轴事件（确认后才创建）";
+    timeline.append(createIconElement("route"), document.createTextNode("记录时间轴"));
+    timeline.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openTaskAsTimelineDraft(task);
+    });
+    card.appendChild(timeline);
+  }
   card.addEventListener("click", () => openTaskModal(task));
   return card;
 }
@@ -3243,6 +3795,10 @@ function renderTaskMonth() {
 
 function renderPlan() {
   if (!dom.planViewTabs) return;
+  dom.planAddTaskButton.replaceChildren(
+    createIconElement("plus"),
+    document.createTextNode(currentTaskView === "timeline" ? "添加记录" : "添加任务"),
+  );
   dom.planViewTabs.querySelectorAll("[data-task-view]").forEach((button) => {
     const active = button.dataset.taskView === currentTaskView;
     button.classList.toggle("is-active", active);
@@ -3255,6 +3811,11 @@ function renderPlan() {
   renderTaskMonth();
   renderTaskList(dom.taskAllList, taskState.tasks.filter((task) => task.status !== "done").sort(taskSort), "暂无未完成任务");
   renderTaskList(dom.taskCompletedList, taskState.tasks.filter((task) => task.status === "done").sort((a, b) => Date.parse(b.completedAt) - Date.parse(a.completedAt)), "暂无已完成任务");
+  if (currentTaskView === "timeline") {
+    renderTimeline();
+    const year = Number(timelineState.settings.selectedYear) || new Date().getFullYear();
+    if (!timelineState.loading && timelineState.loadedYear !== year) void loadTimelineYear(year);
+  }
 }
 
 function renderWorkspaceTaskWidgets() {
@@ -5204,7 +5765,22 @@ function renderPageActions(payload, serviceError = "") {
     ? `本次可能使用：${normalized.permissions.join("、")}`
     : "当前未声明额外页面权限；动作执行前仍会由桌面端检查。";
   dom.pageActionList.replaceChildren();
-  if (!normalized.actions.length) {
+  const canRecordTimeline = /^https?:\/\//i.test(contextUrl);
+  if (canRecordTimeline) {
+    const timeline = document.createElement("button");
+    timeline.type = "button";
+    timeline.className = "page-action-item";
+    const copy = document.createElement("span");
+    const title = document.createElement("strong");
+    title.textContent = "记录到时间轴";
+    const detail = document.createElement("small");
+    detail.textContent = "读取标题、脱敏网址与最多 1000 字选中文本；确认后才保存";
+    copy.append(title, detail);
+    timeline.append(createIconElement("route"), copy, createIconElement("chevron-right"));
+    timeline.addEventListener("click", () => void openCurrentPageAsTimelineDraft());
+    dom.pageActionList.appendChild(timeline);
+  }
+  if (!normalized.actions.length && !canRecordTimeline) {
     const empty = document.createElement("div");
     empty.className = "page-action-empty";
     empty.textContent = serviceError || "当前页面没有可执行动作";
@@ -5719,13 +6295,126 @@ function bindEvents() {
       showToast("无法保存网页内存设置", error?.message || "请稍后重试", "error");
     } finally { dom.saveBrowserMemorySettings.disabled = false; }
   });
-  dom.planAddTaskButton.addEventListener("click", () => openTaskModal());
+  dom.planAddTaskButton.addEventListener("click", () => {
+    if (currentTaskView === "timeline") openTimelineEventModal();
+    else openTaskModal();
+  });
   dom.planViewTabs.addEventListener("click", (event) => {
     const button = event.target.closest("[data-task-view]");
     if (!button) return;
     currentTaskView = button.dataset.taskView;
     renderPlan();
   });
+  dom.timelineAddButton.addEventListener("click", () => openTimelineEventModal());
+  dom.timelineYearInput.addEventListener("change", () => void setTimelineYear(dom.timelineYearInput.value));
+  const persistTimelineFilters = () => void setTimelineSettings({
+    showWork: dom.timelineShowWork.checked,
+    showPersonal: dom.timelineShowPersonal.checked,
+    typeFilter: dom.timelineTypeFilter.value,
+    search: dom.timelineSearchInput.value.trim(),
+  });
+  dom.timelineShowWork.addEventListener("change", persistTimelineFilters);
+  dom.timelineShowPersonal.addEventListener("change", persistTimelineFilters);
+  dom.timelineTypeFilter.addEventListener("change", persistTimelineFilters);
+  dom.timelineSearchInput.addEventListener("input", () => {
+    timelineState.settings = { ...timelineState.settings, search: dom.timelineSearchInput.value.trim() };
+    renderTimeline();
+    window.clearTimeout(timelineSearchTimer);
+    timelineSearchTimer = window.setTimeout(persistTimelineFilters, 280);
+  });
+  dom.timelineViewSwitch.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-timeline-view]");
+    if (!button) return;
+    void setTimelineSettings({ viewMode: button.dataset.timelineView });
+  });
+  dom.timelineMonthNav.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-timeline-month]");
+    if (!button) return;
+    dom.timelineMonthNav.querySelectorAll("[data-timeline-month]").forEach((item) => item.classList.toggle("is-active", item === button));
+    document.querySelector(`[data-timeline-month-section="${button.dataset.timelineMonth}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  dom.timelineMonthNav.addEventListener("pointerdown", (event) => {
+    timelineMonthNavDrag = { pointerId: event.pointerId, x: event.clientX, scrollLeft: dom.timelineMonthNav.scrollLeft };
+    dom.timelineMonthNav.classList.add("is-dragging");
+    dom.timelineMonthNav.setPointerCapture?.(event.pointerId);
+  });
+  dom.timelineMonthNav.addEventListener("pointermove", (event) => {
+    if (!timelineMonthNavDrag || timelineMonthNavDrag.pointerId !== event.pointerId) return;
+    dom.timelineMonthNav.scrollLeft = timelineMonthNavDrag.scrollLeft - (event.clientX - timelineMonthNavDrag.x);
+  });
+  const endTimelineMonthDrag = () => {
+    timelineMonthNavDrag = null;
+    dom.timelineMonthNav.classList.remove("is-dragging");
+  };
+  dom.timelineMonthNav.addEventListener("pointerup", endTimelineMonthDrag);
+  dom.timelineMonthNav.addEventListener("pointercancel", endTimelineMonthDrag);
+  const planScroller = dom.timelinePanel.closest(".page-scroll");
+  planScroller?.addEventListener("scroll", () => {
+    if (currentTaskView !== "timeline" || timelineState.settings.viewMode === "list") return;
+    const threshold = planScroller.getBoundingClientRect().top + 230;
+    let active = 1;
+    dom.timelineCanvas.querySelectorAll("[data-timeline-month-section]").forEach((section) => {
+      if (section.getBoundingClientRect().top <= threshold) active = Number(section.dataset.timelineMonthSection);
+    });
+    dom.timelineMonthNav.querySelectorAll("[data-timeline-month]").forEach((button) => {
+      button.classList.toggle("is-active", Number(button.dataset.timelineMonth) === active);
+    });
+  }, { passive: true });
+  dom.timelineDatePrecision.addEventListener("change", () => {
+    const precision = dom.timelineDatePrecision.value;
+    configureTimelineDateInput(dom.timelineStartDate, precision);
+    configureTimelineDateInput(dom.timelineEndDate, precision);
+  });
+  dom.timelineOngoing.addEventListener("change", () => {
+    dom.timelineEndDate.disabled = dom.timelineOngoing.checked;
+    if (dom.timelineOngoing.checked) dom.timelineEndDate.value = "";
+  });
+  dom.timelineEventForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const payload = timelineEventFormPayload();
+    if (!payload.title || !payload.startDate) return;
+    const submit = dom.timelineEventForm.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      const snapshot = payload.id
+        ? await window.siteNest.updateTimelineEvent(payload)
+        : await window.siteNest.addTimelineEvent(payload);
+      timelineFocusEventId = snapshot.event?.id || payload.id || null;
+      applyTimelineSnapshot(snapshot);
+      closeModal(dom.timelineEventModal);
+      showToast(payload.id ? "时间轴记录已更新" : "时间轴记录已添加", payload.title);
+    } catch (error) {
+      showToast("无法保存时间轴记录", error?.message || "请检查标题和日期", "error");
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  dom.deleteTimelineEventButton.addEventListener("click", async () => {
+    const current = timelineEventForId(dom.timelineEventId.value);
+    if (!current || !window.confirm(`删除时间轴记录“${current.title}”？`)) return;
+    try {
+      const snapshot = await window.siteNest.deleteTimelineEvent(current.id);
+      timelineFocusEventId = null;
+      applyTimelineSnapshot(snapshot);
+      closeModal(dom.timelineEventModal);
+      showToast("时间轴记录已删除", current.title);
+    } catch (error) {
+      showToast("无法删除时间轴记录", error?.message || "请稍后重试", "error");
+    }
+  });
+  dom.timelineReviewButton.addEventListener("click", showTimelineReview);
+  dom.timelineCopyReview.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(timelineState.review?.text || "");
+      showToast("年度回顾已复制", `${timelineState.loadedYear} 年`);
+    } catch (error) {
+      showToast("无法复制年度回顾", error?.message || "请检查剪贴板权限", "error");
+    }
+  });
+  dom.timelineExportMarkdown.addEventListener("click", () => void exportTimeline("markdown"));
+  dom.timelineExportJson.addEventListener("click", () => void exportTimeline("json"));
+  dom.timelineReviewExportMarkdown.addEventListener("click", () => void exportTimeline("markdown"));
+  dom.timelineReviewExportJson.addEventListener("click", () => void exportTimeline("json"));
   document.addEventListener("click", (event) => {
     const weekMove = event.target.closest("[data-week-move]");
     if (weekMove) {
@@ -5739,6 +6428,12 @@ function bindEvents() {
       taskMonthAnchor = movement === 0 ? new Date() : new Date(taskMonthAnchor.getFullYear(), taskMonthAnchor.getMonth() + movement, 1);
       selectedTaskDay = new Date(taskMonthAnchor.getFullYear(), taskMonthAnchor.getMonth(), 1);
       renderTaskMonth();
+    }
+    const timelineYearMove = event.target.closest("[data-timeline-year-move]");
+    if (timelineYearMove) {
+      const movement = Number(timelineYearMove.dataset.timelineYearMove);
+      const current = Number(timelineState.loadedYear || timelineState.settings.selectedYear) || new Date().getFullYear();
+      void setTimelineYear(movement === 0 ? new Date().getFullYear() : current + movement);
     }
   });
   dom.taskForm.addEventListener("submit", async (event) => {
@@ -6397,6 +7092,7 @@ function bindEvents() {
     navigateTo("settings?section=translation&panel=translation");
   });
   window.siteNest?.onTasksChanged?.((snapshot) => applyTaskSnapshot(snapshot));
+  window.siteNest?.onTimelineChanged?.((snapshot) => applyTimelineSnapshot(snapshot));
   window.siteNest?.onOpenTask?.(({ taskId, view }) => {
     currentTaskView = view || "week";
     navigateTo("plan");
@@ -6425,6 +7121,13 @@ async function initialize() {
   bindEvents();
   try {
     appState = await window.siteNest.getState();
+    timelineState = {
+      ...timelineState,
+      tracks: Array.isArray(appState.timelineTracks) ? appState.timelineTracks : [],
+      settings: appState.timelineUiSettings || timelineState.settings,
+      events: [],
+      loadedYear: null,
+    };
     await loadSearchState();
     activeSettingsSection = searchState.settings.settingsLastSection || "general";
     showSettingsSection(activeSettingsSection, "", { persist: false, pushHistory: false, force: true });
