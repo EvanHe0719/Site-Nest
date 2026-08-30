@@ -1,0 +1,1129 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>栖页</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="titlebar">
+        <div class="brand-lockup">
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 36 36" role="img">
+              <path d="M8 10.5 18 5l10 5.5v11L18 27 8 21.5z" />
+              <path d="M12 13.2 18 10l6 3.2v6.5L18 23l-6-3.3z" />
+              <circle cx="18" cy="16.5" r="2.25" />
+            </svg>
+          </div>
+          <span class="brand-name">栖页</span>
+          <span class="brand-version">0.4.1</span>
+        </div>
+        <div class="titlebar-center">
+          <span class="privacy-dot"></span>
+          <span>数据仅保存在本机</span>
+        </div>
+      </header>
+
+      <div class="workspace" id="appWorkspace">
+        <aside class="sidebar" id="appSidebar">
+          <div class="sidebar-scroll">
+            <section class="workspace-switcher-section" aria-label="切换空间">
+              <div class="workspace-switcher-heading">
+                <span>空间</span>
+                <strong id="activeWorkspaceName" class="is-hidden">个人</strong>
+                <button
+                  class="sidebar-collapse-icon"
+                  id="sidebarToggle"
+                  type="button"
+                  aria-controls="appSidebar"
+                  aria-expanded="true"
+                  aria-label="收起侧栏"
+                  title="收起侧栏"
+                >
+                  <span data-icon="arrow-left"></span>
+                  <span id="sidebarToggleLabel" class="visually-hidden">收起侧栏</span>
+                </button>
+              </div>
+              <div class="workspace-switcher" id="workspaceSwitcher" role="group" aria-label="空间">
+                <button class="workspace-switcher-button is-active" type="button" data-workspace-id="personal" aria-pressed="true" title="切换到个人空间">
+                  <span class="workspace-switcher-dot workspace-switcher-dot--personal"></span>
+                  <span class="workspace-switcher-label">个人</span>
+                </button>
+                <button class="workspace-switcher-button" type="button" data-workspace-id="work" aria-pressed="false" title="切换到工作空间">
+                  <span class="workspace-switcher-dot workspace-switcher-dot--work"></span>
+                  <span class="workspace-switcher-label">工作</span>
+                </button>
+                <button class="workspace-switcher-button" type="button" data-workspace-id="research" aria-pressed="false" title="切换到研究空间">
+                  <span class="workspace-switcher-dot workspace-switcher-dot--research"></span>
+                  <span class="workspace-switcher-label">研究</span>
+                </button>
+              </div>
+            </section>
+
+            <nav class="primary-nav" aria-label="主导航">
+              <button class="nav-item is-active" type="button" data-route="home" title="聚合主页">
+                <span class="nav-icon" data-icon="home"></span>
+                <span>聚合主页</span>
+              </button>
+              <button class="nav-item" type="button" data-route="sites" title="我的站点">
+                <span class="nav-icon" data-icon="grid"></span>
+                <span>我的站点</span>
+                <span class="nav-count" id="sidebarSiteCount">0</span>
+              </button>
+              <button class="nav-item" type="button" data-route="automations" title="自动化中心">
+                <span class="nav-icon" data-icon="spark"></span>
+                <span>自动化中心</span>
+                <span class="nav-beta">预览</span>
+              </button>
+            </nav>
+
+            <section class="session-section" aria-labelledby="currentSessionsHeading">
+              <div class="sidebar-heading-row sidebar-heading-row--sessions">
+                <button class="sidebar-heading sidebar-heading--button" id="currentSessionsHeading" type="button">
+                  当前会话 <span id="currentSessionCount">0</span>
+                </button>
+                <button
+                  class="session-scope-toggle"
+                  id="sessionScopeToggle"
+                  type="button"
+                  title="当前显示全部空间会话；点击后仅显示当前空间"
+                  aria-label="切换当前会话显示范围"
+                >全部</button>
+              </div>
+              <div class="current-session-list" id="currentSessionList"></div>
+            </section>
+
+          </div>
+
+          <div class="sidebar-footer">
+            <div class="sidebar-footer-heading">连接与同步</div>
+            <div class="google-sync-area" id="googleSyncArea">
+              <button
+                class="google-sync-card"
+                id="googleSyncCard"
+                type="button"
+                title="Google 数据同步"
+                aria-haspopup="dialog"
+                aria-controls="googleSyncPopover"
+                aria-expanded="false"
+              >
+                <span class="google-sync-mark" aria-hidden="true">G</span>
+                <span class="google-sync-copy">
+                  <strong id="googleSyncCardTitle">连接 Google</strong>
+                  <small id="googleSyncCardSubtitle">同步栖页数据</small>
+                </span>
+                <span class="google-sync-state-dot" id="googleSyncStateDot" aria-hidden="true"></span>
+              </button>
+              <section
+                class="google-sync-popover"
+                id="googleSyncPopover"
+                role="dialog"
+                aria-labelledby="googleSyncPopoverTitle"
+                aria-hidden="true"
+                hidden
+              >
+                <header class="google-sync-popover-header">
+                  <div>
+                    <span class="section-kicker">GOOGLE DRIVE</span>
+                    <h2 id="googleSyncPopoverTitle">Google 数据同步</h2>
+                  </div>
+                  <button class="icon-button icon-button--small" id="closeGoogleSyncPopover" type="button" aria-label="关闭 Google 同步">
+                    <span data-icon="close"></span>
+                  </button>
+                </header>
+                <div class="google-sync-account">
+                  <span class="google-sync-account-icon" data-icon="cloud"></span>
+                  <div>
+                    <strong id="googleSyncAccount">尚未连接 Google</strong>
+                    <small id="googleSyncLastSync">连接后可同步空间、站点和收藏书签</small>
+                  </div>
+                </div>
+                <p class="google-sync-error is-hidden" id="googleSyncError" role="status"></p>
+                <p class="google-sync-notice">
+                  同步栖页数据，不等于 Chrome 书签回写。
+                </p>
+                <div class="google-sync-actions">
+                  <button class="primary-button google-sync-action google-sync-action--wide" id="googleSignInButton" type="button">
+                    <span data-icon="cloud"></span>
+                    <span id="googleSignInButtonLabel">连接 Google</span>
+                  </button>
+                  <button class="secondary-button google-sync-action" id="googleSyncNowButton" type="button">
+                    <span data-icon="reload"></span>
+                    立即同步
+                  </button>
+                  <button class="secondary-button google-sync-action" id="googleRestoreButton" type="button">
+                    <span data-icon="download"></span>
+                    从云端恢复
+                  </button>
+                  <button class="google-sync-signout" id="googleSignOutButton" type="button">退出 Google</button>
+                </div>
+              </section>
+            </div>
+            <button class="settings-link" type="button" data-route="settings" title="设置与数据">
+              <span data-icon="settings"></span>
+              <span>设置与数据</span>
+            </button>
+          </div>
+        </aside>
+
+        <main class="main-stage">
+          <section class="local-page is-visible" id="homePage" data-page="home">
+            <div class="page-scroll home-scroll">
+              <div class="hero">
+                <div class="hero-copy">
+                  <div class="eyebrow">
+                    <span class="live-dot"></span>
+                    <span>你的阅读空间已准备好</span>
+                  </div>
+                  <h1>常去的网站，<br /><span>在一个窗口里读完。</span></h1>
+                  <p>
+                    登录会话会保存在栖页自己的安全空间。切换站点，不再切换一排浏览器标签。
+                  </p>
+                  <div class="hero-actions">
+                    <button class="primary-button" id="openFirstSiteButton" type="button">
+                      <span data-icon="compass"></span>
+                      开始浏览
+                    </button>
+                    <button class="secondary-button" id="heroAddSiteButton" type="button">
+                      <span data-icon="plus"></span>
+                      添加网站
+                    </button>
+                  </div>
+                </div>
+                <div class="hero-visual" aria-hidden="true">
+                  <div class="orbit orbit--outer"></div>
+                  <div class="orbit orbit--inner"></div>
+                  <div class="floating-site floating-site--one">NS</div>
+                  <div class="floating-site floating-site--two">LD</div>
+                  <div class="floating-site floating-site--three">奶</div>
+                  <div class="hero-center-mark">
+                    <svg viewBox="0 0 36 36">
+                      <path d="M8 10.5 18 5l10 5.5v11L18 27 8 21.5z" />
+                      <path d="M12 13.2 18 10l6 3.2v6.5L18 23l-6-3.3z" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+
+              <div class="section-title-row">
+                <div>
+                  <span class="section-kicker">QUICK ACCESS</span>
+                  <h2>继续阅读</h2>
+                </div>
+                <span class="section-hint">站点登录状态会自动保留</span>
+              </div>
+              <div class="quick-grid" id="quickSiteGrid"></div>
+
+              <div class="feature-grid">
+                <article class="feature-card feature-card--bookmarks">
+                  <div class="feature-topline">
+                    <span class="feature-icon" data-icon="bookmark"></span>
+                    <span class="status-pill status-pill--safe">只读导入</span>
+                  </div>
+                  <h3>Chrome 书签</h3>
+                  <p id="bookmarkFeatureCopy">
+                    从本机 Chrome 配置读取书签，不触碰密码、历史记录或 Cookie。
+                  </p>
+                  <button class="text-button" type="button" data-route="chromeBookmarks">
+                    管理 Chrome 书签
+                    <span data-icon="arrow-right"></span>
+                  </button>
+                </article>
+                <article class="feature-card feature-card--session">
+                  <div class="feature-topline">
+                    <span class="feature-icon" data-icon="shield"></span>
+                    <span class="status-pill">持久会话</span>
+                  </div>
+                  <h3>登录一次，继续使用</h3>
+                  <p>每个网站的登录 Cookie 保存在应用专属目录，与其他程序隔离。</p>
+                  <button class="text-button" type="button" data-route="settings">
+                    查看数据说明
+                    <span data-icon="arrow-right"></span>
+                  </button>
+                </article>
+                <article class="feature-card feature-card--automation">
+                  <div class="feature-topline">
+                    <span class="feature-icon" data-icon="spark"></span>
+                    <span class="status-pill status-pill--safe">已启用</span>
+                  </div>
+                  <h3>签到自动化</h3>
+                  <p>奶昔论坛已启用每日自动签到；登录失效、验证码或页面变化时会安全停止。</p>
+                  <button class="text-button" type="button" data-route="automations">
+                    打开自动化中心
+                    <span data-icon="arrow-right"></span>
+                  </button>
+                </article>
+              </div>
+              <footer class="page-footer">
+                <span>栖页 · 本地优先的网站阅读器</span>
+                <span>数据仅存储在本机</span>
+              </footer>
+            </div>
+          </section>
+
+          <section class="local-page" id="workHomePage" data-page="work-home">
+            <div class="page-scroll content-scroll work-home-scroll">
+              <header class="work-home-header">
+                <div>
+                  <span class="section-kicker">TICKET TRIAGE</span>
+                  <h1>工作分诊台</h1>
+                  <p id="workHomeGreeting">读取真实 Zoho Desk 数据，实际阅读和回复仍在 Zoho 中完成。</p>
+                </div>
+                <div class="work-header-actions">
+                  <button class="secondary-button" id="workConnectorSettings" type="button">
+                    <span data-icon="settings"></span>
+                    连接设置
+                  </button>
+                  <button class="primary-button" id="workRefreshTickets" type="button">
+                    <span data-icon="reload"></span>
+                    手动刷新
+                  </button>
+                </div>
+              </header>
+
+              <div class="connector-status-bar" id="zohoStatusBar" data-status="not-configured">
+                <span class="connector-state-dot"></span>
+                <div>
+                  <strong id="zohoStatusTitle">Zoho Desk 未配置</strong>
+                  <small id="zohoStatusDetail">连接后显示待回复、今日新增和 SLA 状态，不使用演示数据。</small>
+                </div>
+                <span id="zohoLastSync">尚未同步</span>
+              </div>
+
+              <div class="ticket-metrics-grid" id="ticketMetricsGrid">
+                <button class="ticket-metric-card" type="button" data-ticket-filter="needsReply">
+                  <strong id="metricNeedsReply">—</strong><span>待我回复</span><small>客户最后公开留言，尚无支持方公开回复</small>
+                </button>
+                <button class="ticket-metric-card" type="button" data-ticket-filter="addedToday">
+                  <strong id="metricAddedToday">—</strong><span>今日新增</span><small>本地日期当天、分配给当前 Agent</small>
+                </button>
+                <button class="ticket-metric-card" type="button" data-ticket-filter="waitingOver24h">
+                  <strong id="metricWaiting24h">—</strong><span>客户等待超过 24 小时</span><small>不等同于 SLA</small>
+                </button>
+                <button class="ticket-metric-card ticket-metric-card--sla" type="button" data-ticket-filter="sla">
+                  <span><strong id="metricSlaDueSoon">—</strong><small>SLA 即将到期</small></span>
+                  <span><strong id="metricSlaOverdue">—</strong><small>SLA 已超时</small></span>
+                  <em id="metricSlaHint">仅使用 Zoho 官方 SLA 字段</em>
+                </button>
+              </div>
+
+              <div class="ticket-dashboard-grid">
+                <section class="work-panel ticket-panel ticket-panel--priority">
+                  <div class="workspace-section-title workspace-section-title--compact">
+                    <div>
+                      <span class="section-kicker">PRIORITY</span>
+                      <h2>优先处理工单</h2>
+                    </div>
+                  </div>
+                  <div class="ticket-list" id="priorityTicketList"></div>
+                </section>
+
+                <section class="work-panel ticket-panel">
+                  <div class="workspace-section-title workspace-section-title--compact">
+                    <div>
+                      <span class="section-kicker">RECENT</span>
+                      <h2>最近工单</h2>
+                    </div>
+                  </div>
+                  <div class="ticket-list ticket-list--compact" id="recentTicketList"></div>
+                </section>
+
+                <section class="work-panel ticket-panel">
+                  <div class="workspace-section-title workspace-section-title--compact">
+                    <div><span class="section-kicker">SLA</span><h2>即将超时</h2></div>
+                  </div>
+                  <div class="ticket-list ticket-list--compact" id="dueSoonTicketList"></div>
+                </section>
+              </div>
+
+              <div class="workspace-section-title">
+                <div><span class="section-kicker">CONTINUE</span><h2>继续处理</h2></div>
+                <span id="workAppTotal">0 个站点</span>
+              </div>
+              <div class="work-app-grid" id="workAppGrid"></div>
+
+              <div class="work-search-wrap">
+                <label class="search-field work-global-search">
+                  <span data-icon="search"></span>
+                  <input id="workGlobalSearch" type="search" placeholder="搜索工作站点与 Chrome 书签" autocomplete="off" />
+                </label>
+                <div class="work-search-results is-hidden" id="workSearchResults" aria-live="polite"></div>
+              </div>
+              <div class="work-recent-list is-hidden" id="workRecentList"></div>
+              <button class="is-hidden" id="workAddSiteButton" type="button"></button>
+              <button class="is-hidden" id="workQuickAddSite" type="button"></button>
+              <button class="is-hidden" id="workOpenZoho" type="button"></button>
+              <button class="is-hidden" id="workManageAssistants" type="button"></button>
+              <button class="is-hidden" id="workViewExecutionLogs" type="button"></button>
+            </div>
+          </section>
+
+          <section class="local-page" id="researchHomePage" data-page="research-home">
+            <div class="page-scroll content-scroll research-home-scroll">
+              <header class="content-header research-home-header">
+                <div>
+                  <span class="section-kicker">RESEARCH SPACE</span>
+                  <h1>研究空间</h1>
+                  <p>把论文、文档、资料库与长期阅读资源放在独立空间中。</p>
+                </div>
+                <button class="primary-button" id="researchAddSiteButton" type="button">
+                  <span data-icon="plus"></span>
+                  添加研究站点
+                </button>
+              </header>
+              <div class="research-site-grid" id="researchSiteGrid"></div>
+            </div>
+          </section>
+
+          <section class="local-page" id="sitesPage" data-page="sites">
+            <div class="page-scroll content-scroll">
+              <header class="content-header sites-header">
+                <div>
+                  <span class="section-kicker">MY WEBSITES</span>
+                  <h1>我的站点</h1>
+                  <p>集中管理常去的网站。置顶站点会显示在侧栏，登录会话继续保存在栖页中。</p>
+                </div>
+                <button class="primary-button" id="pageAddSiteButton" type="button">
+                  <span data-icon="plus"></span>
+                  添加网站
+                </button>
+              </header>
+
+              <div class="sites-toolbar">
+                <label class="search-field sites-search-field">
+                  <span data-icon="search"></span>
+                  <input
+                    id="siteSearch"
+                    type="search"
+                    placeholder="搜索名称、网址或描述"
+                    autocomplete="off"
+                  />
+                </label>
+                <label class="select-field sites-filter-field">
+                  <span data-icon="pin"></span>
+                  <select id="siteFilter" aria-label="筛选站点">
+                    <option value="all">全部站点</option>
+                    <option value="pinned">仅看置顶</option>
+                    <option value="custom">自定义添加</option>
+                  </select>
+                  <span data-icon="chevron-down"></span>
+                </label>
+                <label class="select-field sites-workspace-filter-field">
+                  <span data-icon="grid"></span>
+                  <select id="siteWorkspaceFilter" aria-label="筛选所属空间">
+                    <option value="current">当前空间</option>
+                    <option value="all">全部空间</option>
+                  </select>
+                  <span data-icon="chevron-down"></span>
+                </label>
+                <div class="site-library-total" id="siteLibraryTotal">0 个站点</div>
+              </div>
+
+              <div class="site-library-grid" id="siteLibraryGrid"></div>
+            </div>
+          </section>
+
+          <section class="local-page" id="automationsPage" data-page="automations">
+            <div class="page-scroll content-scroll">
+              <header class="content-header automation-header">
+                <div>
+                  <span class="section-kicker">AUTOMATION LAB</span>
+                  <h1>自动化中心</h1>
+                  <p>统一管理签到任务、站点助手与真实执行记录。未配置的能力不会模拟成功。</p>
+                </div>
+                <span class="large-status-pill" id="automationHeaderStatus">
+                  <span class="pulse-dot"></span>
+                  自动签到已开启
+                </span>
+              </header>
+
+              <nav class="automation-tabs" id="automationTabs" aria-label="自动化中心页面">
+                <button class="automation-tab is-active" type="button" data-automation-tab="checkins" aria-selected="true">
+                  <span data-icon="check"></span>
+                  签到任务
+                </button>
+                <button class="automation-tab" type="button" data-automation-tab="assistants" aria-selected="false">
+                  <span data-icon="spark"></span>
+                  站点助手
+                </button>
+                <button class="automation-tab" type="button" data-automation-tab="workflows" aria-selected="false">
+                  <span data-icon="workflow"></span>
+                  工作流
+                </button>
+                <button class="automation-tab" type="button" data-automation-tab="logs" aria-selected="false">
+                  <span data-icon="clock"></span>
+                  执行记录
+                </button>
+                <button class="automation-tab" type="button" data-automation-tab="extension" aria-selected="false">
+                  <span data-icon="chrome"></span>
+                  浏览器扩展
+                </button>
+              </nav>
+
+              <section class="automation-tab-panel is-active" id="automationCheckinsPanel" data-automation-panel="checkins">
+              <div class="automation-summary">
+                <div class="summary-number">1</div>
+                <div>
+                  <strong>已识别的签到入口</strong>
+                  <span>奶昔论坛 · 每日签到</span>
+                </div>
+                <div class="summary-divider"></div>
+                <div class="summary-number" id="activeAutomationCount">1</div>
+                <div>
+                  <strong>正在自动执行</strong>
+                  <span id="automationSummaryText">栖页运行时，每天 08:30 自动检查</span>
+                </div>
+              </div>
+
+              <div class="automation-list">
+                <article class="automation-card">
+                  <div class="automation-site-logo" style="--site-color: #ec7a5c">奶</div>
+                  <div class="automation-copy">
+                    <div class="automation-title-row">
+                      <h3>奶昔论坛 · 每日签到</h3>
+                      <span class="status-pill status-pill--ready" id="naixiAutomationBadge">等待检查</span>
+                    </div>
+                    <p id="naixiAutomationMessage">使用栖页中已保存的登录会话，自动判断并完成每日签到。</p>
+                    <div class="automation-meta">
+                      <label class="schedule-control">
+                        <i data-icon="clock"></i>
+                        每天
+                        <input id="naixiScheduleTime" type="time" value="08:30" aria-label="奶昔自动签到时间" />
+                      </label>
+                      <label class="toggle-control">
+                        <input id="naixiAutoEnabled" type="checkbox" checked />
+                        <span class="toggle-track"><span></span></span>
+                        自动执行
+                      </label>
+                      <span id="naixiLastRun"><i data-icon="shield"></i> 尚未运行</span>
+                    </div>
+                  </div>
+                  <div class="automation-actions">
+                    <button class="primary-button compact-button" id="runNaixiAutomation" type="button">
+                      <span data-icon="spark"></span>
+                      立即签到
+                    </button>
+                    <button
+                      class="secondary-button compact-button"
+                      type="button"
+                      data-open-url="https://forum.naixi.net/k_misign-sign.html"
+                      data-open-name="奶昔论坛 · 每日签到"
+                      data-open-color="#ec7a5c"
+                    >
+                      打开页面
+                    </button>
+                  </div>
+                </article>
+
+                <article class="automation-card automation-card--muted">
+                  <div class="automation-site-logo" style="--site-color: #5b7cfa">NS</div>
+                  <div class="automation-copy">
+                    <div class="automation-title-row">
+                      <h3>NodeSeek</h3>
+                      <span class="status-pill">未发现通用入口</span>
+                    </div>
+                    <p>当前页面未显示固定签到入口，不会通过猜测接口执行账号操作。</p>
+                  </div>
+                </article>
+
+                <article class="automation-card automation-card--muted">
+                  <div class="automation-site-logo" style="--site-color: #16a085">LD</div>
+                  <div class="automation-copy">
+                    <div class="automation-title-row">
+                      <h3>LINUX DO</h3>
+                      <span class="status-pill">未发现通用入口</span>
+                    </div>
+                    <p>当前页面未显示固定签到入口，后续如站点新增流程可单独适配。</p>
+                  </div>
+                </article>
+              </div>
+
+              <div class="notice-card">
+                <span class="notice-icon" data-icon="info"></span>
+                <div>
+                  <strong>自动签到只在栖页运行期间执行</strong>
+                  <p>
+                    栖页会在启动时补查当天状态，并按设定时间运行；已签到不会重复请求。登录失效、验证码或页面改版时会停止操作并显示原因。
+                  </p>
+                </div>
+              </div>
+              </section>
+
+              <section class="automation-tab-panel" id="automationAssistantsPanel" data-automation-panel="assistants" hidden>
+                <div class="automation-panel-heading">
+                  <div>
+                    <span class="section-kicker">SITE ASSISTANTS</span>
+                    <h2>站点助手</h2>
+                    <p>助手只在匹配的网站上提供声明式动作，权限和来源会明确展示。</p>
+                  </div>
+                  <span class="status-pill" id="assistantCountBadge">0 个助手</span>
+                </div>
+                <div class="assistant-list" id="assistantList">
+                  <div class="automation-empty-state">
+                    <span data-icon="spark"></span>
+                    <strong>正在读取站点助手</strong>
+                    <small>所有助手配置都保存在本机。</small>
+                  </div>
+                </div>
+              </section>
+
+              <section class="automation-tab-panel" id="automationWorkflowsPanel" data-automation-panel="workflows" hidden>
+                <div class="extension-empty-state">
+                  <span class="extension-empty-icon" data-icon="workflow"></span>
+                  <div>
+                    <span class="section-kicker">WORKFLOWS</span>
+                    <h2>工作流尚未配置</h2>
+                    <p>工作流功能将在后续版本中用于连接多个站点动作。</p>
+                    <span class="status-pill status-pill--preview">后续版本</span>
+                  </div>
+                </div>
+              </section>
+
+              <section class="automation-tab-panel" id="automationLogsPanel" data-automation-panel="logs" hidden>
+                <div class="automation-panel-heading">
+                  <div>
+                    <span class="section-kicker">EXECUTION LOGS</span>
+                    <h2>执行记录</h2>
+                    <p>这里只显示真实发生的本地动作，不保存 Cookie、令牌、密码或完整页面正文。</p>
+                  </div>
+                  <button class="secondary-button compact-button" id="refreshExecutionLogs" type="button">
+                    <span data-icon="reload"></span>
+                    刷新记录
+                  </button>
+                </div>
+                <div class="execution-log-list" id="executionLogList">
+                  <div class="automation-empty-state">
+                    <span data-icon="clock"></span>
+                    <strong>暂无执行记录</strong>
+                    <small>执行页面动作后，结果会记录在这里。</small>
+                  </div>
+                </div>
+              </section>
+
+              <section class="automation-tab-panel" id="automationExtensionPanel" data-automation-panel="extension" hidden>
+                <div class="extension-empty-state">
+                  <span class="extension-empty-icon" data-icon="chrome"></span>
+                  <div>
+                    <span class="section-kicker">BROWSER EXTENSION</span>
+                    <h2>浏览器扩展尚未配置</h2>
+                    <p>后续的 Manifest V3 扩展将用于从 Chrome 保存当前网页、加入指定空间并调用页面快捷动作。本版本不会开放未认证的本地端口，也不会申请所有网站权限。</p>
+                    <span class="status-pill status-pill--preview">后续版本</span>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section class="local-page" id="settingsPage" data-page="settings">
+            <div class="page-scroll content-scroll settings-scroll">
+              <header class="content-header">
+                <div>
+                  <span class="section-kicker">LOCAL & PRIVATE</span>
+                  <h1>设置与数据</h1>
+                  <p>栖页采用本地优先设计。下面明确区分已实现能力与后续扩展。</p>
+                </div>
+              </header>
+
+              <div class="settings-grid">
+                <article class="settings-card settings-card--wide connector-settings-card" id="connectionsSettingsCard">
+                  <div class="settings-card-icon" data-icon="workflow"></div>
+                  <div class="settings-card-copy">
+                    <div class="settings-title-row">
+                      <h3>连接与集成</h3>
+                      <span class="status-pill" id="zohoSettingsStatus">Zoho 未配置</span>
+                    </div>
+                    <p>连接器只在主进程读取外部数据。访问令牌不会发送到页面，也不会写入普通 JSON。</p>
+                    <div class="connector-settings-list">
+                      <section class="connector-settings-item connector-settings-item--expanded">
+                        <header>
+                          <span class="connector-logo">ZD</span>
+                          <div><strong>Zoho Desk</strong><small>只读工单分诊 · 不发送回复、不关闭工单</small></div>
+                          <span class="connector-readonly-badge">只读</span>
+                        </header>
+                        <form class="zoho-config-form" id="zohoConfigForm">
+                          <label><span>连接名称</span><input id="zohoDisplayName" value="Zoho Desk" maxlength="120" /></label>
+                          <label><span>组织 ID</span><input id="zohoOrgId" inputmode="numeric" autocomplete="off" placeholder="Zoho Desk orgId" required /></label>
+                          <label><span>API Base URL</span><input id="zohoApiBase" type="url" value="https://desk.zoho.com/api/v1" required /></label>
+                          <label><span>网页入口</span><input id="zohoWebBase" type="url" value="https://desk.zoho.com" required /></label>
+                          <label><span>首次范围（天）</span><select id="zohoLookbackDays"><option value="15">15 天</option><option value="30" selected>30 天</option><option value="90">90 天</option></select></label>
+                          <label><span>SLA 预警（小时）</span><input id="zohoSlaWarningHours" type="number" min="1" max="48" value="4" /></label>
+                          <div class="zoho-oauth-config-hint">
+                            <span data-icon="shield"></span>
+                            <div><strong id="zohoOAuthConfigState">正在检查桌面 OAuth 配置…</strong><code id="zohoOAuthConfigPath"></code><small>文件由主进程读取并导入系统安全存储；界面不读取 Client Secret。</small></div>
+                          </div>
+                          <div class="connector-form-actions">
+                            <button class="secondary-button" id="saveZohoConfig" type="submit">保存配置</button>
+                            <button class="primary-button" id="connectZohoButton" type="button">连接 Zoho Desk</button>
+                            <button class="text-button" id="disconnectZohoButton" type="button">断开</button>
+                          </div>
+                        </form>
+                      </section>
+                      <div class="connector-placeholder-grid">
+                        <span><strong>Emma</strong><small>接口契约已预留</small></span>
+                        <span><strong>Customer Ops</strong><small>接口契约已预留</small></span>
+                        <span><strong>Gitee</strong><small>仅关联展示，不创建 Issue</small></span>
+                        <span><strong>B1 运维台</strong><small>尚未配置</small></span>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="settings-card">
+                  <div class="settings-card-icon" data-icon="grid"></div>
+                  <div class="settings-card-copy">
+                    <div class="settings-title-row"><h3>当前会话</h3></div>
+                    <p>切换空间时不会关闭网页；这里只控制左侧会话列表的显示范围。</p>
+                    <label class="settings-switch-row">
+                      <span><strong>仅显示当前空间会话</strong><small>关闭时默认跨空间显示全部会话</small></span>
+                      <input id="sessionVisibilitySetting" type="checkbox" />
+                    </label>
+                  </div>
+                </article>
+
+                <article class="settings-card settings-card--wide settings-card--chrome-bookmarks" id="chromeBookmarksSettingsSection" data-settings-section="chrome-bookmarks" tabindex="-1">
+                  <div class="settings-card-icon" data-icon="chrome"></div>
+                  <div class="settings-card-copy">
+                    <div class="settings-title-row">
+                      <div>
+                        <span class="section-kicker">CHROME BOOKMARKS</span>
+                        <h3>Chrome 书签</h3>
+                      </div>
+                      <span class="status-pill" id="chromeBookmarkStatus">未配置</span>
+                    </div>
+                    <p>
+                      栖页可读取本机 Chrome 的书签文件。Google 没有向普通桌面应用开放 Chrome Sync 书签读写接口，所以“添加后自动回写 Google”需要配套 Chrome 扩展。
+                    </p>
+                    <div class="chrome-bookmark-summary" aria-label="Chrome 书签读取状态">
+                      <span><small>Chrome Profile</small><strong id="chromeBookmarkProfile">尚未选择</strong></span>
+                      <span><small>已导入</small><strong id="chromeBookmarkCount">0 个书签</strong></span>
+                      <span><small>最后读取</small><strong id="chromeBookmarkUpdatedAt">尚未读取</strong></span>
+                    </div>
+                    <div class="sync-flow" aria-label="当前同步流程">
+                      <span>Chrome / Google Sync</span>
+                      <span class="flow-arrow" data-icon="arrow-right"></span>
+                      <span>本机 Chrome 书签</span>
+                      <span class="flow-arrow" data-icon="arrow-right"></span>
+                      <span class="flow-destination">栖页</span>
+                    </div>
+                    <div class="chrome-bookmark-actions">
+                      <button class="primary-button compact-button" id="settingsImportButton" type="button">
+                        <span data-icon="reload"></span>
+                        重新读取书签
+                      </button>
+                      <button class="secondary-button compact-button" id="pageImportButton" type="button">
+                        选择或更换 Profile
+                      </button>
+                      <button class="text-button text-button--quiet" id="clearImportedBookmarks" type="button">
+                        清理导入记录
+                      </button>
+                    </div>
+                    <p class="chrome-bookmark-error is-hidden" id="chromeBookmarkError" role="status"></p>
+                    <p class="chrome-bookmark-local-note">
+                      <span data-icon="shield"></span>
+                      书签名称、网址、文件夹和读取记录仅保存在栖页本地数据中；不会修改 Chrome 或 Google 云端书签。
+                    </p>
+
+                    <div class="bookmark-toolbar settings-bookmark-toolbar">
+                      <label class="search-field">
+                        <span data-icon="search"></span>
+                        <input
+                          id="bookmarkSearch"
+                          type="search"
+                          placeholder="搜索已导入书签的名称、网址或文件夹"
+                          autocomplete="off"
+                        />
+                      </label>
+                      <label class="select-field">
+                        <span data-icon="folder"></span>
+                        <select id="bookmarkFolder" aria-label="选择书签文件夹">
+                          <option value="">全部文件夹</option>
+                        </select>
+                        <span data-icon="chevron-down"></span>
+                      </label>
+                      <div class="bookmark-total" id="bookmarkTotal">0 个书签</div>
+                    </div>
+
+                    <div class="bookmark-list settings-bookmark-list" id="bookmarkList"></div>
+                    <button class="load-more-button is-hidden" id="loadMoreBookmarks" type="button">
+                      显示更多
+                    </button>
+                  </div>
+                </article>
+
+                <article class="settings-card">
+                  <div class="settings-card-icon" data-icon="database"></div>
+                  <div class="settings-card-copy">
+                    <div class="settings-title-row">
+                      <h3>本地数据</h3>
+                      <span class="status-pill">JSON</span>
+                    </div>
+                    <p>站点列表与导入的书签保存在你的 Windows 用户目录。</p>
+                    <code class="path-display" id="dataPathDisplay">正在读取…</code>
+                    <button class="text-button" id="openDataFolderButton" type="button">
+                      打开数据目录
+                      <span data-icon="external"></span>
+                    </button>
+                  </div>
+                </article>
+
+                <article class="settings-card">
+                  <div class="settings-card-icon" data-icon="cookie"></div>
+                  <div class="settings-card-copy">
+                    <div class="settings-title-row">
+                      <h3>站点登录会话</h3>
+                      <span class="status-pill status-pill--safe">应用隔离</span>
+                    </div>
+                    <p>
+                      登录 Cookie 保存在栖页自己的 Chromium 会话中，不会读取 Chrome 密码或复用 Chrome Cookie。
+                    </p>
+                  </div>
+                </article>
+
+                <article class="settings-card settings-card--wide settings-card--roadmap">
+                  <div class="settings-card-icon" data-icon="route"></div>
+                  <div class="settings-card-copy">
+                    <div class="settings-title-row">
+                      <h3>推荐的后续实现顺序</h3>
+                    </div>
+                    <ol class="roadmap-list">
+                      <li><span>1</span><div><strong>配套 Chrome 扩展</strong><small>通过 chrome.bookmarks API 实现真实双向同步</small></div></li>
+                      <li><span>2</span><div><strong>扩展更多签到站点</strong><small>奶昔已接入；其他站点仍需逐站验证登录、验证码与成功提示</small></div></li>
+                      <li><span>3</span><div><strong>后台常驻与失败通知</strong><small>在程序关闭时继续调度，并提供可配置的失败处理</small></div></li>
+                    </ol>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </section>
+
+          <section class="local-page browser-empty-page" id="workspaceBrowserEmptyPage" data-page="browser-empty" aria-label="空间浏览空态">
+            <div class="browser-empty-card">
+              <span class="browser-empty-icon" data-icon="compass"></span>
+              <span class="section-kicker">EMPTY BROWSER</span>
+              <h1><span id="browserEmptyWorkspaceName">当前</span>空间尚未打开网页</h1>
+              <p>这里不会沿用其他空间正在浏览的站点。请从当前空间的站点列表选择网页，或先添加一个新站点。</p>
+              <div class="browser-empty-actions">
+                <button class="primary-button" id="browserEmptyOpenSites" type="button">
+                  <span data-icon="grid"></span>
+                  打开当前空间站点
+                </button>
+                <button class="secondary-button" id="browserEmptyAddSite" type="button">
+                  <span data-icon="plus"></span>
+                  添加站点
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section class="browser-page" id="browserPage" aria-label="网站阅读区">
+            <div class="browser-tabbar" id="browserTabBar" aria-label="当前空间标签组">
+              <div class="browser-tab-list" id="browserTabList" role="tablist" aria-label="网页标签"></div>
+              <span class="browser-tabbar-hint" id="browserTabHint">个人空间 · 按住标签向下拖可拆出</span>
+            </div>
+            <div class="browser-toolbar">
+              <div class="browser-nav-buttons">
+                <button class="toolbar-button" id="browserBack" type="button" title="后退" disabled>
+                  <span data-icon="arrow-left"></span>
+                </button>
+                <button class="toolbar-button" id="browserForward" type="button" title="前进" disabled>
+                  <span data-icon="arrow-right"></span>
+                </button>
+                <button class="toolbar-button" id="browserReload" type="button" title="刷新">
+                  <span data-icon="reload"></span>
+                </button>
+              </div>
+
+              <div class="address-field" id="addressField">
+                <span class="address-lock" data-icon="lock"></span>
+                <input id="addressInput" type="text" spellcheck="false" aria-label="当前网址" />
+                <span class="browser-security-note" title="登录状态仅保存在栖页">
+                  <span data-icon="shield"></span>
+                  <span>会话仅存栖页</span>
+                </span>
+                <span class="loading-line" id="loadingLine"></span>
+              </div>
+
+              <div class="browser-tools">
+                <div class="zoom-control">
+                  <button class="toolbar-button" id="zoomOut" type="button" title="缩小">
+                    <span data-icon="minus"></span>
+                  </button>
+                  <button class="zoom-label" id="zoomReset" type="button" title="恢复 100%">100%</button>
+                  <button class="toolbar-button" id="zoomIn" type="button" title="放大">
+                    <span data-icon="plus"></span>
+                  </button>
+                </div>
+                <button class="toolbar-button" id="openExternal" type="button" title="在默认浏览器打开">
+                  <span data-icon="external"></span>
+                </button>
+                <button class="toolbar-button toolbar-button--labeled" id="duplicateCurrentTab" type="button" title="复制当前页签">
+                  <span data-icon="copy"></span>
+                  <span>复制页签</span>
+                </button>
+                <button class="toolbar-button toolbar-button--labeled" id="detachCurrentTab" type="button" title="将当前标签拆到独立窗口">
+                  <span data-icon="external"></span>
+                  <span id="detachCurrentTabLabel">独立窗口</span>
+                </button>
+                <button
+                  class="toolbar-button page-actions-button"
+                  id="pageActionsButton"
+                  type="button"
+                  title="当前页面动作"
+                  aria-label="当前页面动作"
+                  aria-controls="pageActionPanel"
+                  aria-expanded="false"
+                >
+                  <span data-icon="spark"></span>
+                </button>
+                <button class="toolbar-button toolbar-button--labeled is-hidden" id="siteLoginButton" type="button">
+                  <span data-icon="cookie"></span>
+                  登录账号
+                </button>
+                <button class="toolbar-button toolbar-button--labeled is-hidden" id="repairNetworkButton" type="button">
+                  <span data-icon="reload"></span>
+                  修复网络
+                </button>
+                <button class="toolbar-button toolbar-button--labeled is-hidden" id="resetNodeSeekSession" type="button">
+                  <span data-icon="shield"></span>
+                  重置防护
+                </button>
+                <button class="toolbar-button toolbar-button--labeled is-hidden" id="repairSapSession" type="button">
+                  <span data-icon="reload"></span>
+                  修复 SAP 登录
+                </button>
+              </div>
+            </div>
+            <div class="browser-site-metadata" hidden aria-hidden="true">
+              <span id="browserSiteLogo">NS</span>
+              <strong id="browserSiteName">NodeSeek 情报</strong>
+              <small id="browserSiteStatus">正在连接</small>
+            </div>
+            <div class="browser-content" id="browserContent">
+              <div class="webview-frame" id="webviewFrame">
+                <div class="webview-placeholder" id="webviewPlaceholder">
+                  <div class="placeholder-spinner" id="webviewPlaceholderSpinner"></div>
+                  <span class="webview-placeholder-icon is-hidden" id="webviewPlaceholderIcon" data-icon="external"></span>
+                  <strong id="webviewPlaceholderTitle">正在准备阅读视图</strong>
+                  <small id="webviewPlaceholderDetail">页面加载完成后会显示在这里</small>
+                </div>
+              </div>
+              <aside class="page-action-panel" id="pageActionPanel" aria-label="当前页面动作" aria-hidden="true" hidden>
+                <header class="page-action-panel-header">
+                  <div>
+                    <span class="section-kicker">PAGE ACTIONS</span>
+                    <h2>当前页面动作</h2>
+                  </div>
+                  <button class="icon-button" id="closePageActions" type="button" aria-label="关闭当前页面动作">
+                    <span data-icon="close"></span>
+                  </button>
+                </header>
+                <div class="page-context-summary">
+                  <span class="page-context-icon" data-icon="globe"></span>
+                  <div>
+                    <strong id="pageActionTitle">正在读取当前页面</strong>
+                    <small id="pageActionHost">请稍候…</small>
+                  </div>
+                </div>
+                <section class="page-action-section">
+                  <div class="page-action-section-heading">
+                    <span>匹配的站点助手</span>
+                    <span class="status-pill" id="pageAssistantStatus">正在识别</span>
+                  </div>
+                  <div class="page-assistant-summary" id="pageAssistantSummary">
+                    当前页面加载完成后，栖页会在本地匹配可用助手。
+                  </div>
+                </section>
+                <section class="page-action-section">
+                  <div class="page-action-section-heading">
+                    <span>可执行动作</span>
+                  </div>
+                  <div class="page-action-list" id="pageActionList"></div>
+                </section>
+                <div class="zoho-context-assistant is-hidden" id="zohoContextAssistant">
+                  <section class="page-action-section zoho-ticket-context-section">
+                    <div class="page-action-section-heading"><span>当前工单</span><span class="status-pill" id="zohoContextStatus">正在读取</span></div>
+                    <div class="zoho-ticket-context" id="zohoTicketContext"></div>
+                    <div class="context-inline-actions">
+                      <button type="button" id="copyZohoTicketNumber">复制工单号</button>
+                      <button type="button" id="copyZohoTicketLink">复制链接</button>
+                      <button type="button" id="openZohoTicketExternal">在 Zoho 中打开</button>
+                    </div>
+                  </section>
+                  <section class="page-action-section context-connector-card">
+                    <div class="page-action-section-heading"><span>Customer Ops</span><span class="status-pill">未配置</span></div>
+                    <p>Customer Ops 尚未配置接口。账套启用状态与数据库连接状态将分别展示。</p>
+                  </section>
+                  <section class="page-action-section context-connector-card">
+                    <div class="page-action-section-heading"><span>开发关联</span><span class="status-pill">只读</span></div>
+                    <div id="giteeAssociationState">尚未获取到 Gitee 关联信息</div>
+                  </section>
+                  <section class="page-action-section context-connector-card">
+                    <div class="page-action-section-heading"><span>Emma 知识库</span><span class="status-pill">未配置</span></div>
+                    <p>Emma 知识库连接器尚未配置。</p>
+                    <button class="secondary-button compact-button" type="button" disabled>搜索当前工单</button>
+                  </section>
+                  <section class="page-action-section context-connector-card">
+                    <div class="page-action-section-heading"><span>B1 运维台</span><span class="status-pill">未配置</span></div>
+                    <p>本轮不读取或写入 B1 运维台。</p>
+                  </section>
+                  <section class="page-action-section context-connector-card">
+                    <div class="page-action-section-heading"><span>回复草稿</span><span class="status-pill">尚未配置</span></div>
+                    <button class="secondary-button compact-button" type="button" disabled>生成回复草稿</button>
+                    <p>未来仅生成可编辑草稿；最终发送仍由你在 Zoho 中手动完成。</p>
+                  </section>
+                </div>
+                <section class="page-action-section page-action-permissions">
+                  <div class="page-action-section-heading">
+                    <span>权限说明</span>
+                  </div>
+                  <p id="pageActionPermissions">只读取当前页面的网址和标题；具体动作执行前会再次检查权限。</p>
+                </section>
+                <div class="page-action-last-result" id="pageActionLastResult" aria-live="polite">
+                  尚未执行页面动作
+                </div>
+              </aside>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="addSiteModal" role="dialog" aria-modal="true" aria-labelledby="addSiteTitle">
+      <div class="modal-card modal-card--site">
+        <div class="modal-header">
+          <div>
+            <span class="section-kicker" id="siteModalKicker">NEW WEBSITE</span>
+            <h2 id="addSiteTitle">添加一个常用网站</h2>
+          </div>
+          <button class="icon-button" type="button" data-close-modal="addSiteModal" aria-label="关闭">
+            <span data-icon="close"></span>
+          </button>
+        </div>
+        <form id="addSiteForm">
+          <label class="form-field">
+            <span>网站名称</span>
+            <input id="siteNameInput" name="name" type="text" placeholder="例如：我的技术社区" maxlength="80" required />
+          </label>
+          <label class="form-field">
+            <span>网址</span>
+            <input id="siteUrlInput" name="url" type="text" placeholder="https://example.com" required />
+          </label>
+          <div class="form-field-row">
+            <label class="form-field">
+              <span>所属空间</span>
+              <select id="siteWorkspaceInput" name="workspaceId" required>
+                <option value="personal">个人</option>
+                <option value="work">工作</option>
+                <option value="research">研究</option>
+              </select>
+            </label>
+            <label class="form-field">
+              <span>站点类型</span>
+              <select id="siteKindInput" name="siteKind" required>
+                <option value="normal">普通站点</option>
+                <option value="workApp">工作应用</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-field-row form-field-row--open-settings">
+            <label class="form-field">
+              <span>打开方式</span>
+              <select id="siteOpenModeInput" name="openMode" required>
+                <option value="internal">栖页内置浏览器</option>
+                <option value="external">系统默认浏览器</option>
+              </select>
+            </label>
+            <label class="form-toggle-field">
+              <span>
+                <strong>固定到侧栏</strong>
+                <small>仅显示在所属空间</small>
+              </span>
+              <span class="toggle-control toggle-control--standalone">
+                <input id="sitePinnedInput" name="pinned" type="checkbox" value="true" checked />
+                <span class="toggle-track"><span></span></span>
+              </span>
+            </label>
+          </div>
+          <label class="form-field">
+            <span>简介 <small>（可选）</small></span>
+            <textarea id="siteDescriptionInput" name="description" rows="3" maxlength="120" placeholder="例如：技术社区与最新话题"></textarea>
+          </label>
+          <fieldset class="color-fieldset">
+            <legend>标识颜色</legend>
+            <div class="color-options">
+              <label><input type="radio" name="color" value="#5b7cfa" checked /><span style="--color:#5b7cfa"></span></label>
+              <label><input type="radio" name="color" value="#16a085" /><span style="--color:#16a085"></span></label>
+              <label><input type="radio" name="color" value="#ec7a5c" /><span style="--color:#ec7a5c"></span></label>
+              <label><input type="radio" name="color" value="#9b6bdc" /><span style="--color:#9b6bdc"></span></label>
+              <label><input type="radio" name="color" value="#d39b32" /><span style="--color:#d39b32"></span></label>
+              <label><input type="radio" name="color" value="#3e7e91" /><span style="--color:#3e7e91"></span></label>
+            </div>
+          </fieldset>
+          <fieldset class="assistant-fieldset">
+            <legend>站点助手 <small>（可选）</small></legend>
+            <div class="site-assistant-options" id="siteAssistantOptions">
+              <span class="site-assistant-empty">暂无可绑定的站点助手</span>
+            </div>
+          </fieldset>
+          <div class="modal-note">
+            <span data-icon="info"></span>
+            <span>当前会保存到栖页本机站点列表，不会自动写回 Google 书签。</span>
+          </div>
+          <div class="modal-actions">
+            <button class="secondary-button" type="button" data-close-modal="addSiteModal">取消</button>
+            <button class="primary-button" id="siteFormSubmitButton" type="submit">
+              <span data-icon="plus"></span>
+              <span id="siteFormSubmitText">添加并打开</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="importModal" role="dialog" aria-modal="true" aria-labelledby="importTitle">
+      <div class="modal-card modal-card--wide">
+        <div class="modal-header">
+          <div>
+            <span class="section-kicker">CHROME IMPORT</span>
+            <h2 id="importTitle">选择 Chrome 配置</h2>
+          </div>
+          <button class="icon-button" type="button" data-close-modal="importModal" aria-label="关闭">
+            <span data-icon="close"></span>
+          </button>
+        </div>
+        <p class="modal-intro">
+          栖页读取本机 Chrome 配置中的 <code>Bookmarks</code> 与 <code>AccountBookmarks</code> 文件。若 Chrome 已把 Google 账号书签同步到本机，也会一并显示；无需在栖页中登录 Google。
+        </p>
+        <div class="profile-list" id="chromeProfileList">
+          <div class="profile-loading">
+            <div class="placeholder-spinner"></div>
+            正在查找本机 Chrome 配置…
+          </div>
+        </div>
+        <div class="modal-note modal-note--strong">
+          <span data-icon="shield"></span>
+          <span id="importProfileHint"><strong>导入方向：</strong>本机 Chrome → 栖页。原始书签与 Google 云端书签都不会被修改。</span>
+        </div>
+        <div class="modal-actions">
+          <button class="secondary-button" type="button" data-close-modal="importModal">取消</button>
+          <button class="primary-button" id="confirmImportButton" type="button" disabled>
+            <span data-icon="download"></span>
+            开始导入
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="app-context-menu" id="appContextMenu" role="menu" aria-label="页签操作" hidden></div>
+
+    <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

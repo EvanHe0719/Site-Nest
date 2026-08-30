@@ -1,0 +1,974 @@
+const { createHash, randomBytes, randomUUID, timingSafeEqual } = require("node:crypto");
+const fsp = require("node:fs/promises");
+const http = require("node:http");
+const path = require("node:path");
+
+const DRIVE_FILE_NAME = "qiye-sync-v1.json";
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
+const EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email";
+const OPENID_SCOPE = "openid";
+const GOOGLE_SCOPES = Object.freeze([DRIVE_SCOPE, EMAIL_SCOPE, OPENID_SCOPE]);
+const DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
+const DRIVE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files";
+const USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
+const TOKEN_FILE_VERSION = 1;
+
+class GoogleDriveSyncError extends Error {
+  constructor(code, message, options = {}) {
+    super(message, options.cause ? { cause: options.cause } : undefined);
+    this.name = "GoogleDriveSyncError";
+    this.code = code;
+    if (Number.isInteger(options.status)) this.status = options.status;
+  }
+}
+
+function serviceError(code, message, options) {
+  return new GoogleDriveSyncError(code, message, options);
+}
+
+function isServiceError(error) {
+  return error instanceof GoogleDriveSyncError;
+}
+
+function base64Url(value) {
+  const buffer = Buffer.isBuffer(value) ? value : Buffer.from(value);
+  return buffer
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function createPkcePair() {
+  const verifier = base64Url(randomBytes(48));
+  const challenge = base64Url(createHash("sha256").update(verifier, "ascii").digest());
+  return { verifier, challenge };
+}
+
+function constantTimeTextEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left || ""), "utf8");
+  const rightBuffer = Buffer.from(String(right || ""), "utf8");
+  return (
+    leftBuffer.length === rightBuffer.length &&
+    timingSafeEqual(leftBuffer, rightBuffer)
+  );
+}
+
+function requireHttpsUrl(value, fieldName) {
+  let parsed;
+  try {
+    parsed = new URL(String(value || ""));
+  } catch {
+    throw serviceError(
+      "GOOGLE_CONFIG_INVALID",
+      `Google OAuth 配置中的 ${fieldName} 不是有效网址`,
+    );
+  }
+  if (parsed.protocol !== "https:") {
+    throw serviceError(
+      "GOOGLE_CONFIG_INVALID",
+      `Google OAuth 配置中的 ${fieldName} 必须使用 HTTPS`,
+    );
+  }
+  return parsed.toString();
+}
+
+function validateInstalledClientConfig(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw serviceError(
+      "GOOGLE_CONFIG_INVALID",
+      "Google OAuth 客户端配置不是有效对象",
+    );
+  }
+  if (!value.installed || typeof value.installed !== "object") {
+    if (value.web) {
+      throw serviceError(
+        "GOOGLE_CONFIG_CLIENT_TYPE",
+        "Google OAuth 配置必须使用“桌面应用”客户端，不能使用 Web 应用客户端",
+      );
+    }
+    throw serviceError(
+      "GOOGLE_CONFIG_CLIENT_TYPE",
+      "Google OAuth 配置缺少“桌面应用”客户端信息",
+    );
+  }
+  const installed = value.installed;
+  const clientId = String(installed.client_id || "").trim();
+  if (!clientId) {
+    throw serviceError(
+      "GOOGLE_CONFIG_INVALID",
+      "Google OAuth 桌面应用配置缺少 client_id",
+    );
+  }
+  const authUri = requireHttpsUrl(
+    installed.auth_uri || "https://accounts.google.com/o/oauth2/v2/auth",
+    "auth_uri",
+  );
+  const tokenUri = requireHttpsUrl(
+    installed.token_uri || "https://oauth2.googleapis.com/token",
+    "token_uri",
+  );
+  const clientSecret = String(installed.client_secret || "").trim();
+  return {
+    clientId,
+    clientSecret: clientSecret || null,
+    authUri,
+    tokenUri,
+    projectId: String(installed.project_id || "").trim() || null,
+  };
+}
+
+function safeStatusError(error) {
+  return {
+    code: String(error?.code || "GOOGLE_SYNC_ERROR"),
+    message: isServiceError(error)
+      ? error.message
+      : "Google 同步状态暂时无法读取",
+  };
+}
+
+function responseHtml(title, detail) {
+  const safeTitle = String(title || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  const safeDetail = String(detail || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return `<!doctype html><meta charset="utf-8"><title>${safeTitle}</title><style>body{font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f6f7f5;color:#26352f}main{max-width:520px;padding:36px;border:1px solid #dce3df;border-radius:18px;background:white;text-align:center}h1{font-size:22px}p{color:#65736e;line-height:1.7}</style><main><h1>${safeTitle}</h1><p>${safeDetail}</p></main>`;
+}
+
+function mergeHeaders(input, patch) {
+  const output = {};
+  if (input && typeof input.forEach === "function") {
+    input.forEach((value, key) => {
+      output[key] = value;
+    });
+  } else if (Array.isArray(input)) {
+    for (const [key, value] of input) output[key] = value;
+  } else if (input && typeof input === "object") {
+    Object.assign(output, input);
+  }
+  Object.assign(output, patch);
+  return output;
+}
+
+async function parseResponseJson(response, code, message) {
+  let text = "";
+  try {
+    text = await response.text();
+  } catch {
+    text = "";
+  }
+  let value = {};
+  if (text) {
+    try {
+      value = JSON.parse(text);
+    } catch {
+      if (response.ok) {
+        throw serviceError(code, `${message}：服务返回了无法识别的数据`, {
+          status: response.status,
+        });
+      }
+    }
+  }
+  if (!response.ok) {
+    throw serviceError(code, `${message}（HTTP ${response.status || "错误"}）`, {
+      status: response.status,
+    });
+  }
+  return value;
+}
+
+async function atomicWriteText(filePath, contents) {
+  const resolved = path.resolve(filePath);
+  const directory = path.dirname(resolved);
+  const temporary = path.join(
+    directory,
+    `.${path.basename(resolved)}.${process.pid}.${randomUUID()}.tmp`,
+  );
+  await fsp.mkdir(directory, { recursive: true });
+  let handle;
+  try {
+    handle = await fsp.open(temporary, "wx", 0o600);
+    await handle.writeFile(contents, "utf8");
+    await handle.sync();
+    await handle.close();
+    handle = undefined;
+    await fsp.rename(temporary, resolved);
+  } catch (error) {
+    if (handle) await handle.close().catch(() => undefined);
+    await fsp.unlink(temporary).catch(() => undefined);
+    throw error;
+  }
+}
+
+class GoogleDriveSyncService {
+  constructor(options = {}) {
+    this.configPath = options.configPath ? path.resolve(options.configPath) : "";
+    this.tokenPath = options.tokenPath ? path.resolve(options.tokenPath) : "";
+    this.openExternal = options.openExternal;
+    this.fetchFn = options.fetchFn || globalThis.fetch;
+    this.safeStorage = options.safeStorage;
+    this.logger = options.logger || null;
+    this.authTimeoutMs = Math.max(
+      1_000,
+      Number(options.authTimeoutMs) || 5 * 60 * 1_000,
+    );
+    this.now = typeof options.now === "function" ? options.now : () => Date.now();
+    this.cachedConfig = null;
+    this.cachedToken = undefined;
+  }
+
+  async status() {
+    let config;
+    try {
+      config = await this._loadConfig();
+    } catch (error) {
+      return {
+        configured: false,
+        signedIn: false,
+        email: null,
+        fileName: DRIVE_FILE_NAME,
+        error: safeStatusError(error),
+      };
+    }
+    try {
+      this._requireSafeStorage();
+    } catch (error) {
+      return {
+        configured: true,
+        signedIn: false,
+        email: null,
+        fileName: DRIVE_FILE_NAME,
+        clientId: config.clientId,
+        error: safeStatusError(error),
+      };
+    }
+    let token;
+    try {
+      token = await this._loadToken();
+    } catch (error) {
+      return {
+        configured: true,
+        signedIn: false,
+        email: null,
+        fileName: DRIVE_FILE_NAME,
+        clientId: config.clientId,
+        error: safeStatusError(error),
+      };
+    }
+    return {
+      configured: true,
+      signedIn: Boolean(
+        token &&
+          (token.refreshToken ||
+            (token.accessToken && Number(token.expiresAt || 0) > this.now())),
+      ),
+      email: token?.email || null,
+      fileName: DRIVE_FILE_NAME,
+      clientId: config.clientId,
+      error: null,
+    };
+  }
+
+  async signIn() {
+    const config = await this._loadConfig();
+    this._requireFetch();
+    this._requireSafeStorage();
+    if (!this.tokenPath) {
+      throw serviceError(
+        "GOOGLE_TOKEN_PATH_MISSING",
+        "尚未配置 Google 登录凭据保存位置",
+      );
+    }
+    if (typeof this.openExternal !== "function") {
+      throw serviceError(
+        "GOOGLE_OAUTH_OPEN_UNAVAILABLE",
+        "当前环境无法打开系统浏览器完成 Google 登录",
+      );
+    }
+    const { verifier, challenge } = createPkcePair();
+    const state = base64Url(randomBytes(32));
+    const authorization = await this._receiveAuthorizationCode({
+      config,
+      verifier,
+      challenge,
+      state,
+    });
+    const tokenValue = await this._exchangeAuthorizationCode({
+      config,
+      code: authorization.code,
+      redirectUri: authorization.redirectUri,
+      verifier,
+    });
+    const email = await this._fetchUserEmail(tokenValue.accessToken);
+    const token = { ...tokenValue, email };
+    await this._saveToken(token);
+    return this.status();
+  }
+
+  async signOut() {
+    this.cachedToken = null;
+    if (!this.tokenPath) {
+      throw serviceError(
+        "GOOGLE_TOKEN_PATH_MISSING",
+        "尚未配置 Google 登录凭据保存位置",
+      );
+    }
+    try {
+      await fsp.unlink(this.tokenPath);
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        throw serviceError(
+          "GOOGLE_TOKEN_DELETE_FAILED",
+          "无法清除本机保存的 Google 登录凭据",
+          { cause: error },
+        );
+      }
+    }
+    return this.status();
+  }
+
+  async readRemote() {
+    const file = await this._findRemoteFile();
+    if (!file) {
+      return {
+        found: false,
+        fileId: null,
+        name: DRIVE_FILE_NAME,
+        modifiedTime: null,
+        data: null,
+      };
+    }
+    const response = await this._authorizedFetch(
+      `${DRIVE_FILES_URL}/${encodeURIComponent(file.id)}?alt=media`,
+      { method: "GET" },
+    );
+    const data = await parseResponseJson(
+      response,
+      "GOOGLE_DRIVE_READ_FAILED",
+      "无法读取 Google Drive 中的栖页同步数据",
+    );
+    return {
+      found: true,
+      fileId: file.id,
+      name: file.name || DRIVE_FILE_NAME,
+      modifiedTime: file.modifiedTime || null,
+      size: file.size === undefined ? null : String(file.size),
+      data,
+    };
+  }
+
+  async writeRemote(data) {
+    let serialized;
+    try {
+      serialized = JSON.stringify(data);
+    } catch (error) {
+      throw serviceError(
+        "GOOGLE_DRIVE_DATA_INVALID",
+        "要同步到 Google Drive 的数据无法转换为 JSON",
+        { cause: error },
+      );
+    }
+    if (serialized === undefined) {
+      throw serviceError(
+        "GOOGLE_DRIVE_DATA_INVALID",
+        "要同步到 Google Drive 的数据不能为空",
+      );
+    }
+
+    const existing = await this._findRemoteFile();
+    if (existing) {
+      const query = new URLSearchParams({
+        uploadType: "media",
+        fields: "id,name,modifiedTime,size",
+      });
+      const response = await this._authorizedFetch(
+        `${DRIVE_UPLOAD_URL}/${encodeURIComponent(existing.id)}?${query}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json; charset=utf-8" },
+          body: serialized,
+        },
+      );
+      const file = await parseResponseJson(
+        response,
+        "GOOGLE_DRIVE_WRITE_FAILED",
+        "无法更新 Google Drive 中的栖页同步数据",
+      );
+      return {
+        created: false,
+        fileId: file.id || existing.id,
+        name: file.name || DRIVE_FILE_NAME,
+        modifiedTime: file.modifiedTime || null,
+        size: file.size === undefined ? null : String(file.size),
+      };
+    }
+
+    const boundary = `qiye_${base64Url(randomBytes(18))}`;
+    const metadata = JSON.stringify({
+      name: DRIVE_FILE_NAME,
+      parents: ["appDataFolder"],
+      mimeType: "application/json",
+    });
+    const multipartBody = [
+      `--${boundary}`,
+      "Content-Type: application/json; charset=UTF-8",
+      "",
+      metadata,
+      `--${boundary}`,
+      "Content-Type: application/json; charset=UTF-8",
+      "",
+      serialized,
+      `--${boundary}--`,
+      "",
+    ].join("\r\n");
+    const query = new URLSearchParams({
+      uploadType: "multipart",
+      fields: "id,name,modifiedTime,size",
+    });
+    const response = await this._authorizedFetch(`${DRIVE_UPLOAD_URL}?${query}`, {
+      method: "POST",
+      headers: {
+        "content-type": `multipart/related; boundary=${boundary}`,
+      },
+      body: multipartBody,
+    });
+    const file = await parseResponseJson(
+      response,
+      "GOOGLE_DRIVE_WRITE_FAILED",
+      "无法在 Google Drive 中创建栖页同步数据",
+    );
+    if (!file.id) {
+      throw serviceError(
+        "GOOGLE_DRIVE_WRITE_FAILED",
+        "Google Drive 已响应，但没有返回同步文件编号",
+      );
+    }
+    return {
+      created: true,
+      fileId: file.id,
+      name: file.name || DRIVE_FILE_NAME,
+      modifiedTime: file.modifiedTime || null,
+      size: file.size === undefined ? null : String(file.size),
+    };
+  }
+
+  async _loadConfig() {
+    if (this.cachedConfig) return this.cachedConfig;
+    if (!this.configPath) {
+      throw serviceError(
+        "GOOGLE_CONFIG_NOT_FOUND",
+        "尚未配置 Google OAuth 桌面应用客户端文件",
+      );
+    }
+    let raw;
+    try {
+      raw = await fsp.readFile(this.configPath, "utf8");
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        throw serviceError(
+          "GOOGLE_CONFIG_NOT_FOUND",
+          "未找到 Google OAuth 桌面应用客户端配置文件",
+          { cause: error },
+        );
+      }
+      throw serviceError(
+        "GOOGLE_CONFIG_READ_FAILED",
+        "无法读取 Google OAuth 桌面应用客户端配置文件",
+        { cause: error },
+      );
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      throw serviceError(
+        "GOOGLE_CONFIG_INVALID_JSON",
+        "Google OAuth 客户端配置文件不是有效 JSON",
+        { cause: error },
+      );
+    }
+    this.cachedConfig = validateInstalledClientConfig(parsed);
+    return this.cachedConfig;
+  }
+
+  _requireFetch() {
+    if (typeof this.fetchFn !== "function") {
+      throw serviceError(
+        "GOOGLE_NETWORK_UNAVAILABLE",
+        "当前环境无法连接 Google 服务",
+      );
+    }
+  }
+
+  _requireSafeStorage() {
+    const storage = this.safeStorage;
+    if (
+      !storage ||
+      typeof storage.encryptString !== "function" ||
+      typeof storage.decryptString !== "function" ||
+      (typeof storage.isEncryptionAvailable === "function" &&
+        !storage.isEncryptionAvailable())
+    ) {
+      throw serviceError(
+        "GOOGLE_SECURE_STORAGE_UNAVAILABLE",
+        "系统安全存储当前不可用，不能保存 Google 登录凭据",
+      );
+    }
+    return storage;
+  }
+
+  async _loadToken() {
+    if (this.cachedToken !== undefined) return this.cachedToken;
+    if (!this.tokenPath) {
+      throw serviceError(
+        "GOOGLE_TOKEN_PATH_MISSING",
+        "尚未配置 Google 登录凭据保存位置",
+      );
+    }
+    let raw;
+    try {
+      raw = await fsp.readFile(this.tokenPath, "utf8");
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        this.cachedToken = null;
+        return null;
+      }
+      throw serviceError(
+        "GOOGLE_TOKEN_READ_FAILED",
+        "无法读取本机保存的 Google 登录凭据",
+        { cause: error },
+      );
+    }
+    let wrapper;
+    try {
+      wrapper = JSON.parse(raw);
+    } catch (error) {
+      throw serviceError(
+        "GOOGLE_TOKEN_DECRYPT_FAILED",
+        "本机保存的 Google 登录凭据已损坏，请重新登录",
+        { cause: error },
+      );
+    }
+    if (
+      wrapper?.version !== TOKEN_FILE_VERSION ||
+      wrapper?.format !== "electron-safe-storage" ||
+      typeof wrapper?.ciphertext !== "string"
+    ) {
+      throw serviceError(
+        "GOOGLE_TOKEN_DECRYPT_FAILED",
+        "本机保存的 Google 登录凭据格式无效，请重新登录",
+      );
+    }
+    const storage = this._requireSafeStorage();
+    let token;
+    try {
+      const plaintext = storage.decryptString(
+        Buffer.from(wrapper.ciphertext, "base64"),
+      );
+      token = JSON.parse(plaintext);
+    } catch (error) {
+      throw serviceError(
+        "GOOGLE_TOKEN_DECRYPT_FAILED",
+        "无法解密本机保存的 Google 登录凭据，请重新登录",
+        { cause: error },
+      );
+    }
+    if (!token || typeof token !== "object") {
+      throw serviceError(
+        "GOOGLE_TOKEN_DECRYPT_FAILED",
+        "本机保存的 Google 登录凭据内容无效，请重新登录",
+      );
+    }
+    this.cachedToken = token;
+    return token;
+  }
+
+  async _saveToken(token) {
+    if (!this.tokenPath) {
+      throw serviceError(
+        "GOOGLE_TOKEN_PATH_MISSING",
+        "尚未配置 Google 登录凭据保存位置",
+      );
+    }
+    const storage = this._requireSafeStorage();
+    let encrypted;
+    try {
+      encrypted = storage.encryptString(JSON.stringify(token));
+    } catch (error) {
+      throw serviceError(
+        "GOOGLE_TOKEN_ENCRYPT_FAILED",
+        "无法使用系统安全存储加密 Google 登录凭据",
+        { cause: error },
+      );
+    }
+    const wrapper = {
+      version: TOKEN_FILE_VERSION,
+      format: "electron-safe-storage",
+      ciphertext: Buffer.from(encrypted).toString("base64"),
+    };
+    try {
+      await atomicWriteText(this.tokenPath, `${JSON.stringify(wrapper, null, 2)}\n`);
+    } catch (error) {
+      throw serviceError(
+        "GOOGLE_TOKEN_WRITE_FAILED",
+        "无法安全保存 Google 登录凭据",
+        { cause: error },
+      );
+    }
+    this.cachedToken = { ...token };
+  }
+
+  async _receiveAuthorizationCode({ config, challenge, state }) {
+    let callbackResolve;
+    let callbackReject;
+    let settled = false;
+    const callbackPromise = new Promise((resolve, reject) => {
+      callbackResolve = resolve;
+      callbackReject = reject;
+    });
+    // The browser opener may wait for the loopback response before it resolves.
+    // Attach a rejection observer immediately so an invalid callback cannot be
+    // reported as unhandled during that short interval; awaiting the original
+    // promise below still preserves the rejection for the caller.
+    void callbackPromise.catch(() => undefined);
+    const settle = (handler, value) => {
+      if (settled) return;
+      settled = true;
+      handler(value);
+    };
+    const server = http.createServer((request, response) => {
+      let requestUrl;
+      try {
+        requestUrl = new URL(request.url || "/", "http://127.0.0.1");
+      } catch {
+        response.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
+        response.end("无效请求");
+        return;
+      }
+      if (request.method !== "GET" || requestUrl.pathname !== "/oauth2/callback") {
+        response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+        response.end("未找到页面");
+        return;
+      }
+      const returnedState = requestUrl.searchParams.get("state") || "";
+      if (!constantTimeTextEqual(returnedState, state)) {
+        response.writeHead(400, { "content-type": "text/html; charset=utf-8" });
+        response.end(responseHtml("Google 登录未完成", "安全校验失败，请返回栖页重试。"));
+        settle(
+          callbackReject,
+          serviceError(
+            "GOOGLE_OAUTH_STATE_MISMATCH",
+            "Google 登录回调的安全状态不匹配，请重新登录",
+          ),
+        );
+        return;
+      }
+      const oauthError = requestUrl.searchParams.get("error");
+      if (oauthError) {
+        response.writeHead(400, { "content-type": "text/html; charset=utf-8" });
+        response.end(responseHtml("Google 登录已取消", "可以关闭此页面并返回栖页。"));
+        settle(
+          callbackReject,
+          serviceError(
+            "GOOGLE_OAUTH_DENIED",
+            "Google 登录未获授权或已被取消",
+          ),
+        );
+        return;
+      }
+      const code = requestUrl.searchParams.get("code");
+      if (!code) {
+        response.writeHead(400, { "content-type": "text/html; charset=utf-8" });
+        response.end(responseHtml("Google 登录未完成", "授权回调缺少必要信息。"));
+        settle(
+          callbackReject,
+          serviceError(
+            "GOOGLE_OAUTH_CALLBACK_INVALID",
+            "Google 登录回调缺少授权码",
+          ),
+        );
+        return;
+      }
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(responseHtml("Google 登录成功", "现在可以关闭此页面并返回栖页。"));
+      settle(callbackResolve, { code });
+    });
+
+    try {
+      await new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", () => {
+          server.removeListener("error", reject);
+          resolve();
+        });
+      });
+    } catch (error) {
+      throw serviceError(
+        "GOOGLE_OAUTH_LOOPBACK_FAILED",
+        "无法启动本机 Google 登录回调，请检查安全软件设置",
+        { cause: error },
+      );
+    }
+
+    const address = server.address();
+    const redirectUri = `http://127.0.0.1:${address.port}/oauth2/callback`;
+    const authUrl = new URL(config.authUri);
+    authUrl.search = new URLSearchParams({
+      client_id: config.clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: GOOGLE_SCOPES.join(" "),
+      state,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      access_type: "offline",
+      prompt: "consent",
+      include_granted_scopes: "true",
+    }).toString();
+
+    let timeout;
+    try {
+      timeout = setTimeout(() => {
+        settle(
+          callbackReject,
+          serviceError(
+            "GOOGLE_OAUTH_TIMEOUT",
+            "等待 Google 登录超时，请重新尝试",
+          ),
+        );
+      }, this.authTimeoutMs);
+      try {
+        await this.openExternal(authUrl.toString());
+      } catch (error) {
+        throw serviceError(
+          "GOOGLE_OAUTH_OPEN_FAILED",
+          "无法在系统浏览器中打开 Google 登录页面",
+          { cause: error },
+        );
+      }
+      const callback = await callbackPromise;
+      return { ...callback, redirectUri };
+    } finally {
+      clearTimeout(timeout);
+      await new Promise((resolve) => server.close(() => resolve())).catch(
+        () => undefined,
+      );
+    }
+  }
+
+  async _exchangeAuthorizationCode({ config, code, redirectUri, verifier }) {
+    const body = new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      client_id: config.clientId,
+      redirect_uri: redirectUri,
+      code_verifier: verifier,
+    });
+    if (config.clientSecret) body.set("client_secret", config.clientSecret);
+    let response;
+    try {
+      response = await this.fetchFn(config.tokenUri, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      });
+    } catch (error) {
+      throw serviceError(
+        "GOOGLE_TOKEN_EXCHANGE_FAILED",
+        "无法连接 Google 完成登录凭据交换",
+        { cause: error },
+      );
+    }
+    const value = await parseResponseJson(
+      response,
+      "GOOGLE_TOKEN_EXCHANGE_FAILED",
+      "Google 登录凭据交换失败",
+    );
+    if (!value.access_token) {
+      throw serviceError(
+        "GOOGLE_TOKEN_EXCHANGE_FAILED",
+        "Google 没有返回可用的访问凭据",
+      );
+    }
+    const expiresIn = Math.max(0, Number(value.expires_in) || 0);
+    return {
+      accessToken: String(value.access_token),
+      refreshToken: value.refresh_token ? String(value.refresh_token) : null,
+      tokenType: String(value.token_type || "Bearer"),
+      scope: String(value.scope || GOOGLE_SCOPES.join(" ")),
+      expiresAt: expiresIn ? this.now() + expiresIn * 1_000 : this.now(),
+    };
+  }
+
+  async _fetchUserEmail(accessToken) {
+    let response;
+    try {
+      response = await this.fetchFn(USERINFO_URL, {
+        method: "GET",
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+    } catch (error) {
+      throw serviceError(
+        "GOOGLE_PROFILE_FAILED",
+        "无法读取 Google 账号信息",
+        { cause: error },
+      );
+    }
+    const value = await parseResponseJson(
+      response,
+      "GOOGLE_PROFILE_FAILED",
+      "无法读取 Google 账号信息",
+    );
+    const email = String(value.email || "").trim();
+    if (!email) {
+      throw serviceError(
+        "GOOGLE_PROFILE_FAILED",
+        "Google 账号没有返回可识别的邮箱地址",
+      );
+    }
+    return email;
+  }
+
+  async _refreshToken(token) {
+    if (!token?.refreshToken) {
+      throw serviceError(
+        "GOOGLE_NOT_SIGNED_IN",
+        "Google 登录已失效，请重新登录",
+      );
+    }
+    const config = await this._loadConfig();
+    const body = new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: token.refreshToken,
+      client_id: config.clientId,
+    });
+    if (config.clientSecret) body.set("client_secret", config.clientSecret);
+    let response;
+    try {
+      response = await this.fetchFn(config.tokenUri, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      });
+    } catch (error) {
+      throw serviceError(
+        "GOOGLE_TOKEN_REFRESH_FAILED",
+        "无法连接 Google 刷新登录状态",
+        { cause: error },
+      );
+    }
+    const value = await parseResponseJson(
+      response,
+      "GOOGLE_TOKEN_REFRESH_FAILED",
+      "Google 登录状态刷新失败，请重新登录",
+    );
+    if (!value.access_token) {
+      throw serviceError(
+        "GOOGLE_TOKEN_REFRESH_FAILED",
+        "Google 没有返回新的访问凭据，请重新登录",
+      );
+    }
+    const expiresIn = Math.max(0, Number(value.expires_in) || 0);
+    const refreshed = {
+      ...token,
+      accessToken: String(value.access_token),
+      refreshToken: value.refresh_token
+        ? String(value.refresh_token)
+        : token.refreshToken,
+      tokenType: String(value.token_type || token.tokenType || "Bearer"),
+      scope: String(value.scope || token.scope || GOOGLE_SCOPES.join(" ")),
+      expiresAt: expiresIn ? this.now() + expiresIn * 1_000 : this.now(),
+    };
+    await this._saveToken(refreshed);
+    return refreshed;
+  }
+
+  async _accessToken(forceRefresh = false) {
+    this._requireFetch();
+    const token = await this._loadToken();
+    if (!token) {
+      throw serviceError(
+        "GOOGLE_NOT_SIGNED_IN",
+        "尚未登录 Google 账号",
+      );
+    }
+    const remains = Number(token.expiresAt || 0) - this.now();
+    if (!forceRefresh && token.accessToken && remains > 60_000) {
+      return token.accessToken;
+    }
+    const refreshed = await this._refreshToken(token);
+    return refreshed.accessToken;
+  }
+
+  async _authorizedFetch(url, options = {}, allowRetry = true) {
+    const accessToken = await this._accessToken(false);
+    let response;
+    try {
+      response = await this.fetchFn(url, {
+        ...options,
+        headers: mergeHeaders(options.headers, {
+          authorization: `Bearer ${accessToken}`,
+        }),
+      });
+    } catch (error) {
+      throw serviceError(
+        "GOOGLE_NETWORK_FAILED",
+        "无法连接 Google Drive，请检查网络后重试",
+        { cause: error },
+      );
+    }
+    if (response.status === 401 && allowRetry) {
+      const refreshed = await this._accessToken(true);
+      try {
+        return await this.fetchFn(url, {
+          ...options,
+          headers: mergeHeaders(options.headers, {
+            authorization: `Bearer ${refreshed}`,
+          }),
+        });
+      } catch (error) {
+        throw serviceError(
+          "GOOGLE_NETWORK_FAILED",
+          "无法连接 Google Drive，请检查网络后重试",
+          { cause: error },
+        );
+      }
+    }
+    return response;
+  }
+
+  async _findRemoteFile() {
+    const query = new URLSearchParams({
+      spaces: "appDataFolder",
+      q: `name='${DRIVE_FILE_NAME}' and trashed=false`,
+      fields: "files(id,name,modifiedTime,size)",
+      pageSize: "10",
+    });
+    const response = await this._authorizedFetch(`${DRIVE_FILES_URL}?${query}`, {
+      method: "GET",
+    });
+    const value = await parseResponseJson(
+      response,
+      "GOOGLE_DRIVE_LIST_FAILED",
+      "无法查找 Google Drive 中的栖页同步文件",
+    );
+    const files = Array.isArray(value.files) ? value.files : [];
+    return files.find((file) => file?.id && file?.name === DRIVE_FILE_NAME) || null;
+  }
+}
+
+module.exports = {
+  DRIVE_FILE_NAME,
+  DRIVE_SCOPE,
+  EMAIL_SCOPE,
+  GOOGLE_SCOPES,
+  GoogleDriveSyncError,
+  GoogleDriveSyncService,
+  OPENID_SCOPE,
+  createPkcePair,
+  validateInstalledClientConfig,
+};

@@ -1,0 +1,248 @@
+:root {
+  color-scheme: light;
+  font-family:
+    Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --ink: #17221f;
+  --muted: #697570;
+  --line: #dfe5e1;
+  --surface: #f8f9f7;
+  --accent: #23846f;
+  --accent-soft: #eaf5f1;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink);
+  background: #fff;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.detached-toolbar {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 56px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(248, 249, 247, 0.98);
+  box-shadow: 0 1px 5px rgba(31, 48, 43, 0.05);
+}
+
+.history-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.icon-button,
+.reattach-button {
+  border: 0;
+  color: #4c5b56;
+  background: transparent;
+  cursor: pointer;
+}
+
+.icon-button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 9px;
+}
+
+.icon-button:hover:not(:disabled) {
+  color: var(--accent);
+  background: #edf2ef;
+}
+
+.icon-button:active:not(:disabled),
+.reattach-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.icon-button:focus-visible,
+.reattach-button:focus-visible {
+  outline: 2px solid #5aa18e;
+  outline-offset: 2px;
+}
+
+.icon-button:disabled {
+  cursor: default;
+  opacity: 0.32;
+}
+
+.icon-button svg,
+.reattach-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.address-form {
+  display: flex;
+  min-width: 0;
+  height: 38px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  border: 1px solid #d8dfdb;
+  border-radius: 12px;
+  background: #fff;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.address-form:focus-within {
+  border-color: #85b8aa;
+  box-shadow: 0 0 0 3px rgba(35, 132, 111, 0.1);
+}
+
+.privacy-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #65b69f;
+  box-shadow: 0 0 0 3px #e8f4f0;
+}
+
+.address-form input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: #35423e;
+  background: transparent;
+  font-size: 13px;
+}
+
+.loading-indicator {
+  display: none;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 2px solid #d8e7e2;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+
+body.is-loading .loading-indicator {
+  display: block;
+}
+
+.reattach-button {
+  display: inline-flex;
+  height: 38px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 1px solid #b9d8cf;
+  border-radius: 11px;
+  color: #176b59;
+  background: var(--accent-soft);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.reattach-button:hover {
+  border-color: #82bbaa;
+  background: #def0ea;
+}
+
+.reattach-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.page-stage {
+  position: absolute;
+  inset: 56px 0 0;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(35, 132, 111, 0.07), transparent 32%),
+    #f6f7f5;
+}
+
+.waiting-state {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 18px 22px;
+  border: 1px solid #e0e6e2;
+  border-radius: 16px;
+  color: #37433f;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 18px 50px rgba(33, 53, 47, 0.08);
+}
+
+.waiting-mark {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 13px;
+  color: #fff;
+  background: var(--accent);
+  font-weight: 750;
+}
+
+.waiting-state strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.waiting-state p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+body.is-attached .waiting-state {
+  display: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 720px) {
+  .detached-toolbar {
+    grid-template-columns: auto minmax(120px, 1fr) auto;
+    gap: 6px;
+    padding-inline: 6px;
+  }
+
+  .reattach-button span {
+    display: none;
+  }
+
+  .reattach-button {
+    width: 38px;
+    justify-content: center;
+    padding: 0;
+  }
+}

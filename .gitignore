@@ -1,0 +1,32 @@
+# Dependencies and generated packages
+node_modules/
+release/
+test-artifacts/
+
+# Logs and transient process output
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local application state and backups
+site-nest-data.json
+site-nest-data.json.*
+
+# Credentials and local environment overrides
+.env
+.env.*
+!.env.example
+client_secret_*.json
+*credentials*.json
+*.secret.json
+*.pem
+*.p12
+*.pfx
+
+# Editor and operating-system files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+

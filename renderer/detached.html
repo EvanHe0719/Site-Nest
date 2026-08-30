@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1"
+    />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:"
+    />
+    <title>栖页 · 独立页面</title>
+    <link rel="stylesheet" href="detached.css" />
+  </head>
+  <body>
+    <header class="detached-toolbar" aria-label="独立页面工具栏">
+      <div class="history-actions" role="group" aria-label="浏览操作">
+        <button id="backButton" class="icon-button" type="button" aria-label="后退" title="后退">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+        </button>
+        <button id="forwardButton" class="icon-button" type="button" aria-label="前进" title="前进">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+        </button>
+        <button id="reloadButton" class="icon-button" type="button" aria-label="刷新" title="刷新">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></svg>
+        </button>
+      </div>
+
+      <form id="addressForm" class="address-form" autocomplete="off">
+        <span class="privacy-dot" aria-hidden="true"></span>
+        <input
+          id="addressInput"
+          aria-label="网页地址"
+          inputmode="url"
+          spellcheck="false"
+          placeholder="输入网址"
+        />
+        <span id="loadingIndicator" class="loading-indicator" aria-label="正在加载"></span>
+      </form>
+
+      <button id="reattachButton" class="reattach-button" type="button" title="将页面合回原空间">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="3" y="4" width="14" height="13" rx="2" />
+          <path d="m13 12 3 3 5-5" /><path d="M16 15h5v5" />
+        </svg>
+        <span>合回空间</span>
+      </button>
+    </header>
+
+    <main class="page-stage" aria-live="polite">
+      <section id="waitingState" class="waiting-state">
+        <div class="waiting-mark">栖</div>
+        <div>
+          <strong>正在接入原页面</strong>
+          <p>页面状态会原样保留，无需重新登录。</p>
+        </div>
+      </section>
+    </main>
+
+    <script src="detached.js"></script>
+  </body>
+</html>

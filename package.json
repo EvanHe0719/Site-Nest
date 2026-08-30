@@ -1,0 +1,48 @@
+{
+  "name": "site-nest-desktop",
+  "productName": "栖页",
+  "version": "0.4.1",
+  "description": "多空间、本地优先的网页工作台",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "check": "node scripts/check-syntax.cjs",
+    "test:unit": "node --test test/unit/*.test.cjs",
+    "test:integration": "node --test test/integration/*.test.cjs",
+    "test": "npm run test:unit && npm run test:integration",
+    "start": "electron .",
+    "dist:win": "electron-builder --win portable --x64",
+    "build": "npm run dist:win"
+  },
+  "devDependencies": {
+    "electron": "44.0.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "local.qiye.sitehub",
+    "productName": "栖页",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "renderer/**/*",
+      "assets/**/*",
+      "package.json",
+      "!release/**/*"
+    ],
+    "win": {
+      "icon": "assets/app-icon.png",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "栖页-${version}-便携版.${ext}"
+    }
+  }
+}
