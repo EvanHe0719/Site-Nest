@@ -240,8 +240,12 @@ test("closing the active tab chooses its right neighbor, then left, then an empt
   assert.match(close, /persistWorkspaceBrowserWorkspace\(workspace\)/);
 });
 
-test("all tab WebContentsViews keep the single real persistent browser identity", () => {
+test("tab WebContentsViews use the selected persistent profile without workspace partitions", () => {
   assert.match(mainSource, /const SITE_PARTITION = ["']persist:qiye-sites["']/);
+  assert.match(
+    mainSource,
+    /const SAP_SITE_PARTITION = ["']persist:qiye-sap-support["']/,
+  );
   const ensureSiteView = sourceBetween(
     "function ensureSiteView",
     "async function activateWorkspaceBrowserContext",
@@ -254,6 +258,48 @@ test("all tab WebContentsViews keep the single real persistent browser identity"
   assert.doesNotMatch(
     ensureSiteView,
     /partition:\s*[^\n]*(?:workspaceId|activeBrowserWorkspaceId)/,
+  );
+});
+
+test("SAP repair suspends every SAP-profile runtime before resetting the partition and restores only the current tab", () => {
+  const repair = sourceBetween(
+    "async function repairSapSession",
+    "function ensureSiteView",
+  );
+  const enumerateTabsAt = repair.indexOf("allRuntimeTabs()");
+  const destroyViewAt = repair.indexOf("destroySiteView(");
+  const closePopupsAt = repair.indexOf("closeForBrowserProfile(");
+  const clearAuthenticationAt = repair.indexOf("clearSapAuthenticationState(");
+  const restoreCurrentAt = repair.indexOf("ensureSiteView(context)");
+
+  assert.ok(enumerateTabsAt >= 0, "SAP repair must inspect all runtime tabs");
+  assert.match(
+    repair,
+    /browserProfileId\s*===\s*SAP_BROWSER_PROFILE_ID/,
+    "only the sap-support profile should be suspended",
+  );
+  assert.ok(
+    destroyViewAt > enumerateTabsAt && destroyViewAt < clearAuthenticationAt,
+    "every SAP WebContentsView must stop before partition data is cleared",
+  );
+  assert.ok(
+    closePopupsAt >= 0 && closePopupsAt < clearAuthenticationAt,
+    "managed SAP popup windows must stop before partition data is cleared",
+  );
+  assert.match(repair, /clearEntirePartition:\s*true/);
+  assert.doesNotMatch(
+    repair,
+    /(?:workspace\.)?tabs\.(?:delete|clear)\s*\(|closeBrowserTab\s*\(/,
+    "repair must keep persisted/runtime tab entries",
+  );
+  assert.ok(
+    restoreCurrentAt > clearAuthenticationAt,
+    "the selected tab should be recreated only after the reset finishes",
+  );
+  assert.equal(
+    repair.match(/ensureSiteView\s*\(/g)?.length || 0,
+    1,
+    "background SAP tabs must remain suspended after repair",
   );
 });
 

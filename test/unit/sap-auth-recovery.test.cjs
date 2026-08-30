@@ -50,17 +50,28 @@ test("SAP reset removes parent-domain cookies without touching other sites", asy
   const removed = [];
   const clearedOrigins = [];
   const calls = [];
+  let cookieJar = [
+    { domain: ".sap.com", path: "/", secure: true, name: "sap-parent" },
+    { domain: ".support.sap.com", path: "/portal", secure: true, name: "sap-support" },
+    { domain: ".hana.ondemand.com", path: "/", secure: true, name: "sap-auth" },
+    { domain: ".example.com", path: "/", secure: true, name: "unrelated" },
+  ];
   const targetSession = {
     cookies: {
-      get: async () => [
-        { domain: ".sap.com", path: "/", secure: true, name: "sap-parent" },
-        { domain: ".support.sap.com", path: "/portal", secure: true, name: "sap-support" },
-        { domain: ".hana.ondemand.com", path: "/", secure: true, name: "sap-auth" },
-        { domain: ".example.com", path: "/", secure: true, name: "unrelated" },
-      ],
-      remove: async (url, name) => removed.push([url, name]),
+      get: async () => {
+        calls.push("cookies:get");
+        return cookieJar;
+      },
+      remove: async (url, name) => {
+        calls.push(`cookie:remove:${name}`);
+        removed.push([url, name]);
+        cookieJar = cookieJar.filter((cookie) => cookie.name !== name);
+      },
     },
-    clearStorageData: async ({ origin }) => clearedOrigins.push(origin),
+    clearStorageData: async ({ origin }) => {
+      calls.push(`storage:${origin}`);
+      clearedOrigins.push(origin);
+    },
     clearCache: async () => calls.push("cache"),
     clearAuthCache: async () => calls.push("auth"),
     closeAllConnections: async () => calls.push("connections"),
@@ -77,7 +88,61 @@ test("SAP reset removes parent-domain cookies without touching other sites", asy
     ["https://hana.ondemand.com/", "sap-auth"],
   ]);
   assert.equal(result.removedCookieCount, 3);
+  assert.equal(result.remainingCookieCount, 0);
+  assert.deepEqual(cookieJar.map((cookie) => cookie.name), ["unrelated"]);
   assert.ok(clearedOrigins.includes("https://accounts.sap.com"));
   assert.ok(clearedOrigins.includes("https://sapit-forme-prod.authentication.eu11.hana.ondemand.com"));
-  assert.deepEqual(calls.sort(), ["auth", "cache", "connections", "dns"]);
+  assert.equal(calls[0], "connections");
+  assert.ok(calls.indexOf("cookies:get") > calls.indexOf("connections"));
+  assert.ok(calls.findIndex((call) => call.startsWith("storage:")) > calls.indexOf("connections"));
+  assert.ok(calls.includes("auth"));
+  assert.ok(calls.includes("cache"));
+  assert.ok(calls.includes("dns"));
+});
+
+test("SAP entire-partition reset removes every cookie and clears storage without an origin scope", async () => {
+  const calls = [];
+  const removed = [];
+  const storageOptions = [];
+  let cookieJar = [
+    { domain: ".sap.com", path: "/", secure: true, name: "sap-cookie" },
+    { domain: ".example.com", path: "/account", secure: true, name: "other-cookie" },
+  ];
+  const targetSession = {
+    cookies: {
+      get: async () => {
+        calls.push("cookies:get");
+        return cookieJar;
+      },
+      remove: async (url, name) => {
+        calls.push(`cookie:remove:${name}`);
+        removed.push([url, name]);
+        cookieJar = cookieJar.filter((cookie) => cookie.name !== name);
+      },
+    },
+    clearStorageData: async (options) => {
+      calls.push("storage:global");
+      storageOptions.push(options);
+    },
+    clearCache: async () => calls.push("cache"),
+    clearAuthCache: async () => calls.push("auth"),
+    closeAllConnections: async () => calls.push("connections"),
+    clearHostResolverCache: async () => calls.push("dns"),
+  };
+
+  const result = await clearSapAuthenticationState(targetSession, {
+    clearEntirePartition: true,
+    currentUrl: "https://accounts.sap.com/saml2/idp/sso",
+  });
+
+  assert.equal(calls[0], "connections");
+  assert.deepEqual(removed, [
+    ["https://sap.com/", "sap-cookie"],
+    ["https://example.com/account", "other-cookie"],
+  ]);
+  assert.equal(result.removedCookieCount, 2);
+  assert.equal(result.remainingCookieCount, 0);
+  assert.deepEqual(cookieJar, []);
+  assert.equal(storageOptions.length, 1);
+  assert.equal(storageOptions[0]?.origin, undefined);
 });

@@ -12,7 +12,7 @@ const {
 
 const projectRoot = path.resolve(__dirname, "..", "..");
 
-test("workspace page snapshots are independent while every site keeps the one real shared browser identity", () => {
+test("workspace snapshots stay independent while SAP alone receives a persistent isolated identity", () => {
   let state = createInitialState({ now: "2026-08-29T01:00:00.000Z" });
   const personalSite = addSiteToState(
     state,
@@ -34,6 +34,16 @@ test("workspace page snapshots are independent while every site keeps the one re
     { now: "2026-08-29T01:02:00.000Z", idFactory: () => "work-site" },
   );
   state = workSite.state;
+  const sapSite = addSiteToState(
+    state,
+    {
+      name: "SAP Support",
+      url: "https://support.sap.com/en/index.html?isu_page=1",
+      workspaceId: "work",
+    },
+    { now: "2026-08-29T01:02:30.000Z", idFactory: () => "sap-site" },
+  );
+  state = sapSite.state;
 
   state = setWorkspaceBrowserStateInState(
     state,
@@ -67,18 +77,21 @@ test("workspace page snapshots are independent while every site keeps the one re
     "https://personal.example.test/inside?page=2",
   );
 
-  assert.equal(state.browserProfiles.length, 1);
+  assert.equal(state.browserProfiles.length, 2);
   assert.deepEqual(
     new Set(state.sites.map((site) => site.browserProfileId)),
-    new Set(["default"]),
+    new Set(["default", "sap-support"]),
   );
   assert.equal(state.browserProfiles[0].partition, "persist:qiye-sites");
   assert.equal(state.browserProfiles[0].isReal, true);
+  assert.equal(state.browserProfiles[1].partition, "persist:qiye-sap-support");
+  assert.equal(sapSite.site.browserProfileId, "sap-support");
 });
 
-test("Electron browser views use the shared persistent partition rather than workspace-specific sessions", () => {
+test("Electron browser views use persistent profile partitions rather than workspace-specific sessions", () => {
   const source = fs.readFileSync(path.join(projectRoot, "electron", "main.cjs"), "utf8");
   assert.match(source, /const SITE_PARTITION = ["']persist:qiye-sites["']/);
+  assert.match(source, /const SAP_SITE_PARTITION = ["']persist:qiye-sap-support["']/);
   assert.match(
     source,
     /partition:\s*browserPartitionForProfile\(context\.browserProfileId\)/,

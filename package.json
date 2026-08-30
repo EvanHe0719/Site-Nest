@@ -1,7 +1,7 @@
 {
   "name": "site-nest-desktop",
   "productName": "栖页",
-  "version": "0.5.1",
+  "version": "0.5.4",
   "description": "多空间、本地优先的网页工作台",
   "private": true,
   "main": "electron/main.cjs",

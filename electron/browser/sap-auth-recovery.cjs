@@ -84,8 +84,12 @@ async function clearSapAuthenticationState(targetSession, options = {}) {
   if (!targetSession?.cookies?.get || !targetSession?.cookies?.remove) {
     throw new Error("SAP 登录会话不可用");
   }
+  const clearEntirePartition = options.clearEntirePartition === true;
+  await targetSession.closeAllConnections();
   const cookies = await targetSession.cookies.get({});
-  const sapCookies = cookies.filter((cookie) => isSapCookieDomain(cookie.domain));
+  const sapCookies = clearEntirePartition
+    ? cookies
+    : cookies.filter((cookie) => isSapCookieDomain(cookie.domain));
   await Promise.all(
     sapCookies.map((cookie) => {
       const cookieHost = normalizeDomain(cookie.domain);
@@ -99,21 +103,34 @@ async function clearSapAuthenticationState(targetSession, options = {}) {
   );
 
   const origins = sapStorageOrigins(options);
-  await Promise.all(
-    origins.map((origin) =>
-      targetSession.clearStorageData({
-        origin,
-        storages: ["localstorage", "indexdb", "serviceworkers", "cachestorage"],
-      }),
-    ),
-  );
+  if (clearEntirePartition) {
+    await targetSession.clearStorageData({
+      storages: ["localstorage", "indexdb", "serviceworkers", "cachestorage"],
+    });
+  } else {
+    await Promise.all(
+      origins.map((origin) =>
+        targetSession.clearStorageData({
+          origin,
+          storages: ["localstorage", "indexdb", "serviceworkers", "cachestorage"],
+        }),
+      ),
+    );
+  }
   await Promise.all([
     targetSession.clearCache(),
     targetSession.clearAuthCache(),
   ]);
   await targetSession.closeAllConnections();
   await targetSession.clearHostResolverCache();
-  return { removedCookieCount: sapCookies.length, clearedOrigins: origins };
+  const remainingCookies = await targetSession.cookies.get({});
+  return {
+    removedCookieCount: sapCookies.length,
+    clearedOrigins: clearEntirePartition ? ["*"] : origins,
+    remainingCookieCount: clearEntirePartition
+      ? remainingCookies.length
+      : remainingCookies.filter((cookie) => isSapCookieDomain(cookie.domain)).length,
+  };
 }
 
 module.exports = {

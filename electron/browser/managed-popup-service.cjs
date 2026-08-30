@@ -191,6 +191,22 @@ class ManagedPopupService {
     return this.navigationAudits.map((audit) => ({ ...audit, navigationChain: [...audit.navigationChain] }));
   }
 
+  closeForBrowserProfile(browserProfileId) {
+    const profileId = String(browserProfileId || "").trim();
+    if (!profileId) return 0;
+    let closedCount = 0;
+    for (const [webContentsId, entry] of Array.from(this.windows.entries())) {
+      if (String(entry?.context?.browserProfileId || "") !== profileId) continue;
+      if (!entry.window || entry.window.isDestroyed()) {
+        this.windows.delete(webContentsId);
+        continue;
+      }
+      closedCount += 1;
+      entry.window.destroy();
+    }
+    return closedCount;
+  }
+
   closeAll() {
     for (const entry of this.windows.values()) {
       if (!entry.window.isDestroyed()) entry.window.destroy();

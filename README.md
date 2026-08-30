@@ -20,7 +20,7 @@
 - 翻译 Provider 当前支持 OpenAI-compatible API；API Key 与连接器凭据共用 Electron `safeStorage` 加密文件，正文和译文只在本次运行内存与当前网页 DOM 中短暂存在。
 - 本地“计划”支持周视图、月视图、全部任务与已完成任务；任务可归属个人/工作/研究空间，并设置状态、优先级、截止时间、标签及本地提醒。提醒、托盘驻留和随系统启动均为用户显式开启，默认不改变原关闭行为。
 - OAuth、SSO 和 POST 登录窗口使用受控窗口，继承原浏览身份、Cookie 与 opener；站点级策略可在“设置与数据 → 新窗口与登录弹窗”中调整。
-- SAP Support 搜索若检测到认证状态损坏，会显示“修复 SAP 登录”；用户确认后仅清理栖页内 SAP/SAP 身份父域会话，并重新打开原 SAP for Me 搜索或 Note 目标，不影响外部 Chrome 与非 SAP 网站。
+- SAP Support、SAP for Me 与 SAP ID 使用独立的持久浏览身份，避免共享 Cookie 污染登录跳转；若仍检测到认证状态损坏，会显示“修复 SAP 登录”，用户确认后只清理该 SAP 身份并重新打开原搜索或 Note 目标，不影响外部 Chrome 与非 SAP 网站。
 - 左侧导航可收纳为 72px 图标栏并记住偏好；浏览器不再显示“已连接/正在加载”信息条，切换空间提示约 1.4 秒后消失。
 - 自动化中心包含签到任务、站点助手、工作流和执行记录；旧签到入口兼容到“签到任务”。
 - 奶昔论坛自动签到保留原实现：复用栖页登录会话，验证页面和接口结果后才记录成功。
@@ -36,7 +36,7 @@
 
 应用状态保存在 Electron 的 Windows `userData` 目录中的 `site-nest-data.json`。
 
-0.5.1 继续使用 schema v8；新增的站点弹窗策略、翻译公开配置、本地任务、提醒设置和用户脚本记录会安全补齐，不删除书签、站点、固定数据或登录状态。v2/v3/v4/v5/v6/v7 升级时：
+0.5.4 继续使用 schema v9；SAP 系统浏览身份会安全补齐，不删除书签、站点、固定数据，也不清理原共享身份中的 Cookie。v2/v3/v4/v5/v6/v7/v8 升级时：
 
 - 旧站点和固定项进入个人空间；原 ID、URL、书签、最近访问和奶昔状态保留。
 - 旧站点补齐 `workspaceId: personal`、`siteKind: normal`、`openMode: internal`、`browserProfileId: default` 和空助手绑定。
@@ -48,13 +48,16 @@
 - v7 增加 `localTasks`、`taskReminders`、`taskSettings` 与设备时区；固定站点和浏览会话不会被迁移成任务，旧版缺失字段可重复补齐。
 - v8 增加用户脚本、批准权限、隔离存储与脱敏执行记录；只创建一个默认停用的内置“恢复复制与选择”脚本，不自动执行远程代码。
 - v8 缺失的 `uiSettings.browserMemory` 会补齐为标准模式/15 分钟，页签 `keepRunning` 默认关闭；不创建新分区或清理浏览存储。
+- v9 增加系统浏览身份 `sap-support`；现有 SAP Support、SAP for Me、SAP ID 和认证链页签会迁移到 `persist:qiye-sap-support`，非 SAP 页签继续使用原 `persist:qiye-sites`。原分区数据不会被删除。
 - v3 首次升级也创建版本备份；连接器与界面默认项可重复归一化，不重复创建默认连接。
 
 ## 登录会话边界
 
-所有既有网页和奶昔签到继续使用原持久分区 `persist:qiye-sites`，因此本轮升级不会主动迁移或清空已有 Cookie。
+所有非 SAP 网页和奶昔签到继续使用原持久分区 `persist:qiye-sites`。SAP Support 登录链使用专用持久分区 `persist:qiye-sap-support`，因此首次升级后需要在栖页中重新登录一次 SAP；原共享分区的 Cookie 不会被迁移或清空。“修复 SAP 登录”会先暂停所有共享该 SAP 身份的网页和弹窗，再清空这个专用分区并只恢复当前目标；非 SAP 分区不受影响。0.5.4 还会为内嵌网页生成标准 ASCII Chrome User-Agent，避免 Electron 打包后的中文产品令牌触发 SAP HANA 请求校验。
 
-个人、工作、研究空间各自维护独立标签组，每个已加载标签使用自己的 `WebContentsView`，但所有视图仍使用同一个持久分区。也就是说，页面 URL、历史和页面状态按空间及标签分开，网站登录 Cookie 继续共享。
+浏览身份在创建页签时根据目标网址确定。通过站点入口、搜索结果或新建会话打开 SAP 会自动使用 SAP 专用身份；如果在一个已存在页签的地址栏里手动跨 SAP/非 SAP 域名导航，该页签会保留原浏览身份，不会在导航途中自动迁移 Cookie。
+
+个人、工作、研究空间各自维护独立标签组，每个已加载标签使用自己的 `WebContentsView`。非 SAP 页面仍共享默认持久身份；SAP 页面跨空间共享 SAP 专用身份。页面 URL、历史和页面状态继续按空间及标签分开。
 
 显式复制会创建新的 `WebContentsView` 并从源标签的当前网址重新加载，因此共享登录 Cookie，但不会克隆源页面尚未提交的表单、滚动位置或后退历史。普通打开仍执行自动去重。
 
@@ -70,7 +73,7 @@ Google 同步是可选功能。OAuth 客户端文件位于 Electron `userData` �
 
 Google Drive API 不能访问 Chrome Sync 的书签树。栖页中的收藏书签是导入副本；要真正回写 Chrome 账号书签，仍需要 Manifest V3 扩展通过 `chrome.bookmarks` 修改当前 Chrome 配置，再由 Chrome 按账号设置同步。
 
-本轮只建立了 `BrowserProfile` 数据接口和默认适配器，尚未实现个人/工作 Cookie 的真实隔离。强行切换分区会让旧站点全部退出登录，因此要等后续提供显式迁移和提示后再做。NodeSeek/SAP 的会话修复仍是用户点击并确认后才执行的站点专项操作。
+本轮只对 SAP 登录链启用系统管理的独立身份；个人/工作空间仍不按空间隔离 Cookie，避免让既有站点集体退出登录。NodeSeek 会话重置和 SAP 身份清理仍只有用户点击并确认后才执行。
 
 ## 助手安全边界
 

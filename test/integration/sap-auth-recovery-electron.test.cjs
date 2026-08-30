@@ -34,16 +34,22 @@ function runElectron(userData) {
   });
 }
 
-test("real Electron removes SAP parent-domain cookies and preserves unrelated cookies", { timeout: 45000 }, async (t) => {
+test("real Electron supports scoped cleanup and an isolated full SAP identity reset", { timeout: 45000 }, async (t) => {
   const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-sap-auth-recovery-"));
   t.after(() => fsp.rm(userData, { recursive: true, force: true }));
   const result = await runElectron(userData);
   const line = result.stdout.split(/\r?\n/).find((value) => value.includes('"sapAuthRecoveryProbe"'));
   assert.ok(line, `缺少 SAP auth recovery probe：${result.stdout}\n${result.stderr}`);
   const probe = JSON.parse(line).sapAuthRecoveryProbe;
-  assert.deepEqual(probe.beforeDomains, [".example.com", ".sap.com", ".support.sap.com"]);
-  assert.deepEqual(probe.afterDomains, [".example.com"]);
-  assert.equal(probe.removedCookieCount, 2);
-  assert.ok(probe.clearedOrigins.includes("https://accounts.sap.com"));
-  assert.ok(probe.clearedOrigins.includes("https://sapit-forme-prod.authentication.eu11.hana.ondemand.com"));
+  assert.deepEqual(probe.scoped.beforeDomains, [".example.com", ".sap.com", ".support.sap.com"]);
+  assert.deepEqual(probe.scoped.afterDomains, [".example.com"]);
+  assert.equal(probe.scoped.removedCookieCount, 2);
+  assert.ok(probe.scoped.clearedOrigins.includes("https://accounts.sap.com"));
+  assert.ok(probe.scoped.clearedOrigins.includes("https://sapit-forme-prod.authentication.eu11.hana.ondemand.com"));
+  assert.deepEqual(probe.dedicated.beforeDomains, [".example.com", ".sap.com"]);
+  assert.deepEqual(probe.dedicated.afterDomains, []);
+  assert.equal(probe.dedicated.removedCookieCount, 2);
+  assert.equal(probe.dedicated.remainingCookieCount, 0);
+  assert.deepEqual(probe.defaultIdentity.beforeDomains, [".example.com"]);
+  assert.deepEqual(probe.defaultIdentity.afterDomains, [".example.com"]);
 });

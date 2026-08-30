@@ -282,7 +282,7 @@ test("top and sidebar session menus share duplicate behavior and target inactive
   assert.ok(result.afterCloseCopy.browserSnapshot.tabs.some((tab) => tab.tabId === result.menu.sourceTabId));
   assert.ok(!result.afterCloseCopy.browserSnapshot.tabs.some((tab) => tab.tabId === result.afterTopCopy.browserSnapshot.activeTabId));
 
-  assert.equal(result.chrome.version, "0.5.1");
+  assert.equal(result.chrome.version, "0.5.4");
   assert.equal(result.chrome.hasSidebarChromeNav, false);
   assert.equal(result.chrome.hasSidebarChromeCard, false);
   assert.equal(result.chrome.hasFixedSitesRegion, false);

@@ -15,6 +15,7 @@ const { ManagedPopupService } = require("./managed-popup-service.cjs");
 const { resolveNavigationTarget, securityStateForUrl } = require("./navigation-target.cjs");
 const { WebContextMenuService } = require("./web-context-menu-service.cjs");
 const { WindowOpenPolicyService, normalizeSitePopupPolicies } = require("./window-open-policy-service.cjs");
+const { standardChromiumUserAgent } = require("./browser-user-agent.cjs");
 const {
   clearSapAuthenticationState,
   hasSapLoginRejection,
@@ -38,6 +39,7 @@ module.exports = {
   WebContextMenuService,
   WindowOpenPolicyService,
   normalizeSitePopupPolicies,
+  standardChromiumUserAgent,
   resolveNavigationTarget,
   securityStateForUrl,
   clearSapAuthenticationState,

@@ -20,6 +20,7 @@ const fsp = require("node:fs/promises");
 const path = require("node:path");
 const {
   DEFAULT_BROWSER_PROFILE_ID,
+  SAP_BROWSER_PROFILE_ID,
   addSiteToState,
   clearWorkspaceBrowserStateInState,
   deleteSiteFromState,
@@ -68,6 +69,7 @@ const {
   WebViewLifecycleManager,
   WebContextMenuService,
   WindowOpenPolicyService,
+  standardChromiumUserAgent,
   resolveNavigationTarget,
   securityStateForUrl,
   normalizeBrowserMemorySettings,
@@ -116,6 +118,7 @@ const {
 
 const APP_ID = "local.qiye.sitehub";
 const SITE_PARTITION = "persist:qiye-sites";
+const SAP_SITE_PARTITION = "persist:qiye-sap-support";
 const DETACHED_HEADER_HEIGHT = 56;
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 const CAPTURE_PATH = process.env.QIYE_CAPTURE_PATH;
@@ -174,6 +177,7 @@ const DEFAULT_SITES = [
 let mainWindow;
 let siteView;
 let persistentSiteSession;
+const browserSessions = new Map();
 let siteViewAttached = false;
 let siteViewBounds = { x: 288, y: 112, width: 1000, height: 700 };
 let currentHomeUrl = "";
@@ -267,10 +271,13 @@ function zohoOAuthConfigPath() {
 }
 
 function browserPartitionForProfile(profileId = DEFAULT_BROWSER_PROFILE_ID) {
-  if (profileId !== DEFAULT_BROWSER_PROFILE_ID) {
-    throw new Error("当前版本尚未启用独立浏览身份");
-  }
-  return SITE_PARTITION;
+  if (profileId === DEFAULT_BROWSER_PROFILE_ID) return SITE_PARTITION;
+  if (profileId === SAP_BROWSER_PROFILE_ID) return SAP_SITE_PARTITION;
+  throw new Error("当前版本尚未启用这个浏览身份");
+}
+
+function browserProfileIdForUrl(rawUrl, fallback = DEFAULT_BROWSER_PROFILE_ID) {
+  return isSapSessionUrl(rawUrl) ? SAP_BROWSER_PROFILE_ID : fallback;
 }
 
 function emptyBrowserState(workspaceId, snapshot = {}) {
@@ -339,12 +346,26 @@ function createRuntimeTab(workspaceId, persisted = {}) {
   const url = isSafeWebUrl(persisted.url || persisted.currentURL)
     ? String(persisted.url || persisted.currentURL)
     : "";
+  const homeURL =
+    (isSafeWebUrl(persisted.homeURL) && String(persisted.homeURL)) || url;
   const tabId = String(persisted.tabId || randomUUID());
   const siteId = persisted.siteId ? String(persisted.siteId) : null;
-  const browserProfileId = String(
-    persisted.browserProfileId || DEFAULT_BROWSER_PROFILE_ID,
+  const browserProfileId = browserProfileIdForUrl(
+    url || homeURL,
+    String(persisted.browserProfileId || DEFAULT_BROWSER_PROFILE_ID),
   );
   browserPartitionForProfile(browserProfileId);
+  const sapUrls = [homeURL, url].filter((candidate) => isSapSessionUrl(candidate));
+  const lastSapNavigationUrl =
+    sapUrls.find((candidate) => isSapSearchTarget(candidate)) || "";
+  const sapSessionOrigins = new Set();
+  for (const candidate of sapUrls) {
+    try {
+      sapSessionOrigins.add(new URL(candidate).origin);
+    } catch {
+      // Invalid URLs are already excluded above.
+    }
+  }
   return {
     workspaceId,
     tabId,
@@ -371,8 +392,7 @@ function createRuntimeTab(workspaceId, persisted = {}) {
       persisted.reliableContext && typeof persisted.reliableContext === "object"
         ? { ...persisted.reliableContext }
         : null,
-    currentHomeUrl:
-      (isSafeWebUrl(persisted.homeURL) && persisted.homeURL) || url,
+    currentHomeUrl: homeURL,
     currentSiteId: siteId,
     browserProfileId,
     browserState: {
@@ -385,7 +405,7 @@ function createRuntimeTab(workspaceId, persisted = {}) {
       url,
       currentURL: url || null,
       homeURL:
-        (isSafeWebUrl(persisted.homeURL) && persisted.homeURL) || url || null,
+        homeURL || null,
       loading: false,
       canGoBack: false,
       canGoForward: false,
@@ -395,8 +415,8 @@ function createRuntimeTab(workspaceId, persisted = {}) {
       siteIssue: "",
     },
     nodeSeekAutoRetryUsed: false,
-    lastSapNavigationUrl: "",
-    sapSessionOrigins: new Set(),
+    lastSapNavigationUrl,
+    sapSessionOrigins,
   };
 }
 
@@ -948,6 +968,7 @@ function getBrowserServices() {
       if (!context) throw new Error("当前没有可接收新页签的空间");
       return openTransientBrowserTab(context.workspaceId, url, {
         background: options.background === true,
+        browserProfileId: context.browserProfileId,
       });
     },
     openExternal: async (url) => {
@@ -1806,33 +1827,38 @@ function scheduleLifecycleEnforcement(reason = "pool-limit") {
   timer.unref?.();
 }
 
-function getPersistentSiteSession() {
-  if (persistentSiteSession) return persistentSiteSession;
-  persistentSiteSession = session.fromPartition(
-    browserPartitionForProfile(DEFAULT_BROWSER_PROFILE_ID),
+function getBrowserSession(profileId = DEFAULT_BROWSER_PROFILE_ID) {
+  if (browserSessions.has(profileId)) return browserSessions.get(profileId);
+  const targetSession = session.fromPartition(
+    browserPartitionForProfile(profileId),
     { cache: true },
   );
-  persistentSiteSession.setPermissionRequestHandler(
+  targetSession.setPermissionRequestHandler(
     (_contents, _permission, callback) => callback(false),
   );
-  persistentSiteSession.setPermissionCheckHandler(() => false);
-  persistentSiteSession.setUserAgent(
-    persistentSiteSession
-      .getUserAgent()
-      .replace(/\sElectron\/[^\s]+/g, "")
-      .replace(/\ssite-nest-desktop\/[^\s]+/g, ""),
-  );
-  getBrowserServices().downloads.attach(persistentSiteSession);
-  persistentSiteSession.readyPromise = persistentSiteSession
+  targetSession.setPermissionCheckHandler(() => false);
+  targetSession.setUserAgent(standardChromiumUserAgent(targetSession.getUserAgent()));
+  getBrowserServices().downloads.attach(targetSession);
+  targetSession.readyPromise = targetSession
     .setProxy({ mode: "system" })
     .catch((error) => console.warn("Unable to apply system proxy:", error.message));
-  return persistentSiteSession;
+  browserSessions.set(profileId, targetSession);
+  if (profileId === DEFAULT_BROWSER_PROFILE_ID) persistentSiteSession = targetSession;
+  return targetSession;
+}
+
+function getPersistentSiteSession() {
+  return getBrowserSession(DEFAULT_BROWSER_PROFILE_ID);
+}
+
+async function waitForBrowserSession(profileId = DEFAULT_BROWSER_PROFILE_ID) {
+  const siteSession = getBrowserSession(profileId);
+  await siteSession.readyPromise;
+  return siteSession;
 }
 
 async function waitForPersistentSiteSession() {
-  const siteSession = getPersistentSiteSession();
-  await siteSession.readyPromise;
-  return siteSession;
+  return waitForBrowserSession(DEFAULT_BROWSER_PROFILE_ID);
 }
 
 async function inspectKnownSiteIssue(context = activeBrowserContext()) {
@@ -1889,7 +1915,7 @@ async function repairCurrentSiteNetwork(context = activeBrowserContext()) {
   if (!hasExpectedHost(currentUrl, "nodeseek.com")) {
     throw new Error("当前页面不是 NodeSeek，未执行网络修复");
   }
-  const siteSession = await waitForPersistentSiteSession();
+  const siteSession = await waitForBrowserSession(context.browserProfileId);
   let origin;
   try {
     origin = new URL(currentUrl).origin;
@@ -1938,7 +1964,7 @@ async function resetNodeSeekSession(context = activeBrowserContext()) {
   if (!hasExpectedHost(currentUrl, "nodeseek.com")) {
     throw new Error("当前页面不是 NodeSeek，未重置登录环境");
   }
-  const siteSession = await waitForPersistentSiteSession();
+  const siteSession = await waitForBrowserSession(context.browserProfileId);
   const origin = new URL(currentUrl).origin;
   compactBrowserState({ loading: true, error: "", siteIssue: "" }, context);
   context.nodeSeekAutoRetryUsed = false;
@@ -1989,19 +2015,58 @@ async function repairSapSession(context = activeBrowserContext()) {
   ) {
     throw new Error("当前页面不是 SAP，未清理会话");
   }
-  const siteSession = await waitForPersistentSiteSession();
+  context.browserProfileId = SAP_BROWSER_PROFILE_ID;
+  const siteSession = await waitForBrowserSession(context.browserProfileId);
   const retryUrl = sapRetryUrl(
     context.lastSapNavigationUrl,
     context.currentHomeUrl,
   );
+  const sapTabs = allRuntimeTabs().filter(
+    (tab) => tab.browserProfileId === SAP_BROWSER_PROFILE_ID,
+  );
+  const visitedOrigins = new Set();
+  for (const tab of sapTabs) {
+    for (const candidate of [
+      tab.currentHomeUrl,
+      tab.browserState?.currentURL,
+      tab.browserState?.homeURL,
+      tab.view && !tab.view.webContents.isDestroyed()
+        ? tab.view.webContents.getURL()
+        : "",
+      ...Array.from(tab.sapSessionOrigins || []),
+    ]) {
+      try {
+        const parsed = new URL(String(candidate || ""));
+        if (parsed.protocol === "https:" && isSapSessionUrl(parsed.toString())) {
+          visitedOrigins.add(parsed.origin);
+        }
+      } catch {
+        // Invalid and non-SAP URLs are intentionally excluded from this reset.
+      }
+    }
+  }
 
   compactBrowserState({ loading: true, error: "", siteIssue: "" }, context);
-  await clearSapAuthenticationState(siteSession, {
+  managedPopupService?.closeForBrowserProfile(SAP_BROWSER_PROFILE_ID);
+  for (const tab of sapTabs) {
+    if (tab.detachedWindow) closeDetachedWindow(tab, "sap-session-reset");
+    destroySiteView(tab, {
+      runtimeState: "suspended",
+      reason: "sap-session-reset",
+    });
+    tab.sapSessionOrigins?.clear();
+    tab.browserState.loading = false;
+    tab.browserState.error = "";
+    tab.browserState.siteIssue = "";
+  }
+  const cleared = await clearSapAuthenticationState(siteSession, {
     currentUrl,
-    visitedOrigins: Array.from(context.sapSessionOrigins || []),
+    visitedOrigins: Array.from(visitedOrigins),
+    clearEntirePartition: true,
   });
-  context.sapSessionOrigins?.clear();
-  destroySiteView(context);
+  if (cleared.remainingCookieCount !== 0) {
+    throw new Error("SAP 专用登录身份未能完全清理，请关闭 SAP 页面后重试");
+  }
   ensureSiteView(context);
   if (context.detached && context.detachedWindow) {
     attachSiteViewToDetached(context);
@@ -2019,7 +2084,7 @@ async function repairSapSession(context = activeBrowserContext()) {
 function ensureSiteView(context = activeBrowserContext()) {
   if (!context) throw new Error("当前空间尚未初始化浏览现场");
   if (context.view) return context.view;
-  getPersistentSiteSession();
+  getBrowserSession(context.browserProfileId);
   context.runtimeState ||= new SessionRuntimeState("suspended");
   context.runtimeState.transition("restoring", "create-web-contents");
 
@@ -2204,7 +2269,7 @@ async function activateWorkspaceBrowserContext(workspaceId, options = {}) {
   }
 
   if (!context.view) {
-    await waitForPersistentSiteSession();
+    await waitForBrowserSession(context.browserProfileId);
     if (
       activationSequence !== workspaceBrowserActivationSequence ||
       activeBrowserWorkspaceId !== id
@@ -2302,7 +2367,7 @@ function destroyAllWorkspaceBrowserViews() {
 }
 
 async function ensureRuntimeTabView(tab, options = {}) {
-  await waitForPersistentSiteSession();
+  await waitForBrowserSession(tab.browserProfileId);
   ensureSiteView(tab);
   const targetURL = normalizeUrl(options.url || tab.browserState.currentURL);
   const liveURL = tab.view.webContents.getURL();
@@ -2474,6 +2539,7 @@ async function openTransientBrowserTab(workspaceId, rawUrl, options = {}) {
     homeURL: url,
     title: options.title || "",
     reliableContext: options.reliableContext || null,
+    browserProfileId: options.browserProfileId || DEFAULT_BROWSER_PROFILE_ID,
     activate: options.background !== true,
   });
   if (options.background === true) {

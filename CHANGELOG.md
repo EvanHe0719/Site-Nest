@@ -1,5 +1,33 @@
 # 变更记录
 
+## 0.5.4 - 2026-08-30
+
+### SAP HANA 请求兼容
+
+- 在完整栖页运行链中捕获到真正的 400 请求：打包后的 Electron User-Agent 含有非标准中文产品令牌 `栖页/0.5.3`，而此前成功探针只删除了英文包名，因此没有复现 HANA WAF 拒绝。
+- 所有内嵌网页现在统一使用从当前 Chromium 版本生成的标准 ASCII Chrome User-Agent，不再暴露 Electron 或应用产品名；外部协议、浏览分区和站点登录 Cookie 保持不变。
+- 用隔离数据在完整栖页中进入 SAP Support / SAP for Me 链路，原请求返回 HANA 400；应用修复后同一 Note 实际到达 `accounts.sap.com/saml2/idp/sso`，标题为“SAP for Me: 登录”。
+- 新增打包产品名和 Electron 令牌清理回归，并继续覆盖 SAP 专用分区、会话重置以及非 SAP 登录隔离。
+
+## 0.5.3 - 2026-08-30
+
+### SAP 多页签会话重置
+
+- 加固 SAP 专用分区的多页签重置顺序；后续完整应用请求跟踪确认这不是 HANA 400 的根因，真正的 User-Agent 兼容问题在 0.5.4 修复。
+- “修复 SAP 登录”现在先停止全部 `sap-support` 页签、拆出窗口和受控弹窗，再终止在途连接并清空专用分区；避免其它 SAP 页签在清理过程中重新写回失效状态。
+- SAP 专用分区清理后会检查 Cookie 数量为零，只恢复当前搜索或 Note 页签；其它 SAP 页签保留记录并进入休眠，切换时用干净身份重新加载。
+- 默认浏览身份以及 Google、Chrome 书签、NodeSeek、Zoho、奶昔等非 SAP 会话完全不参与本次重置。
+- 新增清理调用顺序、整分区 Cookie/Storage、Profile 弹窗隔离、全部 SAP 运行时暂停和真实 Electron 身份隔离回归。
+
+## 0.5.2 - 2026-08-30
+
+### SAP Support 独立登录身份
+
+- 现场比对确认失败授权 URL 与干净 Electron 身份生成的 URL 完全一致，问题不是 ICP 搜索参数或地址栏改写，而是原共享浏览身份中的 SAP 状态仍会触发认证服务拒绝。
+- SAP Support、SAP for Me、SAP ID 与 HANA 认证链改用独立持久分区 `persist:qiye-sap-support`；登录一次后在栖页内持续复用，同时不触碰 NodeSeek、Zoho、奶昔等原有登录状态。
+- schema 升级到 v9，旧 SAP 固定站点和已打开会话可重复迁移到系统 SAP 身份；原 `persist:qiye-sites` 分区及其中 Cookie 不会被删除。
+- “修复 SAP 登录”现在强制回到 SAP 独立身份，只在用户确认后清理该身份的 SAP Cookie/站点存储并重试原搜索或 Note。
+
 ## 0.5.1 - 2026-08-30
 
 ### SAP Support 登录修复

@@ -21,8 +21,12 @@ const {
   sanitizeDownloadFilename,
 } = require("../../electron/browser/download-manager.cjs");
 const {
+  ManagedPopupService,
   sanitizeNavigationUrl,
 } = require("../../electron/browser/managed-popup-service.cjs");
+const {
+  standardChromiumUserAgent,
+} = require("../../electron/browser/browser-user-agent.cjs");
 
 function fakeWebContents(overrides = {}) {
   return {
@@ -39,6 +43,22 @@ function fakeWebContents(overrides = {}) {
 function menuLabels(template) {
   return template.filter((item) => item.type !== "separator").map((item) => item.label);
 }
+
+test("embedded pages receive a standard ASCII Chromium user agent without the packaged product token", () => {
+  const packaged = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    + "AppleWebKit/537.36 (KHTML, like Gecko) 栖页/0.5.4 "
+    + "Chrome/152.0.7977.54 Safari/537.36 Electron/44.0.2";
+  const normalized = standardChromiumUserAgent(packaged);
+
+  assert.equal(
+    normalized,
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+      + "AppleWebKit/537.36 (KHTML, like Gecko) "
+      + "Chrome/152.0.7977.54 Safari/537.36",
+  );
+  assert.doesNotMatch(normalized, /栖页|Electron|site-nest-desktop/);
+  assert.match(normalized, /^[\x20-\x7e]+$/);
+});
 
 test("address navigation opens URLs directly, searches text, and rejects javascript URLs", () => {
   assert.deepEqual(resolveNavigationTarget("example.com/docs").kind, "url");
@@ -178,4 +198,53 @@ test("managed popup navigation audit removes every query and fragment value", ()
     "https://accounts.example.com/oauth/callback",
   );
   assert.equal(sanitizeNavigationUrl("javascript:alert(1)"), "");
+});
+
+test("managed popup cleanup closes only windows owned by one browser profile", () => {
+  const service = new ManagedPopupService({
+    BrowserWindow: {},
+    Menu: {},
+    policyService: {},
+    externalProtocolService: {},
+    browserPartitionForProfile: () => "persist:test",
+    openTab: () => undefined,
+    openExternal: () => undefined,
+    askToOpen: () => undefined,
+    onBlocked: () => undefined,
+    handleInternalAction: () => undefined,
+  });
+  const fakeWindow = () => {
+    let destroyed = false;
+    return {
+      destroy() {
+        destroyed = true;
+      },
+      isDestroyed() {
+        return destroyed;
+      },
+    };
+  };
+  const sapWindowA = fakeWindow();
+  const sapWindowB = fakeWindow();
+  const defaultWindow = fakeWindow();
+  service.windows.set(1, {
+    window: sapWindowA,
+    context: { browserProfileId: "sap-support" },
+  });
+  service.windows.set(2, {
+    window: defaultWindow,
+    context: { browserProfileId: "default" },
+  });
+  service.windows.set(3, {
+    window: sapWindowB,
+    context: { browserProfileId: "sap-support" },
+  });
+
+  const closedCount = service.closeForBrowserProfile("sap-support");
+
+  assert.equal(closedCount, 2);
+  assert.equal(sapWindowA.isDestroyed(), true);
+  assert.equal(sapWindowB.isDestroyed(), true);
+  assert.equal(defaultWindow.isDestroyed(), false);
+  assert.equal(service.windows.has(2), true);
 });
