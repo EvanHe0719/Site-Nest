@@ -139,6 +139,22 @@ const {
   updateTimelineUiSettingsInState,
 } = require("./timeline/index.cjs");
 const {
+  addHabitDefinitionToState,
+  buildHabitReminders,
+  buildHabitHeatmap,
+  computeHabitStats,
+  deleteHabitCheckInFromState,
+  deleteHabitDefinitionFromState,
+  habitStarCount,
+  isHabitScheduledOnDate,
+  localDateFromInstant,
+  totalHabitStarCount,
+  updateHabitDefinitionInState,
+  updateHabitReminderInState,
+  upsertHabitCheckInInState,
+} = require("./habits/index.cjs");
+const { UsageTracker } = require("./usage/index.cjs");
+const {
   UserScriptEngine,
   UserScriptSourceService,
   USER_SCRIPT_WORLD_ID,
@@ -262,6 +278,9 @@ let webViewLifecycleManager;
 const globalSearchService = new GlobalSearchService();
 const timelineSearchIndex = new TimelineSearchIndex();
 let timelineSearchIndexReady = false;
+let usageTracker;
+let usageTrackerTimer;
+let habitMutationQueue = Promise.resolve();
 const navigationPerformanceTracer = new NavigationPerformanceTracer();
 const pageCapabilityOrchestrator = new PageCapabilityOrchestrator({
   idleDelayMs: 350,
@@ -732,6 +751,23 @@ function persistState() {
       await getStateStore().save(JSON.parse(snapshot));
     });
   return writeQueue;
+}
+
+async function commitStateCandidate(candidate) {
+  const snapshot = JSON.parse(JSON.stringify({
+    ...(candidate && typeof candidate === "object" ? candidate : {}),
+    updatedAt: new Date().toISOString(),
+  }));
+  let saved;
+  writeQueue = writeQueue
+    .catch(() => undefined)
+    .then(async () => {
+      saved = await getStateStore().save(snapshot);
+      return saved;
+    });
+  await writeQueue;
+  cachedState = saved;
+  return saved;
 }
 
 function browserOwnerWindow(context) {
@@ -4411,7 +4447,9 @@ async function performNaixiCheckin({ manual = false, source = "manual" } = {}) {
 
 function runNaixiCheckin(options) {
   if (automationRunPromise) return automationRunPromise;
+  usageTracker?.setBackgroundAutomation(true);
   automationRunPromise = performNaixiCheckin(options).finally(() => {
+    usageTracker?.setBackgroundAutomation(false);
     automationRunPromise = undefined;
   });
   return automationRunPromise;
@@ -4589,6 +4627,174 @@ function taskSnapshot(state = cachedState) {
     settings: state?.taskSettings || {},
     timeZone: state?.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
   };
+}
+
+function usageSummary(days, year, today = localDateFromInstant(new Date())) {
+  const activeDates = new Set((Array.isArray(days) ? days : [])
+    .filter((day) => Number(day.foregroundActiveSeconds) > 0 || Number(day.meaningfulActionCount) > 0)
+    .map((day) => day.localDate));
+  let currentStreakDays = 0;
+  const cursor = new Date(`${today}T12:00:00`);
+  while (!Number.isNaN(cursor.valueOf())) {
+    const key = localDateFromInstant(cursor);
+    if (!activeDates.has(key)) break;
+    currentStreakDays += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  const yearPrefix = `${year}-`;
+  const monthPrefix = String(today).slice(0, 7);
+  return {
+    yearActiveDays: Array.from(activeDates).filter((date) => date.startsWith(yearPrefix)).length,
+    monthActiveDays: Array.from(activeDates).filter((date) => date.startsWith(monthPrefix)).length,
+    currentStreakDays,
+    foregroundActiveSeconds: (Array.isArray(days) ? days : [])
+      .reduce((sum, day) => sum + Math.max(0, Number(day.foregroundActiveSeconds) || 0), 0),
+  };
+}
+
+function habitSnapshot(state = cachedState, requestedYear = null) {
+  const parsedYear = Number(requestedYear);
+  const year = Number.isInteger(parsedYear) && parsedYear >= 1 && parsedYear <= 9999
+    ? parsedYear
+    : new Date().getFullYear();
+  const today = localDateFromInstant(new Date());
+  usageTracker?.tick();
+  const usageDays = (usageTracker?.snapshot() || state?.usageDayAggregates || [])
+    .filter((day) => String(day.localDate || "").startsWith(`${year}-`));
+  const checkIns = Array.isArray(state?.habitCheckIns) ? state.habitCheckIns : [];
+  const ledger = Array.isArray(state?.rewardLedger) ? state.rewardLedger : [];
+  const habits = (Array.isArray(state?.habits) ? state.habits : [])
+    .filter((habit) => !habit.deletedAt)
+    .map((habit) => {
+      const heatmap = buildHabitHeatmap(habit, checkIns, year, {
+        dailyTargetValue: habit.targetType === "totalCheckIns" ? habit.targetValue : null,
+      });
+      const todayCheckIn = checkIns.find((item) => (
+        item.habitId === habit.id && item.localDate === today && !item.deletedAt
+      )) || null;
+      return {
+        ...habit,
+        stats: computeHabitStats(habit, checkIns, { asOfLocalDate: today }),
+        heatmap,
+        todayCheckIn: todayCheckIn
+          ? { id: todayCheckIn.id, state: todayCheckIn.state, value: todayCheckIn.value }
+          : null,
+        starCount: habitStarCount(ledger, habit.id),
+      };
+    });
+  const todayPendingCount = habits.filter((habit) => (
+    habit.status === "active" &&
+    isHabitScheduledOnDate(habit, today) &&
+    !habit.todayCheckIn
+  )).length;
+  return {
+    year,
+    today,
+    habits,
+    todayPendingCount,
+    totalStars: totalHabitStarCount(ledger),
+    usage: {
+      year,
+      enabled: state?.uiSettings?.usageTrackingEnabled !== false,
+      days: usageDays,
+      summary: usageSummary(usageDays, year, today),
+    },
+  };
+}
+
+function emitHabitsChanged(focusHabitId = null) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("habits:changed", {
+    ...habitSnapshot(cachedState),
+    focusHabitId,
+  });
+}
+
+function mutateHabitState(mutator, requestedYear = null) {
+  const operation = habitMutationQueue
+    .catch(() => undefined)
+    .then(async () => {
+      const state = await getState();
+      const result = mutator(state);
+      await commitStateCandidate(result.state);
+      emitHabitsChanged(result.habit?.id || result.checkIn?.habitId || null);
+      if (taskReminderScheduler) await taskReminderScheduler.reschedule();
+      return { ...result, ...habitSnapshot(cachedState, requestedYear) };
+    });
+  habitMutationQueue = operation.catch(() => undefined);
+  return operation;
+}
+
+async function persistUsageAggregates(aggregates) {
+  const operation = habitMutationQueue
+    .catch(() => undefined)
+    .then(async () => {
+      const state = await getState();
+      const candidate = {
+        ...state,
+        usageDayAggregates: Array.isArray(aggregates) ? aggregates : [],
+      };
+      await commitStateCandidate(candidate);
+      emitHabitsChanged();
+      return cachedState;
+    });
+  habitMutationQueue = operation.catch(() => undefined);
+  return operation;
+}
+
+function updateUsageEligibility() {
+  if (!usageTracker) return;
+  const foreground = Boolean(
+    mainWindow &&
+    !mainWindow.isDestroyed() &&
+    mainWindow.isVisible() &&
+    !mainWindow.isMinimized() &&
+    mainWindow.isFocused(),
+  );
+  usageTracker.setIdle(powerMonitor.getSystemIdleTime() >= 120);
+  usageTracker.setForeground(foreground);
+}
+
+async function initializeUsageRuntime() {
+  if (usageTracker) return usageTracker;
+  const state = await getState();
+  usageTracker = new UsageTracker({
+    aggregates: state.usageDayAggregates,
+    enabled: state.uiSettings?.usageTrackingEnabled !== false,
+    foreground: false,
+    flushIntervalMs: 60_000,
+    maxAccrualGapMs: 60_000,
+    onFlush: persistUsageAggregates,
+  });
+  updateUsageEligibility();
+  usageTrackerTimer = setInterval(() => {
+    updateUsageEligibility();
+    void usageTracker?.flushIfDue().catch((error) => {
+      console.error("Unable to persist local usage aggregate:", error?.message || error);
+    });
+  }, 15_000);
+  usageTrackerTimer.unref?.();
+  return usageTracker;
+}
+
+async function setUsageTrackingEnabled(enabled) {
+  const state = await getState();
+  const result = updateUiSettingsInState(state, {
+    usageTrackingEnabled: enabled === true,
+  }, { defaultSites: DEFAULT_SITES });
+  await commitStateCandidate(result.state);
+  const tracker = await initializeUsageRuntime();
+  tracker.setEnabled(enabled === true);
+  if (!enabled) await tracker.flush();
+  emitHabitsChanged();
+  return habitSnapshot(cachedState);
+}
+
+async function clearUsageTracking() {
+  const tracker = await initializeUsageRuntime();
+  tracker.clear();
+  await tracker.flush();
+  return habitSnapshot(cachedState);
 }
 
 function emitTasksChanged(focusTaskId = null) {
@@ -4825,6 +5031,99 @@ async function openMainWindowForTask(taskId = null, view = "week") {
   mainWindow.webContents.send("tasks:open", { taskId, view });
 }
 
+async function openMainWindowForHabit(habitId, localDate = localDateFromInstant(new Date())) {
+  if (!mainWindow || mainWindow.isDestroyed()) createMainWindow();
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.webContents.send("habits:open", { habitId, localDate });
+}
+
+async function snoozeHabitReminder(reminderId, minutes = 10) {
+  const duration = Math.max(5, Math.min(1440, Number(minutes) || 10));
+  const operation = habitMutationQueue.catch(() => undefined).then(async () => {
+    const state = await getState();
+    const result = updateHabitReminderInState(state, reminderId, {
+      state: "snoozed",
+      snoozedUntil: new Date(Date.now() + duration * 60_000).toISOString(),
+      firedAt: null,
+    });
+    await commitStateCandidate(result.state);
+    return result.reminder;
+  });
+  habitMutationQueue = operation.catch(() => undefined);
+  return operation;
+}
+
+function checkInHabitFromNotification(habitId, localDate, state) {
+  return mutateHabitState((current) => upsertHabitCheckInInState(current, {
+    habitId,
+    localDate,
+    state,
+    note: state === "skipped" ? "通过本地提醒标记今日跳过" : "通过本地提醒完成",
+  }));
+}
+
+async function fireHabitReminder(reminderId) {
+  const state = await getState();
+  const prepared = buildHabitReminders(
+    state.habits,
+    state.habitCheckIns,
+    state.habitReminders,
+  );
+  let reminder = prepared.find((item) => item.id === String(reminderId || ""));
+  if (!reminder || !["pending", "snoozed"].includes(reminder.state)) return false;
+  const habit = state.habits.find((item) => item.id === reminder.habitId && !item.deletedAt);
+  if (!habit || habit.status !== "active" || !state.taskSettings.remindersEnabled) return false;
+  const now = new Date();
+  const pausedUntil = Date.parse(state.taskSettings.pausedUntil || 0);
+  const dndUntil = nextDoNotDisturbEnd(state.taskSettings, now);
+  const deferUntil = Number.isFinite(pausedUntil) && pausedUntil > now.valueOf()
+    ? new Date(pausedUntil).toISOString()
+    : dndUntil;
+  const candidate = { ...state, habitReminders: prepared };
+  const changed = updateHabitReminderInState(candidate, reminder.id, deferUntil
+    ? { state: "snoozed", snoozedUntil: deferUntil }
+    : { state: "fired", firedAt: now.toISOString(), snoozedUntil: null });
+  await commitStateCandidate(changed.state);
+  reminder = changed.reminder;
+  if (deferUntil) return false;
+  const result = desktopNotificationService?.showHabit(habit, reminder, {
+    sound: state.taskSettings.notificationSound,
+  });
+  if (!result?.supported) emitHabitsChanged(habit.id);
+  return true;
+}
+
+async function pendingReminders() {
+  const state = await getState();
+  if (!state.taskSettings.remindersEnabled) return [];
+  const openTaskIds = new Set(state.localTasks
+    .filter((task) => !["done", "cancelled"].includes(task.status))
+    .map((task) => task.id));
+  const taskReminders = state.taskReminders.filter((reminder) => (
+    ["pending", "snoozed"].includes(reminder.state) && openTaskIds.has(reminder.taskId)
+  ));
+  const habitReminders = buildHabitReminders(
+    state.habits,
+    state.habitCheckIns,
+    state.habitReminders,
+  );
+  if (JSON.stringify(habitReminders) !== JSON.stringify(state.habitReminders || [])) {
+    await commitStateCandidate({ ...state, habitReminders });
+  }
+  return [
+    ...taskReminders.map((reminder) => ({ ...reminder, kind: "task" })),
+    ...habitReminders.filter((reminder) => ["pending", "snoozed"].includes(reminder.state)),
+  ];
+}
+
+function fireScheduledReminder(reminderId) {
+  return String(reminderId || "").startsWith("habit-reminder:")
+    ? fireHabitReminder(reminderId)
+    : fireTaskReminder(reminderId);
+}
+
 async function fireTaskReminder(reminderId) {
   const state = await getState();
   const reminder = state.taskReminders.find((item) => item.id === String(reminderId || ""));
@@ -4870,6 +5169,10 @@ function taskRuntime() {
     onOpenTask: (taskId) => void openMainWindowForTask(taskId),
     onComplete: (taskId) => void markTaskCompleted(taskId),
     onSnooze: (reminderId, minutes) => void snoozeTaskReminder(reminderId, minutes),
+    onOpenHabit: (habitId, localDate) => void openMainWindowForHabit(habitId, localDate),
+    onCompleteHabit: (habitId, localDate) => void checkInHabitFromNotification(habitId, localDate, "completed"),
+    onSnoozeHabit: (reminderId, minutes) => void snoozeHabitReminder(reminderId, minutes),
+    onSkipHabit: (habitId, localDate) => void checkInHabitFromNotification(habitId, localDate, "skipped"),
   });
   trayService = new TrayService({
     Tray,
@@ -4894,15 +5197,8 @@ function taskRuntime() {
     },
   });
   taskReminderScheduler = new TaskReminderScheduler({
-    listPending: async () => {
-      const state = await getState();
-      if (!state.taskSettings.remindersEnabled) return [];
-      const openTaskIds = new Set(state.localTasks.filter((task) => !["done", "cancelled"].includes(task.status)).map((task) => task.id));
-      return state.taskReminders.filter((reminder) =>
-        ["pending", "snoozed"].includes(reminder.state) && openTaskIds.has(reminder.taskId),
-      );
-    },
-    fireReminder: fireTaskReminder,
+    listPending: pendingReminders,
+    fireReminder: fireScheduledReminder,
   });
   return { scheduler: taskReminderScheduler, notifications: desktopNotificationService, tray: trayService };
 }
@@ -5045,7 +5341,15 @@ async function runUserScriptsForContext(context, runAt) {
 function registerIpc() {
   ipcMain.handle("state:get", async () => {
     const state = await getState();
-    return { ...state, timelineEvents: [] };
+    return {
+      ...state,
+      timelineEvents: [],
+      habits: [],
+      habitCheckIns: [],
+      habitReminders: [],
+      rewardLedger: [],
+      usageDayAggregates: [],
+    };
   });
   ipcMain.handle("settings:update-ui", async (_event, patch) => {
     const state = await getState();
@@ -5550,6 +5854,41 @@ function registerIpc() {
     emitTasksChanged();
     return taskSnapshot(cachedState);
   });
+  ipcMain.handle("habits:get", async (_event, payload) =>
+    habitSnapshot(await getState(), payload?.year),
+  );
+  ipcMain.handle("habits:add", (_event, payload) =>
+    mutateHabitState((state) => addHabitDefinitionToState(state, payload)),
+  );
+  ipcMain.handle("habits:update", (_event, payload) =>
+    mutateHabitState((state) => updateHabitDefinitionInState(state, payload)),
+  );
+  ipcMain.handle("habits:delete", (_event, habitId) =>
+    mutateHabitState((state) => deleteHabitDefinitionFromState(state, habitId)),
+  );
+  ipcMain.handle("habits:get-check-in", async (_event, payload) => {
+    const state = await getState();
+    return state.habitCheckIns.find((item) => (
+      item.habitId === String(payload?.habitId || "") &&
+      item.localDate === String(payload?.localDate || "") &&
+      !item.deletedAt
+    )) || null;
+  });
+  ipcMain.handle("habits:upsert-check-in", (_event, payload) =>
+    mutateHabitState((state) => upsertHabitCheckInInState(state, payload)),
+  );
+  ipcMain.handle("habits:delete-check-in", (_event, checkInId) =>
+    mutateHabitState((state) => deleteHabitCheckInFromState(state, checkInId)),
+  );
+  ipcMain.handle("usage:update-settings", (_event, patch) =>
+    setUsageTrackingEnabled(patch?.enabled === true),
+  );
+  ipcMain.handle("usage:clear", () => clearUsageTracking());
+  ipcMain.on("usage:meaningful-action", () => {
+    if (!usageTracker) return;
+    updateUsageEligibility();
+    usageTracker.recordMeaningfulAction();
+  });
   ipcMain.handle("timeline:get", async (_event, payload) =>
     timelineSnapshot(await getState(), payload?.year, payload?.trackId),
   );
@@ -5815,6 +6154,18 @@ function createMainWindow() {
     if (url !== mainWindow.webContents.getURL()) event.preventDefault();
   });
   mainWindow.on("resize", () => applySiteViewBounds(siteViewBounds));
+  mainWindow.on("focus", updateUsageEligibility);
+  mainWindow.on("blur", () => {
+    updateUsageEligibility();
+    void usageTracker?.flush().catch(() => undefined);
+  });
+  mainWindow.on("minimize", updateUsageEligibility);
+  mainWindow.on("restore", updateUsageEligibility);
+  mainWindow.on("show", updateUsageEligibility);
+  mainWindow.on("hide", () => {
+    updateUsageEligibility();
+    void usageTracker?.flush().catch(() => undefined);
+  });
   mainWindow.on("close", (event) => {
     if (appBackgroundService?.shouldHideOnClose(cachedState?.taskSettings, isQuitting)) {
       event.preventDefault();
@@ -5945,6 +6296,33 @@ function createMainWindow() {
             );
             await new Promise((resolve) => setTimeout(resolve, 350));
           }
+        } else if (CAPTURE_ROUTE === "habits") {
+          const result = await mainWindow.webContents.executeJavaScript(`(async () => {
+            const today = localDateKey(new Date());
+            const added = await window.siteNest.addHabit({
+              name: '阅读',
+              description: 'Electron 集成测试目标',
+              workspaceId: 'personal',
+              frequencyType: 'daily',
+              startDate: today,
+              reminderTime: '20:30',
+              targetType: 'totalCheckIns',
+              targetValue: 100
+            });
+            await window.siteNest.upsertHabitCheckIn({
+              habitId: added.habit.id,
+              localDate: today,
+              state: 'completed',
+              note: '测试打卡'
+            });
+            await loadHabits();
+            currentTaskView = 'habits';
+            navigateTo('plan');
+            renderPlan();
+            return { habitId: added.habit.id, stars: habitState.totalStars, view: currentTaskView };
+          })()`);
+          console.log(JSON.stringify({ habitProbe: result }));
+          await new Promise((resolve) => setTimeout(resolve, 900));
         } else if (["plan-week", "plan-month", "task-modal"].includes(CAPTURE_ROUTE)) {
           await mainWindow.webContents.executeJavaScript(`(async () => {
             const now = new Date();
@@ -6999,6 +7377,9 @@ if (!hasSingleInstanceLock) {
     void initializeTaskRuntime().catch((error) => {
       console.error("Unable to initialize local task reminders:", error?.message || error);
     });
+    void initializeUsageRuntime().catch((error) => {
+      console.error("Unable to initialize local usage tracking:", error?.message || error);
+    });
     void scheduleNaixiAutomation().catch((error) => {
       console.error("Unable to schedule automation:", error?.message || error);
     });
@@ -7070,6 +7451,10 @@ app.on("before-quit", () => {
   isQuitting = true;
   zohoDashboardAbortController?.abort();
   taskReminderScheduler?.stop();
+  if (usageTrackerTimer) clearInterval(usageTrackerTimer);
+  usageTrackerTimer = undefined;
+  usageTracker?.setForeground(false);
+  void usageTracker?.flush().catch(() => undefined);
   desktopNotificationService?.closeAll();
   trayService?.destroy();
   webViewLifecycleManager?.stop();

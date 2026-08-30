@@ -297,12 +297,13 @@ test("v10 migration keeps sites separate from sessions and is idempotent", () =>
   const initial = createInitialState({ now: NOW, defaultSites: [
     { id: "site-a", name: "站点 A", url: "https://a.example/", workspaceId: "work" },
   ] });
-  assert.equal(initial.version, 13);
+  assert.equal(initial.version, 14);
   assert.equal(initial.sites.length, 1);
   assert.equal(initial.workspaceBrowserStates.work.tabs.length, 0);
   assert.deepEqual(initial.uiSettings, {
     sessionVisibility: "all",
     contextAssistantCollapsed: false,
+    usageTrackingEnabled: true,
     sitePopupPolicies: [],
     translation: {
       providerId: "openai-compatible",
@@ -339,11 +340,13 @@ test("session visibility and context-assistant preferences survive state normali
   const updated = updateUiSettingsInState(initial, {
     sessionVisibility: "workspace",
     contextAssistantCollapsed: true,
+    usageTrackingEnabled: true,
   }, { now: NOW }).state;
   const restarted = migrateState(JSON.parse(JSON.stringify(updated)), { now: NOW }).state;
   assert.deepEqual(restarted.uiSettings, {
     sessionVisibility: "workspace",
     contextAssistantCollapsed: true,
+    usageTrackingEnabled: true,
     sitePopupPolicies: [],
     translation: {
       providerId: "openai-compatible",

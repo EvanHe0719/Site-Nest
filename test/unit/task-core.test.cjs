@@ -243,3 +243,36 @@ test("desktop notification maps click, complete and 5/10/30 minute snooze action
   service.closeAll();
   assert.equal(service.active.size, 0);
 });
+
+test("desktop notification service exposes habit open, complete, snooze and skip actions", () => {
+  class FakeNotification extends EventEmitter {
+    static isSupported() { return true; }
+    constructor(options) { super(); this.options = options; }
+    show() { this.shown = true; }
+    close() { this.emit("close"); }
+  }
+  const calls = [];
+  const service = new DesktopNotificationService({
+    Notification: FakeNotification,
+    icon: "icon.png",
+    onOpenHabit: (id, date) => calls.push(["open-habit", id, date]),
+    onCompleteHabit: (id, date) => calls.push(["complete-habit", id, date]),
+    onSnoozeHabit: (id, minutes) => calls.push(["snooze-habit", id, minutes]),
+    onSkipHabit: (id, date) => calls.push(["skip-habit", id, date]),
+  });
+  const habit = { id: "habit-a", name: "阅读" };
+  const reminder = { id: "hr-a", notificationKey: "hn-a", localDate: "2026-08-31" };
+  assert.deepEqual(service.showHabit(habit, reminder), { supported: true });
+  const notification = service.active.get("hn-a");
+  assert.deepEqual(notification.options.actions.map((item) => item.text), ["今日完成", "延后 10 分钟", "今日跳过"]);
+  notification.emit("click");
+  notification.emit("action", {}, 0);
+  notification.emit("action", {}, 1);
+  notification.emit("action", {}, 2);
+  assert.deepEqual(calls, [
+    ["open-habit", "habit-a", "2026-08-31"],
+    ["complete-habit", "habit-a", "2026-08-31"],
+    ["snooze-habit", "hr-a", 10],
+    ["skip-habit", "habit-a", "2026-08-31"],
+  ]);
+});

@@ -106,7 +106,7 @@ test("history strips sensitive URL parameters and rejects credentials or token a
   assert.doesNotMatch(JSON.stringify(history), /secret|hidden|password|do-not-store/);
 });
 
-test("v9 state migrates to v13 without altering sites, bookmarks, sessions, or connector config", () => {
+test("v9 state migrates to v14 without altering sites, bookmarks, sessions, or connector config", () => {
   const initial = createInitialState({ now: NOW.toISOString(), defaultSites: [{
     id: "site-a",
     name: "Site A",
@@ -132,7 +132,7 @@ test("v9 state migrates to v13 without altering sites, bookmarks, sessions, or c
     updatedAt: NOW.toISOString(),
   }];
   const result = migrateState(initial, { now: NOW.toISOString() });
-  assert.equal(result.state.version, 13);
+  assert.equal(result.state.version, 14);
   assert.equal(result.state.sites[0].id, "site-a");
   assert.equal(result.state.bookmarks[0].id, "bookmark-a");
   assert.equal(result.state.connectorConnections[0].publicConfig.orgId, "123456");

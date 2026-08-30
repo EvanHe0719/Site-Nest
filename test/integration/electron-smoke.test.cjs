@@ -111,9 +111,9 @@ test(
     await fsp.writeFile(dataFile, JSON.stringify(v2Fixture, null, 2), "utf8");
 
     const first = await runElectron({ userData, route: "state-probe" });
-    assert.match(first.stdout, /"version":13/);
+    assert.match(first.stdout, /"version":14/);
     const migrated = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(migrated.version, 13);
+    assert.equal(migrated.version, 14);
     assert.equal(migrated.activeWorkspaceId, "personal");
     assert.deepEqual(
       migrated.workspaces.map((workspace) => workspace.id),
@@ -165,7 +165,7 @@ test(
 
     const dataFile = path.join(userData, "site-nest-data.json");
     const persisted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(persisted.version, 13);
+    assert.equal(persisted.version, 14);
     assert.equal(persisted.localTasks.length, 1);
     assert.equal(persisted.localTasks[0].title, "IPC 本地任务已更新");
     assert.equal(persisted.taskReminders.length, 1);
@@ -233,10 +233,38 @@ test(
     assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
 
     const persisted = JSON.parse(await fsp.readFile(path.join(userData, "site-nest-data.json"), "utf8"));
-    assert.equal(persisted.version, 13);
+    assert.equal(persisted.version, 14);
     assert.deepEqual(persisted.timelineTracks.map((track) => track.id), ["work", "personal"]);
     assert.equal(persisted.timelineEvents.filter((event) => !event.deletedAt).length, 3);
     assert.equal(persisted.timelineUiSettings.viewMode, "timeline");
     assert.equal(persisted.localTasks.length, 1);
+  },
+);
+
+test(
+  "习惯打卡通过窄 IPC 原子写入打卡与坚持星并渲染独立热力图",
+  { timeout: 90000 },
+  async (t) => {
+    const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-habit-integration-"));
+    t.after(async () => {
+      await fsp.rm(userData, { recursive: true, force: true });
+    });
+    const probe = await runElectron({ userData, route: "habits", width: 1400, height: 900 });
+    const line = probe.stdout.split(/\r?\n/).find((item) => item.includes('"habitProbe"'));
+    assert.ok(line, probe.stdout);
+    const result = JSON.parse(line).habitProbe;
+    assert.equal(result.view, "habits");
+    assert.equal(result.stars, 1);
+    assert.ok(result.habitId);
+    assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
+
+    const dataFile = path.join(userData, "site-nest-data.json");
+    const persisted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
+    assert.equal(persisted.version, 14);
+    assert.equal(persisted.habits.length, 1);
+    assert.equal(persisted.habitCheckIns.filter((item) => !item.deletedAt).length, 1);
+    assert.equal(persisted.rewardLedger.filter((item) => !item.reversedAt).length, 1);
+    assert.equal(persisted.rewardLedger[0].habitId, persisted.habits[0].id);
+    assert.equal(persisted.habits[0].reminderTime, "20:30");
   },
 );

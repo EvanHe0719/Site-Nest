@@ -261,6 +261,17 @@
 
               <section class="workspace-task-widget" data-workspace-task-widget="personal"></section>
 
+              <section class="usage-home-card" id="usageHomeCard">
+                <div class="usage-home-copy">
+                  <span class="section-kicker">LOCAL ACTIVITY</span>
+                  <h2>栖页使用轨迹</h2>
+                  <p>只统计前台且非空闲的有效使用，不记录输入内容、网页正文或后台自动化。</p>
+                  <div class="usage-home-stats" id="usageHomeStats"></div>
+                  <button class="text-button" id="openUsageDetails" type="button">打开详细统计 <span data-icon="arrow-right"></span></button>
+                </div>
+                <div class="usage-mini-heatmap" id="usageHomeHeatmap" aria-label="当前年度栖页使用热力图"></div>
+              </section>
+
               <div class="feature-grid">
                 <article class="feature-card feature-card--bookmarks">
                   <div class="feature-topline">
@@ -449,6 +460,7 @@
               <div class="plan-view-tabs" id="planViewTabs" role="tablist" aria-label="计划视图">
                 <button class="is-active" type="button" data-task-view="week" role="tab">本周</button>
                 <button type="button" data-task-view="month" role="tab">本月</button>
+                <button type="button" data-task-view="habits" role="tab">习惯打卡</button>
                 <button type="button" data-task-view="all" role="tab">全部任务</button>
                 <button type="button" data-task-view="completed" role="tab">已完成</button>
                 <button type="button" data-task-view="timeline" role="tab">时间轴</button>
@@ -466,6 +478,18 @@
                   <div><button type="button" data-month-move="-1">上个月</button><button type="button" data-month-move="0">本月</button><button type="button" data-month-move="1">下个月</button></div>
                 </div>
                 <div class="task-month-layout"><div class="task-month-calendar" id="taskMonthCalendar"></div><aside class="task-selected-day"><h2 id="taskSelectedDayTitle">当天任务</h2><div id="taskSelectedDayList"></div></aside></div>
+              </section>
+              <section class="plan-view-panel habit-panel" id="habitPanel" data-task-panel="habits" hidden>
+                <div class="habit-summary-bar">
+                  <div><span class="section-kicker">LONG-TERM GOALS</span><h2>习惯打卡</h2><p id="habitTodaySummary">读取今日计划…</p></div>
+                  <div class="habit-summary-actions"><button class="secondary-button compact-button" id="openUsageTrackButton" type="button">使用轨迹</button><button class="primary-button compact-button" id="habitAddButton" type="button"><span data-icon="plus"></span>创建长期目标</button></div>
+                </div>
+                <section class="usage-detail-card is-hidden" id="usageDetailCard">
+                  <div class="usage-detail-header"><div><h3>栖页使用轨迹</h3><p>与习惯热力图完全分开，不产生坚持星。</p></div><div><label class="settings-switch-row"><span><strong>使用统计</strong><small>仅前台有效使用</small></span><input id="usageTrackingToggle" type="checkbox" checked /></label><button class="text-button text-button--danger" id="clearUsageStats" type="button">清除统计</button></div></div>
+                  <div class="usage-detail-stats" id="usageDetailStats"></div>
+                  <div class="habit-heatmap habit-heatmap--usage" id="usageDetailHeatmap"></div>
+                </section>
+                <div class="habit-grid" id="habitGrid"></div>
               </section>
               <section class="plan-view-panel" id="taskAllPanel" data-task-panel="all" hidden><div class="task-list-page" id="taskAllList"></div></section>
               <section class="plan-view-panel" id="taskCompletedPanel" data-task-panel="completed" hidden><div class="task-list-page" id="taskCompletedList"></div></section>
@@ -1458,6 +1482,48 @@
         <div class="timeline-review-stats" id="timelineReviewStats"></div>
         <pre class="timeline-review-text" id="timelineReviewText"></pre>
         <div class="modal-actions"><button class="secondary-button" id="timelineCopyReview" type="button"><span data-icon="copy"></span>复制回顾文本</button><button class="secondary-button" id="timelineReviewExportMarkdown" type="button">导出 Markdown</button><button class="primary-button" id="timelineReviewExportJson" type="button">导出 JSON</button></div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="habitModal" role="dialog" aria-modal="true" aria-labelledby="habitModalTitle">
+      <div class="modal-card habit-modal-card">
+        <div class="modal-header"><div><span class="section-kicker">LONG-TERM GOAL</span><h2 id="habitModalTitle">创建长期目标</h2></div><button class="icon-button" type="button" data-close-modal="habitModal" aria-label="关闭"><span data-icon="close"></span></button></div>
+        <form id="habitForm">
+          <input id="habitId" type="hidden" />
+          <label class="form-field"><span>目标名称</span><input id="habitName" maxlength="120" required placeholder="例如：健身、阅读或英语学习" /></label>
+          <label class="form-field"><span>说明</span><textarea id="habitDescription" rows="2" maxlength="1000"></textarea></label>
+          <div class="form-field-row">
+            <label class="form-field"><span>所属空间</span><select id="habitWorkspace"><option value="personal">个人</option><option value="work">工作</option><option value="research">研究</option></select></label>
+            <label class="form-field"><span>状态</span><select id="habitStatus"><option value="active">进行中</option><option value="paused">暂停</option><option value="completed">已完成</option><option value="archived">归档</option></select></label>
+            <label class="form-field"><span>频率</span><select id="habitFrequency"><option value="daily">每天</option><option value="weekdays">工作日</option><option value="customWeekdays">指定星期</option><option value="weeklyTarget">每周次数</option></select></label>
+            <label class="form-field" id="habitWeeklyTargetField"><span>每周目标次数</span><input id="habitWeeklyTarget" type="number" min="1" max="7" value="3" /></label>
+          </div>
+          <fieldset class="habit-weekdays" id="habitWeekdays"><legend>计划星期</legend><label><input type="checkbox" value="1" checked />一</label><label><input type="checkbox" value="2" checked />二</label><label><input type="checkbox" value="3" checked />三</label><label><input type="checkbox" value="4" checked />四</label><label><input type="checkbox" value="5" checked />五</label><label><input type="checkbox" value="6" />六</label><label><input type="checkbox" value="7" />日</label></fieldset>
+          <div class="form-field-row">
+            <label class="form-field"><span>开始日期</span><input id="habitStartDate" type="date" required /></label>
+            <label class="form-field"><span>结束日期</span><input id="habitEndDate" type="date" /></label>
+            <label class="form-field"><span>每日提醒</span><input id="habitReminderTime" type="time" /></label>
+          </div>
+          <div class="form-field-row">
+            <label class="form-field"><span>目标类型</span><select id="habitTargetType"><option value="none">长期坚持</option><option value="totalCheckIns">累计次数</option><option value="endDate">坚持到结束日期</option></select></label>
+            <label class="form-field"><span>目标值</span><input id="habitTargetValue" type="number" min="1" /></label>
+            <label class="settings-switch-row"><span><strong>部分完成也获星</strong><small>同日仍最多一颗</small></span><input id="habitPartialReward" type="checkbox" /></label>
+          </div>
+          <div class="modal-actions"><button class="text-button text-button--danger is-hidden" id="deleteHabitButton" type="button">删除目标</button><button class="secondary-button" type="button" data-close-modal="habitModal">取消</button><button class="primary-button" type="submit">保存目标</button></div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="habitCheckInModal" role="dialog" aria-modal="true" aria-labelledby="habitCheckInTitle">
+      <div class="modal-card compact-modal-card">
+        <div class="modal-header"><div><span class="section-kicker">CHECK IN</span><h2 id="habitCheckInTitle">记录打卡</h2></div><button class="icon-button" type="button" data-close-modal="habitCheckInModal" aria-label="关闭"><span data-icon="close"></span></button></div>
+        <form id="habitCheckInForm">
+          <input id="habitCheckInHabitId" type="hidden" />
+          <label class="form-field"><span>本地日期</span><input id="habitCheckInDate" type="date" required /></label>
+          <label class="form-field"><span>状态</span><select id="habitCheckInState"><option value="completed">已完成</option><option value="partial">部分完成</option><option value="skipped">今日跳过</option></select></label>
+          <label class="form-field"><span>记录</span><textarea id="habitCheckInNote" rows="3" maxlength="1000"></textarea></label>
+          <div class="modal-actions"><button class="text-button text-button--danger is-hidden" id="deleteHabitCheckInButton" type="button">撤销打卡</button><button class="secondary-button" type="button" data-close-modal="habitCheckInModal">取消</button><button class="primary-button" type="submit">保存打卡</button></div>
+        </form>
       </div>
     </div>
 

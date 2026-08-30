@@ -101,6 +101,17 @@ contextBridge.exposeInMainWorld("siteNest", {
   snoozeTaskReminder: (reminderId, minutes) => ipcRenderer.invoke("tasks:snooze", { reminderId, minutes }),
   dismissTaskReminder: (reminderId) => ipcRenderer.invoke("tasks:dismiss-reminder", reminderId),
   updateTaskSettings: (patch) => ipcRenderer.invoke("tasks:update-settings", patch),
+  getHabits: (year) => ipcRenderer.invoke("habits:get", { year }),
+  addHabit: (habit) => ipcRenderer.invoke("habits:add", habit),
+  updateHabit: (habit) => ipcRenderer.invoke("habits:update", habit),
+  deleteHabit: (habitId) => ipcRenderer.invoke("habits:delete", habitId),
+  getHabitCheckIn: (habitId, localDate) =>
+    ipcRenderer.invoke("habits:get-check-in", { habitId, localDate }),
+  upsertHabitCheckIn: (checkIn) => ipcRenderer.invoke("habits:upsert-check-in", checkIn),
+  deleteHabitCheckIn: (checkInId) => ipcRenderer.invoke("habits:delete-check-in", checkInId),
+  updateUsageSettings: (patch) => ipcRenderer.invoke("usage:update-settings", patch),
+  clearUsageStats: () => ipcRenderer.invoke("usage:clear"),
+  recordMeaningfulUsageAction: () => ipcRenderer.send("usage:meaningful-action"),
   getTimeline: (options) => ipcRenderer.invoke("timeline:get", typeof options === "object" ? options : { year: options }),
   addTimelineEvent: (event) => ipcRenderer.invoke("timeline:add", event),
   updateTimelineEvent: (event) => ipcRenderer.invoke("timeline:update", event),
@@ -189,6 +200,16 @@ contextBridge.exposeInMainWorld("siteNest", {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on("tasks:changed", listener);
     return () => ipcRenderer.removeListener("tasks:changed", listener);
+  },
+  onHabitsChanged: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("habits:changed", listener);
+    return () => ipcRenderer.removeListener("habits:changed", listener);
+  },
+  onOpenHabit: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("habits:open", listener);
+    return () => ipcRenderer.removeListener("habits:open", listener);
   },
   onTimelineChanged: (callback) => {
     const listener = (_event, value) => callback(value);

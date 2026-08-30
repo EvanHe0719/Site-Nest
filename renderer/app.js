@@ -240,6 +240,20 @@ const dom = {
   taskSelectedDayList: document.getElementById("taskSelectedDayList"),
   taskAllList: document.getElementById("taskAllList"),
   taskCompletedList: document.getElementById("taskCompletedList"),
+  usageHomeCard: document.getElementById("usageHomeCard"),
+  usageHomeStats: document.getElementById("usageHomeStats"),
+  usageHomeHeatmap: document.getElementById("usageHomeHeatmap"),
+  openUsageDetails: document.getElementById("openUsageDetails"),
+  habitPanel: document.getElementById("habitPanel"),
+  habitTodaySummary: document.getElementById("habitTodaySummary"),
+  habitAddButton: document.getElementById("habitAddButton"),
+  openUsageTrackButton: document.getElementById("openUsageTrackButton"),
+  usageDetailCard: document.getElementById("usageDetailCard"),
+  usageTrackingToggle: document.getElementById("usageTrackingToggle"),
+  clearUsageStats: document.getElementById("clearUsageStats"),
+  usageDetailStats: document.getElementById("usageDetailStats"),
+  usageDetailHeatmap: document.getElementById("usageDetailHeatmap"),
+  habitGrid: document.getElementById("habitGrid"),
   timelinePanel: document.getElementById("timelinePanel"),
   timelineYearInput: document.getElementById("timelineYearInput"),
   timelineTrackSwitch: document.getElementById("timelineTrackSwitch"),
@@ -322,6 +336,33 @@ const dom = {
   taskCustomReminder: document.getElementById("taskCustomReminder"),
   taskTags: document.getElementById("taskTags"),
   deleteTaskButton: document.getElementById("deleteTaskButton"),
+  habitModal: document.getElementById("habitModal"),
+  habitModalTitle: document.getElementById("habitModalTitle"),
+  habitForm: document.getElementById("habitForm"),
+  habitId: document.getElementById("habitId"),
+  habitName: document.getElementById("habitName"),
+  habitDescription: document.getElementById("habitDescription"),
+  habitWorkspace: document.getElementById("habitWorkspace"),
+  habitStatus: document.getElementById("habitStatus"),
+  habitFrequency: document.getElementById("habitFrequency"),
+  habitWeeklyTargetField: document.getElementById("habitWeeklyTargetField"),
+  habitWeeklyTarget: document.getElementById("habitWeeklyTarget"),
+  habitWeekdays: document.getElementById("habitWeekdays"),
+  habitStartDate: document.getElementById("habitStartDate"),
+  habitEndDate: document.getElementById("habitEndDate"),
+  habitReminderTime: document.getElementById("habitReminderTime"),
+  habitTargetType: document.getElementById("habitTargetType"),
+  habitTargetValue: document.getElementById("habitTargetValue"),
+  habitPartialReward: document.getElementById("habitPartialReward"),
+  deleteHabitButton: document.getElementById("deleteHabitButton"),
+  habitCheckInModal: document.getElementById("habitCheckInModal"),
+  habitCheckInTitle: document.getElementById("habitCheckInTitle"),
+  habitCheckInForm: document.getElementById("habitCheckInForm"),
+  habitCheckInHabitId: document.getElementById("habitCheckInHabitId"),
+  habitCheckInDate: document.getElementById("habitCheckInDate"),
+  habitCheckInState: document.getElementById("habitCheckInState"),
+  habitCheckInNote: document.getElementById("habitCheckInNote"),
+  deleteHabitCheckInButton: document.getElementById("deleteHabitCheckInButton"),
   taskReminderSettingsStatus: document.getElementById("taskReminderSettingsStatus"),
   taskRemindersEnabled: document.getElementById("taskRemindersEnabled"),
   taskTrayOnClose: document.getElementById("taskTrayOnClose"),
@@ -489,6 +530,16 @@ let pageActionRequestId = 0;
 let pageActionRefreshTimer = 0;
 let translationStatusCache = null;
 let taskState = { tasks: [], reminders: [], settings: {}, timeZone: "UTC" };
+let habitState = {
+  year: new Date().getFullYear(),
+  today: localDateKey(new Date()),
+  habits: [],
+  todayPendingCount: 0,
+  totalStars: 0,
+  usage: { enabled: true, days: [], summary: {} },
+};
+let usageDetailsVisible = false;
+let lastMeaningfulUsageAt = 0;
 let timelineState = {
   loadedYear: null,
   tracks: [],
@@ -4606,9 +4657,14 @@ function renderTaskMonth() {
 
 function renderPlan() {
   if (!dom.planViewTabs) return;
+  const addLabel = currentTaskView === "timeline"
+    ? "添加记录"
+    : currentTaskView === "habits"
+      ? "创建长期目标"
+      : "添加任务";
   dom.planAddTaskButton.replaceChildren(
     createIconElement("plus"),
-    document.createTextNode(currentTaskView === "timeline" ? "添加记录" : "添加任务"),
+    document.createTextNode(addLabel),
   );
   dom.planViewTabs.querySelectorAll("[data-task-view]").forEach((button) => {
     const active = button.dataset.taskView === currentTaskView;
@@ -4627,6 +4683,7 @@ function renderPlan() {
     const year = Number(timelineState.settings.selectedYear) || new Date().getFullYear();
     if (!timelineState.loading && timelineState.loadedYear !== year) void loadTimelineYear(year);
   }
+  if (currentTaskView === "habits") renderHabits();
 }
 
 function renderWorkspaceTaskWidgets() {
@@ -4699,6 +4756,357 @@ async function loadTasks() {
   } catch (error) {
     showToast("无法读取本地计划", error?.message || "请稍后重试", "error");
   }
+}
+
+const HABIT_STATUS_LABELS = Object.freeze({
+  active: "进行中",
+  paused: "已暂停",
+  completed: "已完成",
+  archived: "已归档",
+});
+
+const HABIT_FREQUENCY_LABELS = Object.freeze({
+  daily: "每天",
+  weekdays: "工作日",
+  customWeekdays: "指定星期",
+  weeklyTarget: "每周次数",
+});
+
+function habitForId(habitId) {
+  return habitState.habits.find((habit) => habit.id === String(habitId || "")) || null;
+}
+
+function usageLevel(day) {
+  const seconds = Number(day?.foregroundActiveSeconds) || 0;
+  const actions = Number(day?.meaningfulActionCount) || 0;
+  if (seconds >= 3600 || actions >= 60) return 4;
+  if (seconds >= 1800 || actions >= 30) return 3;
+  if (seconds >= 600 || actions >= 10) return 2;
+  if (seconds > 0 || actions > 0) return 1;
+  return 0;
+}
+
+function buildYearDayKeys(year) {
+  const days = [];
+  const cursor = new Date(Number(year), 0, 1, 12, 0, 0, 0);
+  while (cursor.getFullYear() === Number(year)) {
+    days.push(localDateKey(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return days;
+}
+
+function renderHeatmap(container, year, records, options = {}) {
+  if (!container) return;
+  const byDate = new Map((Array.isArray(records) ? records : [])
+    .map((record) => [record.localDate, record]));
+  const grid = document.createElement("div");
+  grid.className = "heatmap-grid";
+  grid.setAttribute("role", options.clickable ? "grid" : "img");
+  grid.setAttribute("aria-label", options.ariaLabel || `${year} 年热力图`);
+  const firstDate = new Date(Number(year), 0, 1, 12, 0, 0, 0);
+  const firstWeekday = firstDate.getDay() || 7;
+  buildYearDayKeys(year).forEach((localDate, index) => {
+    const record = byDate.get(localDate) || { localDate };
+    const cell = document.createElement(options.clickable ? "button" : "span");
+    if (options.clickable) cell.type = "button";
+    cell.className = "heatmap-cell";
+    cell.style.gridColumn = String(Math.floor((index + firstWeekday - 1) / 7) + 1);
+    cell.style.gridRow = String(((index + firstWeekday - 1) % 7) + 1);
+    const level = options.mode === "habit"
+      ? Math.max(0, Math.min(4, Math.ceil((Number(record.intensity) || 0) * 4)))
+      : usageLevel(record);
+    cell.dataset.level = String(level);
+    if (record.state && record.state !== "none") cell.dataset.state = record.state;
+    const detail = options.mode === "habit"
+      ? `${localDate} · ${record.state === "completed" ? "已完成" : record.state === "partial" ? "部分完成" : record.state === "skipped" ? "已跳过" : record.scheduled ? "计划日，未打卡" : "非计划日"}`
+      : `${localDate} · 前台 ${Math.round((Number(record.foregroundActiveSeconds) || 0) / 60)} 分钟 · ${Number(record.meaningfulActionCount) || 0} 次有效操作`;
+    cell.title = detail;
+    cell.setAttribute("aria-label", detail);
+    if (options.clickable) cell.addEventListener("click", () => options.onDate?.(localDate, record));
+    grid.appendChild(cell);
+  });
+  container.replaceChildren(grid);
+}
+
+function usageSummaryFromDays(days, year, today = localDateKey(new Date())) {
+  const active = new Set((Array.isArray(days) ? days : [])
+    .filter((day) => usageLevel(day) > 0)
+    .map((day) => day.localDate));
+  const yearPrefix = `${year}-`;
+  const monthPrefix = String(today).slice(0, 7);
+  let streak = 0;
+  const cursor = new Date(`${today}T12:00:00`);
+  while (!Number.isNaN(cursor.valueOf()) && active.has(localDateKey(cursor))) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return {
+    yearActiveDays: Array.from(active).filter((date) => date.startsWith(yearPrefix)).length,
+    monthActiveDays: Array.from(active).filter((date) => date.startsWith(monthPrefix)).length,
+    currentStreakDays: streak,
+    foregroundActiveSeconds: (Array.isArray(days) ? days : []).reduce((sum, day) => sum + (Number(day.foregroundActiveSeconds) || 0), 0),
+  };
+}
+
+function appendMetric(container, label, value) {
+  const item = document.createElement("div");
+  item.className = container?.classList.contains("habit-metrics") ? "habit-metric" : "usage-stat";
+  const strong = document.createElement("strong");
+  strong.textContent = String(value);
+  const small = document.createElement("small");
+  small.textContent = label;
+  item.append(strong, small);
+  container.appendChild(item);
+}
+
+function renderUsage() {
+  const usage = habitState.usage || { enabled: true, days: [], summary: {} };
+  const days = Array.isArray(usage.days) ? usage.days : [];
+  const year = Number(usage.year || habitState.year) || new Date().getFullYear();
+  const summary = { ...usageSummaryFromDays(days, year, habitState.today), ...(usage.summary || {}) };
+  if (dom.usageTrackingToggle) dom.usageTrackingToggle.checked = usage.enabled !== false;
+  if (dom.usageHomeStats) {
+    dom.usageHomeStats.replaceChildren();
+    appendMetric(dom.usageHomeStats, "今年活跃天数", summary.yearActiveDays || 0);
+    appendMetric(dom.usageHomeStats, "本月活跃天数", summary.monthActiveDays || 0);
+    appendMetric(dom.usageHomeStats, "最近连续使用", `${summary.currentStreakDays || 0} 天`);
+  }
+  renderHeatmap(dom.usageHomeHeatmap, year, days, {
+    mode: "usage",
+    ariaLabel: `${year} 年栖页使用热力图`,
+  });
+  if (dom.usageDetailStats) {
+    dom.usageDetailStats.replaceChildren();
+    appendMetric(dom.usageDetailStats, "今年活跃天数", summary.yearActiveDays || 0);
+    appendMetric(dom.usageDetailStats, "本月活跃天数", summary.monthActiveDays || 0);
+    appendMetric(dom.usageDetailStats, "最近连续使用", `${summary.currentStreakDays || 0} 天`);
+    appendMetric(dom.usageDetailStats, "累计前台使用", `${Math.round((summary.foregroundActiveSeconds || 0) / 60)} 分钟`);
+  }
+  renderHeatmap(dom.usageDetailHeatmap, year, days, {
+    mode: "usage",
+    ariaLabel: `${year} 年栖页使用详情热力图`,
+  });
+  dom.usageDetailCard?.classList.toggle("is-hidden", !usageDetailsVisible);
+}
+
+function createHabitStarBadge(stars, accent = "#8d6d18") {
+  const badge = document.createElement("div");
+  const display = Number(stars) > 999 ? "999+" : String(Math.max(0, Number(stars) || 0));
+  badge.className = "habit-star-badge";
+  badge.dataset.digits = String(display.length);
+  badge.style.setProperty("--habit-accent", accent);
+  badge.title = `累计 ${Number(stars) || 0} 颗坚持星`;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 48 48");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M24 3.5 30.2 16l13.8 2-10 9.7 2.4 13.7L24 35l-12.4 6.4L14 27.7 4 18l13.8-2z");
+  svg.appendChild(path);
+  const count = document.createElement("span");
+  count.textContent = display;
+  badge.append(svg, count);
+  return badge;
+}
+
+function habitProgress(habit) {
+  const stats = habit.stats || {};
+  if (habit.targetType === "totalCheckIns" && Number(habit.targetValue) > 0) {
+    return {
+      label: `${stats.totalCompletedCount || 0}/${habit.targetValue} 次`,
+      percent: Math.min(100, Math.round(((stats.totalCompletedCount || 0) / habit.targetValue) * 100)),
+    };
+  }
+  if (habit.targetType === "endDate" && habit.endDate) {
+    const start = Date.parse(`${habit.startDate}T12:00:00`);
+    const end = Date.parse(`${habit.endDate}T12:00:00`);
+    const now = Date.parse(`${habitState.today}T12:00:00`);
+    const ratio = end > start ? (now - start) / (end - start) : 1;
+    return { label: `坚持至 ${habit.endDate}`, percent: Math.max(0, Math.min(100, Math.round(ratio * 100))) };
+  }
+  return { label: "长期坚持", percent: Math.min(100, Math.round(Number(stats.monthCompletionRate || 0) * 100)) };
+}
+
+function createHabitCard(habit) {
+  const card = document.createElement("article");
+  card.className = `habit-card is-${habit.status || "active"}`;
+  card.dataset.habitId = habit.id;
+  card.style.setProperty("--habit-accent", habit.accentColor || "#287f69");
+  card.appendChild(createHabitStarBadge(habit.starCount, habit.accentColor));
+
+  const header = document.createElement("div");
+  header.className = "habit-card-header";
+  const title = document.createElement("div");
+  title.className = "habit-card-title";
+  const strong = document.createElement("strong");
+  strong.textContent = habit.name;
+  const frequency = document.createElement("small");
+  frequency.textContent = habit.frequencyType === "weeklyTarget"
+    ? `每周 ${habit.weeklyTarget || 1} 次`
+    : HABIT_FREQUENCY_LABELS[habit.frequencyType] || "长期目标";
+  title.append(strong, frequency);
+  const status = document.createElement("span");
+  status.className = "habit-status-pill";
+  status.textContent = HABIT_STATUS_LABELS[habit.status] || "进行中";
+  header.append(title, status);
+
+  const metrics = document.createElement("div");
+  metrics.className = "habit-metrics";
+  const stats = habit.stats || {};
+  appendMetric(metrics, stats.streakUnit === "week" ? "连续达标周" : "当前连续天数", `${stats.currentStreak || 0}${stats.streakUnit === "week" ? " 周" : " 天"}`);
+  appendMetric(metrics, stats.streakUnit === "week" ? "最长达标周" : "最长连续天数", `${stats.longestStreak || 0}${stats.streakUnit === "week" ? " 周" : " 天"}`);
+  appendMetric(metrics, "本月完成", `${stats.monthCompletedCount || 0} 次`);
+
+  const progress = habitProgress(habit);
+  const progressBox = document.createElement("div");
+  progressBox.className = "habit-progress";
+  progressBox.innerHTML = `<div class="habit-progress-copy"><span>${progress.label}</span><span>${progress.percent}%</span></div><div class="habit-progress-track"><span></span></div>`;
+  progressBox.style.setProperty("--habit-progress", `${progress.percent}%`);
+
+  const heatmap = document.createElement("div");
+  heatmap.className = "habit-heatmap";
+  renderHeatmap(heatmap, Number(habit.heatmap?.year || habitState.year), habit.heatmap?.days || [], {
+    mode: "habit",
+    clickable: habit.status === "active",
+    ariaLabel: `${habit.name} ${habitState.year} 年打卡热力图`,
+    onDate: (localDate) => void openHabitCheckInModal(habit, localDate),
+  });
+
+  const footer = document.createElement("div");
+  footer.className = "habit-card-footer";
+  const total = document.createElement("small");
+  total.textContent = `今年 ${stats.yearCompletedCount || 0} 次 · 累计 ${stats.totalCompletedCount || 0} 次`;
+  const actions = document.createElement("div");
+  actions.className = "habit-card-actions";
+  if (habit.status === "active") {
+    const checkIn = document.createElement("button");
+    checkIn.type = "button";
+    checkIn.className = "primary-button compact-button";
+    checkIn.textContent = habit.todayCheckIn ? "修改今日" : "今日打卡";
+    checkIn.addEventListener("click", () => void openHabitCheckInModal(habit, habitState.today));
+    actions.appendChild(checkIn);
+  }
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.className = "secondary-button compact-button";
+  edit.textContent = "编辑";
+  edit.addEventListener("click", () => openHabitModal(habit));
+  actions.appendChild(edit);
+  footer.append(total, actions);
+  card.append(header, metrics, progressBox, heatmap, footer);
+  return card;
+}
+
+function renderHabits() {
+  if (!dom.habitGrid) return;
+  const habits = habitState.habits.filter((habit) => !habit.deletedAt);
+  dom.habitTodaySummary.textContent = habits.length
+    ? `今日待完成 ${habitState.todayPendingCount || 0} 项 · 全部目标累计 ${habitState.totalStars || 0} 颗坚持星`
+    : "创建一个长期目标，例如健身、阅读或英语学习。";
+  dom.habitGrid.replaceChildren();
+  if (!habits.length) {
+    const empty = document.createElement("div");
+    empty.className = "habit-empty-state";
+    const copy = document.createElement("div");
+    copy.innerHTML = "<strong>还没有长期目标</strong><small>创建一个长期目标，例如健身、阅读或英语学习。</small>";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "primary-button compact-button";
+    button.textContent = "创建长期目标";
+    button.addEventListener("click", () => openHabitModal());
+    empty.append(copy, button);
+    dom.habitGrid.appendChild(empty);
+  } else {
+    habits.forEach((habit) => dom.habitGrid.appendChild(createHabitCard(habit)));
+  }
+  renderUsage();
+}
+
+function applyHabitSnapshot(snapshot = {}) {
+  habitState = {
+    year: Number(snapshot.year || habitState.year) || new Date().getFullYear(),
+    today: snapshot.today || habitState.today || localDateKey(new Date()),
+    habits: Array.isArray(snapshot.habits) ? snapshot.habits : habitState.habits,
+    todayPendingCount: Number(snapshot.todayPendingCount) || 0,
+    totalStars: Number(snapshot.totalStars) || 0,
+    usage: snapshot.usage || habitState.usage,
+  };
+  renderHabits();
+}
+
+async function loadHabits(year = new Date().getFullYear()) {
+  if (typeof window.siteNest?.getHabits !== "function") return;
+  try {
+    applyHabitSnapshot(await window.siteNest.getHabits(year));
+  } catch (error) {
+    showToast("无法读取习惯打卡", error?.message || "请稍后重试", "error");
+  }
+}
+
+function syncHabitFrequencyFields() {
+  const frequency = dom.habitFrequency.value;
+  dom.habitWeeklyTargetField.hidden = frequency !== "weeklyTarget";
+  dom.habitWeekdays.hidden = frequency !== "customWeekdays";
+}
+
+function openHabitModal(habit = null) {
+  dom.habitForm.reset();
+  dom.habitModalTitle.textContent = habit ? "编辑长期目标" : "创建长期目标";
+  dom.habitId.value = habit?.id || "";
+  dom.habitName.value = habit?.name || "";
+  dom.habitDescription.value = habit?.description || "";
+  dom.habitWorkspace.value = habit?.workspaceId || activeWorkspaceId();
+  dom.habitStatus.value = habit?.status || "active";
+  dom.habitFrequency.value = habit?.frequencyType || "daily";
+  dom.habitWeeklyTarget.value = String(habit?.weeklyTarget || 3);
+  const weekdays = new Set(habit?.weekdays?.length ? habit.weekdays.map(Number) : [1, 2, 3, 4, 5]);
+  dom.habitWeekdays.querySelectorAll('input[type="checkbox"]').forEach((input) => { input.checked = weekdays.has(Number(input.value)); });
+  dom.habitStartDate.value = habit?.startDate || localDateKey(new Date());
+  dom.habitEndDate.value = habit?.endDate || "";
+  dom.habitReminderTime.value = habit?.reminderTime || "";
+  dom.habitTargetType.value = habit?.targetType || "none";
+  dom.habitTargetValue.value = habit?.targetValue || "";
+  dom.habitPartialReward.checked = habit?.partialRewardEnabled === true;
+  dom.deleteHabitButton.classList.toggle("is-hidden", !habit);
+  syncHabitFrequencyFields();
+  openModal(dom.habitModal);
+}
+
+function habitFormPayload() {
+  return {
+    id: dom.habitId.value || undefined,
+    name: dom.habitName.value.trim(),
+    description: dom.habitDescription.value,
+    workspaceId: dom.habitWorkspace.value,
+    status: dom.habitStatus.value,
+    frequencyType: dom.habitFrequency.value,
+    weekdays: Array.from(dom.habitWeekdays.querySelectorAll('input[type="checkbox"]:checked')).map((input) => Number(input.value)),
+    weeklyTarget: Number(dom.habitWeeklyTarget.value) || 1,
+    startDate: dom.habitStartDate.value,
+    endDate: dom.habitEndDate.value || null,
+    reminderTime: dom.habitReminderTime.value || null,
+    reminderOffsets: dom.habitReminderTime.value ? [0] : [],
+    targetType: dom.habitTargetType.value,
+    targetValue: Number(dom.habitTargetValue.value) || null,
+    partialRewardEnabled: dom.habitPartialReward.checked,
+  };
+}
+
+async function openHabitCheckInModal(habit, localDate) {
+  let checkIn = null;
+  try {
+    checkIn = await window.siteNest.getHabitCheckIn?.(habit.id, localDate);
+  } catch (error) {
+    showToast("无法读取打卡", error?.message || "请稍后重试", "error");
+  }
+  dom.habitCheckInTitle.textContent = `${habit.name} · ${localDate}`;
+  dom.habitCheckInHabitId.value = habit.id;
+  dom.habitCheckInDate.value = localDate;
+  dom.habitCheckInDate.dataset.checkInId = checkIn?.id || "";
+  dom.habitCheckInState.value = checkIn?.state || "completed";
+  dom.habitCheckInNote.value = checkIn?.note || "";
+  dom.deleteHabitCheckInButton.classList.toggle("is-hidden", !checkIn);
+  openModal(dom.habitCheckInModal);
 }
 
 function renderQuickSites() {
@@ -7112,6 +7520,7 @@ function bindEvents() {
   });
   dom.planAddTaskButton.addEventListener("click", () => {
     if (currentTaskView === "timeline") openTimelineEventModal();
+    else if (currentTaskView === "habits") openHabitModal();
     else openTaskModal();
   });
   dom.planViewTabs.addEventListener("click", (event) => {
@@ -7125,6 +7534,102 @@ function bindEvents() {
       }
     }
     renderPlan();
+  });
+  dom.habitAddButton?.addEventListener("click", () => openHabitModal());
+  dom.openUsageDetails?.addEventListener("click", () => {
+    usageDetailsVisible = true;
+    currentTaskView = "habits";
+    navigateTo("plan");
+    renderPlan();
+    dom.usageDetailCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  dom.openUsageTrackButton?.addEventListener("click", () => {
+    usageDetailsVisible = !usageDetailsVisible;
+    renderUsage();
+  });
+  dom.usageTrackingToggle?.addEventListener("change", async () => {
+    try {
+      applyHabitSnapshot(await window.siteNest.updateUsageSettings({ enabled: dom.usageTrackingToggle.checked }));
+      showToast(dom.usageTrackingToggle.checked ? "使用统计已开启" : "使用统计已关闭", "只记录前台有效使用，不记录输入内容");
+    } catch (error) {
+      dom.usageTrackingToggle.checked = !dom.usageTrackingToggle.checked;
+      showToast("无法更新使用统计", error?.message || "请稍后重试", "error");
+    }
+  });
+  dom.clearUsageStats?.addEventListener("click", async () => {
+    if (!window.confirm("清除全部栖页使用统计？此操作不会删除任务、习惯或坚持星。")) return;
+    try {
+      applyHabitSnapshot(await window.siteNest.clearUsageStats());
+      showToast("使用统计已清除", "习惯打卡与坚持星未受影响");
+    } catch (error) {
+      showToast("无法清除使用统计", error?.message || "请稍后重试", "error");
+    }
+  });
+  dom.habitFrequency?.addEventListener("change", syncHabitFrequencyFields);
+  dom.habitForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const payload = habitFormPayload();
+    if (!payload.name || !payload.startDate) return;
+    const submit = dom.habitForm.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      const snapshot = payload.id
+        ? await window.siteNest.updateHabit(payload)
+        : await window.siteNest.addHabit(payload);
+      applyHabitSnapshot(snapshot);
+      closeModal(dom.habitModal);
+      showToast(payload.id ? "长期目标已更新" : "长期目标已创建", payload.name);
+    } catch (error) {
+      showToast("无法保存长期目标", error?.message || "请检查目标内容", "error");
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  dom.deleteHabitButton?.addEventListener("click", async () => {
+    const habit = habitForId(dom.habitId.value);
+    if (!habit || !window.confirm(`删除长期目标“${habit.name}”？历史打卡与坚持星会保留，可通过数据恢复。`)) return;
+    try {
+      applyHabitSnapshot(await window.siteNest.deleteHabit(habit.id));
+      closeModal(dom.habitModal);
+      showToast("长期目标已删除", habit.name);
+    } catch (error) {
+      showToast("无法删除长期目标", error?.message || "请稍后重试", "error");
+    }
+  });
+  dom.habitCheckInForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const habit = habitForId(dom.habitCheckInHabitId.value);
+    if (!habit) return;
+    const payload = {
+      id: dom.habitCheckInDate.dataset.checkInId || undefined,
+      habitId: habit.id,
+      localDate: dom.habitCheckInDate.value,
+      state: dom.habitCheckInState.value,
+      note: dom.habitCheckInNote.value,
+    };
+    const submit = dom.habitCheckInForm.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      applyHabitSnapshot(await window.siteNest.upsertHabitCheckIn(payload));
+      closeModal(dom.habitCheckInModal);
+      showToast("打卡已保存", `${habit.name} · ${payload.localDate}`);
+    } catch (error) {
+      showToast("无法保存打卡", error?.message || "该日期可能不是计划日", "error");
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  dom.deleteHabitCheckInButton?.addEventListener("click", async () => {
+    const checkInId = dom.habitCheckInDate.dataset.checkInId;
+    const habit = habitForId(dom.habitCheckInHabitId.value);
+    if (!checkInId || !habit || !window.confirm(`撤销 ${dom.habitCheckInDate.value} 的打卡？对应坚持星也会撤销。`)) return;
+    try {
+      applyHabitSnapshot(await window.siteNest.deleteHabitCheckIn(checkInId));
+      closeModal(dom.habitCheckInModal);
+      showToast("打卡已撤销", habit.name);
+    } catch (error) {
+      showToast("无法撤销打卡", error?.message || "请稍后重试", "error");
+    }
   });
   dom.timelineAddButton.addEventListener("click", () => openTimelineEventModal());
   dom.timelineYearInput.addEventListener("change", () => void setTimelineYear(dom.timelineYearInput.value));
@@ -7954,6 +8459,19 @@ function bindEvents() {
   window.addEventListener("resize", closeSiteContextMenu);
   document.addEventListener("scroll", closeSiteContextMenu, true);
 
+  const recordMeaningfulUsage = () => {
+    const now = Date.now();
+    if (now - lastMeaningfulUsageAt < 5_000) return;
+    lastMeaningfulUsageAt = now;
+    window.siteNest?.recordMeaningfulUsageAction?.();
+  };
+  document.addEventListener("pointerdown", recordMeaningfulUsage, { passive: true });
+  document.addEventListener("wheel", recordMeaningfulUsage, { passive: true });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Shift" || event.key === "Control" || event.key === "Alt" || event.key === "Meta") return;
+    recordMeaningfulUsage();
+  });
+
   new ResizeObserver(syncBrowserBounds).observe(dom.webviewFrame);
   window.siteNest?.onBrowserState(handleBrowserState);
   window.siteNest?.onBrowserNotice?.((notice) => {
@@ -7975,6 +8493,7 @@ function bindEvents() {
     navigateTo("settings?section=translation&panel=translation");
   });
   window.siteNest?.onTasksChanged?.((snapshot) => applyTaskSnapshot(snapshot));
+  window.siteNest?.onHabitsChanged?.((snapshot) => applyHabitSnapshot(snapshot));
   window.siteNest?.onTimelineChanged?.((snapshot) => applyTimelineSnapshot(snapshot));
   window.siteNest?.onOpenTask?.(({ taskId, view }) => {
     currentTaskView = view || "week";
@@ -7984,6 +8503,12 @@ function bindEvents() {
       const task = taskForId(taskId);
       if (task) openTaskModal(task);
     }
+  });
+  window.siteNest?.onOpenHabit?.(({ habitId, localDate }) => {
+    currentTaskView = "habits";
+    navigateTo("plan");
+    const habit = habitForId(habitId);
+    if (habit) void openHabitCheckInModal(habit, localDate || habitState.today);
   });
   window.siteNest?.onUserScriptCommandsChanged?.(() => {
     if (pageActionPanelOpen) void refreshPageUserScriptCommands();
@@ -8019,6 +8544,7 @@ async function initialize() {
     await loadGoogleSyncStatus();
     await loadTranslationStatus();
     await loadTasks();
+    await loadHabits();
     await loadUserScripts();
     await loadBrowserLifecycle();
     await loadZohoConnectorStatus();

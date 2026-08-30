@@ -20,6 +20,13 @@ const {
   normalizeTimelineUiSettings,
 } = require("./timeline/timeline-model.cjs");
 const {
+  normalizeHabitCheckIns,
+  normalizeHabitDefinitions,
+  normalizeHabitReminders,
+  normalizeRewardLedger,
+} = require("./habits/index.cjs");
+const { normalizeUsageDayAggregates } = require("./usage/index.cjs");
+const {
   normalizeExecutions: normalizeUserScriptExecutions,
   normalizePermissions: normalizeUserScriptPermissions,
   normalizeUserScripts,
@@ -29,7 +36,7 @@ const {
   normalizeTabGroups,
 } = require("./browser/tab-organization.cjs");
 
-const CURRENT_SCHEMA_VERSION = 13;
+const CURRENT_SCHEMA_VERSION = 14;
 const MAX_RECENTLY_CLOSED_TABS = 50;
 const DEFAULT_WORKSPACE_ID = "personal";
 const DEFAULT_BROWSER_PROFILE_ID = "default";
@@ -309,6 +316,7 @@ function normalizeUiSettings(value) {
       ? input.sessionVisibility
       : "all",
     contextAssistantCollapsed: input.contextAssistantCollapsed === true,
+    usageTrackingEnabled: input.usageTrackingEnabled !== false,
     sitePopupPolicies: normalizeSitePopupPolicies(input.sitePopupPolicies),
     translation: normalizeTranslationSettings(input.translation),
     browserMemory: normalizeBrowserMemorySettings(input.browserMemory),
@@ -954,6 +962,11 @@ function createInitialState(options = {}) {
     timelineUiSettings: normalizeTimelineUiSettings({}, {
       currentYear: new Date(now).getUTCFullYear(),
     }),
+    habits: [],
+    habitCheckIns: [],
+    habitReminders: [],
+    rewardLedger: [],
+    usageDayAggregates: [],
     timeZone: deviceTimeZone(),
     userScripts: normalizeUserScripts([], { now }),
     userScriptPermissions: [],
@@ -1069,6 +1082,14 @@ function normalizeStateV4(value, options = {}) {
     workspaceIds: Array.from(workspaceIds),
     defaultWorkspaceId: activeWorkspaceId,
   });
+  const habits = normalizeHabitDefinitions(input.habits, {
+    now,
+    defaultWorkspaceId: activeWorkspaceId,
+  });
+  const habitIds = habits.map((habit) => habit.id);
+  const habitCheckIns = normalizeHabitCheckIns(input.habitCheckIns, { now, habitIds });
+  const habitReminders = normalizeHabitReminders(input.habitReminders, habitIds);
+  const rewardLedger = normalizeRewardLedger(input.rewardLedger, { now, habitIds });
   const userScripts = normalizeUserScripts(input.userScripts, { now });
   const userScriptIds = userScripts.map((script) => script.id);
 
@@ -1110,6 +1131,11 @@ function normalizeStateV4(value, options = {}) {
     timelineUiSettings: normalizeTimelineUiSettings(input.timelineUiSettings, {
       currentYear: new Date(now).getUTCFullYear(),
     }),
+    habits,
+    habitCheckIns,
+    habitReminders,
+    rewardLedger,
+    usageDayAggregates: normalizeUsageDayAggregates(input.usageDayAggregates),
     timeZone: String(input.timeZone || deviceTimeZone()).slice(0, 100),
     userScripts,
     userScriptPermissions: normalizeUserScriptPermissions(input.userScriptPermissions, userScriptIds),
@@ -1817,6 +1843,7 @@ const normalizeStateV9 = normalizeStateV4;
 const normalizeStateV10 = normalizeStateV4;
 const normalizeStateV11 = normalizeStateV4;
 const normalizeStateV12 = normalizeStateV4;
+const normalizeStateV13 = normalizeStateV4;
 
 module.exports = {
   CURRENT_SCHEMA_VERSION,
@@ -1854,6 +1881,7 @@ module.exports = {
   normalizeStateV10,
   normalizeStateV11,
   normalizeStateV12,
+  normalizeStateV13,
   updateUiSettingsInState,
   upsertConnectorConnectionInState,
   appendConnectorExecutionInState,
