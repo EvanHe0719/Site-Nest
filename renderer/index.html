@@ -22,11 +22,15 @@
             </svg>
           </div>
           <span class="brand-name">栖页</span>
-          <span class="brand-version">0.5.4</span>
+          <span class="brand-version">0.5.5</span>
         </div>
         <div class="titlebar-center">
-          <span class="privacy-dot"></span>
-          <span>数据仅保存在本机</span>
+          <button class="titlebar-search-trigger" id="globalSearchTrigger" type="button" aria-haspopup="dialog" aria-controls="globalSearchPalette">
+            <span data-icon="search"></span>
+            <span>搜索</span>
+            <kbd>Ctrl K</kbd>
+          </button>
+          <span class="titlebar-privacy"><span class="privacy-dot"></span><span>数据仅保存在本机</span></span>
         </div>
       </header>
 
@@ -145,18 +149,28 @@
                 <div class="google-sync-account">
                   <span class="google-sync-account-icon" data-icon="cloud"></span>
                   <div>
-                    <strong id="googleSyncAccount">尚未连接 Google</strong>
-                    <small id="googleSyncLastSync">连接后可同步空间、站点和收藏书签</small>
+                    <small>Google 账号</small>
+                    <strong id="googleSyncAccount">尚未登录</strong>
+                    <small id="googleIdentityStatus">未登录</small>
                   </div>
                 </div>
+                <div class="google-sync-account google-sync-account--drive">
+                  <span class="google-sync-account-icon" data-icon="database"></span>
+                  <div>
+                    <small>Drive 数据同步</small>
+                    <strong id="googleDriveStatus">未授权</strong>
+                    <small id="googleSyncLastSync">尚未同步</small>
+                  </div>
+                </div>
+                <strong class="google-sync-error-title is-hidden" id="googleSyncErrorTitle"></strong>
                 <p class="google-sync-error is-hidden" id="googleSyncError" role="status"></p>
                 <p class="google-sync-notice">
-                  同步栖页数据，不等于 Chrome 书签回写。
+                  Google Drive 用于保存栖页自己的站点、计划、设置和历史数据，不会接管 Chrome 官方同步。
                 </p>
                 <div class="google-sync-actions">
                   <button class="primary-button google-sync-action google-sync-action--wide" id="googleSignInButton" type="button">
                     <span data-icon="cloud"></span>
-                    <span id="googleSignInButtonLabel">连接 Google</span>
+                    <span id="googleSignInButtonLabel">授权云同步</span>
                   </button>
                   <button class="secondary-button google-sync-action" id="googleSyncNowButton" type="button">
                     <span data-icon="reload"></span>
@@ -166,7 +180,21 @@
                     <span data-icon="download"></span>
                     从云端恢复
                   </button>
+                  <button class="secondary-button google-sync-action" id="googleTestConnectionButton" type="button">
+                    <span data-icon="shield"></span>
+                    测试连接
+                  </button>
                   <button class="google-sync-signout" id="googleSignOutButton" type="button">退出 Google</button>
+                </div>
+                <div class="google-sync-conflict is-hidden" id="googleSyncConflict">
+                  <strong>本地数据和云端数据都发生了变化。</strong>
+                  <div class="google-sync-actions">
+                    <button class="primary-button google-sync-action" type="button" data-google-conflict="merge">智能合并</button>
+                    <button class="secondary-button google-sync-action" type="button" data-google-conflict="local">使用本地</button>
+                    <button class="secondary-button google-sync-action" type="button" data-google-conflict="cloud">使用云端</button>
+                    <button class="secondary-button google-sync-action" type="button" data-google-conflict="details">查看差异</button>
+                    <button class="google-sync-signout" type="button" data-google-conflict="cancel">取消</button>
+                  </div>
                 </div>
               </section>
             </div>
@@ -215,6 +243,12 @@
                   </div>
                 </div>
               </div>
+
+              <form class="workspace-search-form workspace-search-form--hero" data-workspace-search="personal">
+                <span data-icon="search"></span>
+                <input type="search" placeholder="搜索网页或输入网址" autocomplete="off" aria-label="搜索网页或输入网址" />
+                <button type="submit">搜索</button>
+              </form>
 
               <div class="section-title-row">
                 <div>
@@ -293,6 +327,12 @@
                   </button>
                 </div>
               </header>
+
+              <form class="workspace-search-form" data-workspace-search="work">
+                <span data-icon="search"></span>
+                <input type="search" placeholder="搜索网页、Zoho 工单或输入网址" autocomplete="off" aria-label="搜索网页、Zoho 工单或输入网址" />
+                <button type="submit">搜索</button>
+              </form>
 
               <div class="connector-status-bar" id="zohoStatusBar" data-status="not-configured">
                 <span class="connector-state-dot"></span>
@@ -386,6 +426,11 @@
                   添加研究站点
                 </button>
               </header>
+              <form class="workspace-search-form" data-workspace-search="research">
+                <span data-icon="search"></span>
+                <input type="search" placeholder="搜索网页、资料或输入网址" autocomplete="off" aria-label="搜索网页、资料或输入网址" />
+                <button type="submit">搜索</button>
+              </form>
               <div class="research-site-grid" id="researchSiteGrid"></div>
               <section class="workspace-task-widget" data-workspace-task-widget="research"></section>
             </div>
@@ -695,12 +740,22 @@
                 <div>
                   <span class="section-kicker">LOCAL & PRIVATE</span>
                   <h1>设置与数据</h1>
-                  <p>栖页采用本地优先设计。下面明确区分已实现能力与后续扩展。</p>
+                  <p>按分类管理本地功能；只显示当前分类，连接器凭据仍由主进程安全保存。</p>
                 </div>
               </header>
 
-              <div class="settings-grid">
-                <article class="settings-card settings-card--wide connector-settings-card" id="connectionsSettingsCard">
+              <div class="settings-search-shell">
+                <label class="settings-search-field"><span data-icon="search"></span><input id="settingsSearchInput" type="search" placeholder="搜索设置" autocomplete="off" /></label>
+                <div class="settings-search-results" id="settingsSearchResults" hidden></div>
+              </div>
+
+              <label class="settings-mobile-section"><span>设置分类</span><select id="settingsSectionSelect"></select></label>
+              <div class="settings-layout">
+                <nav class="settings-navigation" id="settingsNavigation" aria-label="设置分类"></nav>
+                <section class="settings-content-panel">
+                  <header class="settings-section-header"><div><span class="section-kicker" id="settingsSectionKicker">GENERAL</span><h2 id="settingsSectionTitle">常规</h2><p id="settingsSectionDescription">空间、会话和界面行为。</p></div></header>
+                  <div class="settings-grid" id="settingsPanelHost">
+                <article class="settings-card settings-card--wide connector-settings-card" id="connectionsSettingsCard" data-settings-section="connections" data-settings-panel="connections">
                   <div class="settings-card-icon" data-icon="workflow"></div>
                   <div class="settings-card-copy">
                     <div class="settings-title-row">
@@ -709,13 +764,15 @@
                     </div>
                     <p>连接器只在主进程读取外部数据。访问令牌不会发送到页面，也不会写入普通 JSON。</p>
                     <div class="connector-settings-list">
-                      <section class="connector-settings-item connector-settings-item--expanded">
+                      <section class="connector-settings-item" id="zohoConnectorCard" data-connector-panel="zoho">
                         <header>
                           <span class="connector-logo">ZD</span>
-                          <div><strong>Zoho Desk</strong><small>只读工单分诊 · 不发送回复、不关闭工单</small></div>
-                          <span class="connector-readonly-badge">只读</span>
+                          <div><strong>Zoho Desk</strong><small id="zohoConnectorSummary">只读工单分诊 · 尚未配置</small></div>
+                          <div class="connector-card-actions"><span class="connector-readonly-badge">只读</span><button class="secondary-button compact-button" id="toggleZohoConfig" type="button" aria-expanded="false" aria-controls="zohoConfigMount">配置</button></div>
                         </header>
-                        <form class="zoho-config-form" id="zohoConfigForm">
+                        <div id="zohoConfigMount" hidden></div>
+                        <template id="zohoConfigTemplate">
+                          <form class="zoho-config-form" id="zohoConfigForm">
                           <label><span>连接名称</span><input id="zohoDisplayName" value="Zoho Desk" maxlength="120" /></label>
                           <label><span>组织 ID</span><input id="zohoOrgId" inputmode="numeric" autocomplete="off" placeholder="Zoho Desk orgId" required /></label>
                           <label><span>API Base URL</span><input id="zohoApiBase" type="url" value="https://desk.zoho.com/api/v1" required /></label>
@@ -731,19 +788,34 @@
                             <button class="primary-button" id="connectZohoButton" type="button">连接 Zoho Desk</button>
                             <button class="text-button" id="disconnectZohoButton" type="button">断开</button>
                           </div>
-                        </form>
+                          </form>
+                        </template>
                       </section>
                       <div class="connector-placeholder-grid">
-                        <span><strong>Emma</strong><small>接口契约已预留</small></span>
-                        <span><strong>Customer Ops</strong><small>接口契约已预留</small></span>
-                        <span><strong>Gitee</strong><small>仅关联展示，不创建 Issue</small></span>
-                        <span><strong>B1 运维台</strong><small>尚未配置</small></span>
+                        <span><strong>Emma</strong><small>接口尚未配置 · 查看说明</small></span>
+                        <span><strong>Customer Ops</strong><small>接口尚未配置 · 查看说明</small></span>
+                        <span><strong>Gitee</strong><small>只读关联 · 未配置</small></span>
+                        <span><strong>B1 运维台</strong><small>尚未配置 · 查看说明</small></span>
                       </div>
                     </div>
                   </div>
                 </article>
 
-                <article class="settings-card">
+                <article class="settings-card settings-card--wide" data-settings-section="search" data-settings-panel="search-engine">
+                  <div class="settings-card-icon" data-icon="search"></div>
+                  <div class="settings-card-copy">
+                    <div class="settings-title-row"><div><span class="section-kicker">SEARCH &amp; NEW TAB</span><h3>默认搜索引擎</h3></div><span class="status-pill" id="defaultSearchEngineStatus">Google</span></div>
+                    <p>关键词仅在确认执行后发送给所选搜索引擎；输入变化不会调用远程建议接口。</p>
+                    <div class="search-settings-grid">
+                      <label><span>默认搜索引擎</span><select id="defaultSearchEngineSelect"></select></label>
+                      <label class="settings-switch-row"><span><strong>保存搜索历史</strong><small>最多保留 100 条，仅存本机</small></span><input id="saveSearchHistorySetting" type="checkbox" checked /></label>
+                    </div>
+                    <div class="search-history-heading"><strong>最近搜索</strong><button class="text-button text-button--quiet" id="clearSearchHistoryButton" type="button">全部清除</button></div>
+                    <div class="search-history-list" id="searchHistoryList"></div>
+                  </div>
+                </article>
+
+                <article class="settings-card" data-settings-section="general" data-settings-panel="sessions">
                   <div class="settings-card-icon" data-icon="grid"></div>
                   <div class="settings-card-copy">
                     <div class="settings-title-row"><h3>当前会话</h3></div>
@@ -755,7 +827,7 @@
                   </div>
                 </article>
 
-                <article class="settings-card settings-card--wide" id="taskNotificationSettings">
+                <article class="settings-card settings-card--wide" id="taskNotificationSettings" data-settings-section="notifications" data-settings-panel="notifications">
                   <div class="settings-card-icon" data-icon="calendar"></div>
                   <div class="settings-card-copy">
                     <div class="settings-title-row"><div><span class="section-kicker">NOTIFICATIONS &amp; BACKGROUND</span><h3>通知与后台</h3></div><span class="status-pill" id="taskReminderSettingsStatus">提醒已关闭</span></div>
@@ -774,7 +846,7 @@
                   </div>
                 </article>
 
-                <article class="settings-card settings-card--wide" id="popupPolicySettings">
+                <article class="settings-card settings-card--wide" id="popupPolicySettings" data-settings-section="browsing" data-settings-panel="popup-policy">
                   <div class="settings-card-icon" data-icon="shield"></div>
                   <div class="settings-card-copy">
                     <div class="settings-title-row">
@@ -809,7 +881,7 @@
                   </div>
                 </article>
 
-                <article class="settings-card settings-card--wide" id="browserMemorySettings">
+                <article class="settings-card settings-card--wide" id="browserMemorySettings" data-settings-section="browsing" data-settings-panel="memory">
                   <div class="settings-card-icon" data-icon="window"></div>
                   <div class="settings-card-copy">
                     <div class="settings-title-row">
@@ -826,7 +898,7 @@
                   </div>
                 </article>
 
-                <article class="settings-card settings-card--wide translation-settings-card" id="translationSettings" tabindex="-1">
+                <article class="settings-card settings-card--wide translation-settings-card" id="translationSettings" data-settings-section="translation" data-settings-panel="translation" tabindex="-1">
                   <div class="settings-card-icon" data-icon="language"></div>
                   <div class="settings-card-copy">
                     <div class="settings-title-row">
@@ -883,7 +955,26 @@
                   </div>
                 </article>
 
-                <article class="settings-card settings-card--wide settings-card--chrome-bookmarks" id="chromeBookmarksSettingsSection" data-settings-section="chrome-bookmarks" tabindex="-1">
+                <article class="settings-card" data-settings-section="accounts" data-settings-panel="google">
+                  <div class="settings-card-icon" data-icon="cloud"></div>
+                  <div class="settings-card-copy">
+                    <div class="settings-title-row"><h3>Google 数据同步</h3><span class="status-pill" id="googleSettingsStatus">未连接</span></div>
+                    <p>账号身份与 Drive 授权分开显示；只使用 <code>drive.appdata</code> 保存栖页数据，不访问普通 My Drive 文件。</p>
+                    <button class="secondary-button compact-button" id="openGoogleSyncSettings" type="button">管理 Google 同步</button>
+                    <fieldset class="google-sync-module-settings" id="googleSyncModuleSettings">
+                      <legend>同步内容</legend>
+                      <label><input type="checkbox" data-google-sync-module="sites" checked> 站点</label>
+                      <label><input type="checkbox" data-google-sync-module="plans" checked> 计划</label>
+                      <label><input type="checkbox" data-google-sync-module="settings" checked> 设置</label>
+                      <label><input type="checkbox" data-google-sync-module="searchHistory" checked> 搜索历史</label>
+                      <label><input type="checkbox" data-google-sync-module="browsingHistory" checked> 浏览历史</label>
+                      <label><input type="checkbox" data-google-sync-module="userScriptMetadata" checked> 用户脚本元数据</label>
+                      <label><input type="checkbox" data-google-sync-module="notifications"> 通知（默认关闭）</label>
+                    </fieldset>
+                  </div>
+                </article>
+
+                <article class="settings-card settings-card--wide settings-card--chrome-bookmarks" id="chromeBookmarksSettingsSection" data-settings-section="accounts" data-settings-panel="chrome-bookmarks" tabindex="-1">
                   <div class="settings-card-icon" data-icon="chrome"></div>
                   <div class="settings-card-copy">
                     <div class="settings-title-row">
@@ -953,7 +1044,7 @@
                   </div>
                 </article>
 
-                <article class="settings-card">
+                <article class="settings-card" data-settings-section="data" data-settings-panel="local-data">
                   <div class="settings-card-icon" data-icon="database"></div>
                   <div class="settings-card-copy">
                     <div class="settings-title-row">
@@ -969,7 +1060,7 @@
                   </div>
                 </article>
 
-                <article class="settings-card">
+                <article class="settings-card" data-settings-section="data" data-settings-panel="browser-identity">
                   <div class="settings-card-icon" data-icon="cookie"></div>
                   <div class="settings-card-copy">
                     <div class="settings-title-row">
@@ -982,7 +1073,7 @@
                   </div>
                 </article>
 
-                <article class="settings-card settings-card--wide settings-card--roadmap">
+                <article class="settings-card settings-card--wide settings-card--roadmap" data-settings-section="about" data-settings-panel="about">
                   <div class="settings-card-icon" data-icon="route"></div>
                   <div class="settings-card-copy">
                     <div class="settings-title-row">
@@ -995,6 +1086,8 @@
                     </ol>
                   </div>
                 </article>
+                  </div>
+                </section>
               </div>
             </div>
           </section>
@@ -1003,10 +1096,16 @@
             <div class="browser-empty-card">
               <span class="browser-empty-icon" data-icon="compass"></span>
               <span class="section-kicker">EMPTY BROWSER</span>
-              <h1><span id="browserEmptyWorkspaceName">当前</span>空间尚未打开网页</h1>
-              <p>这里不会沿用其他空间正在浏览的站点。请从当前空间的站点列表选择网页，或先添加一个新站点。</p>
+              <h1>搜索或输入网址</h1>
+              <p>不需要先添加站点，也可以直接在<span id="browserEmptyWorkspaceName">当前</span>空间打开任意网页。</p>
+              <form class="browser-empty-search" id="browserEmptySearchForm">
+                <span class="browser-empty-engine" id="browserEmptyEngineIcon">G</span>
+                <input id="browserEmptySearchInput" type="search" placeholder="输入网址或搜索内容" autocomplete="off" aria-label="输入网址或搜索内容" />
+                <button type="submit">搜索</button>
+              </form>
+              <div class="browser-empty-recent" id="browserEmptyRecent" hidden></div>
               <div class="browser-empty-actions">
-                <button class="primary-button" id="browserEmptyOpenSites" type="button">
+                <button class="secondary-button" id="browserEmptyOpenSites" type="button">
                   <span data-icon="grid"></span>
                   打开当前空间站点
                 </button>
@@ -1203,6 +1302,20 @@
           </section>
         </main>
       </div>
+    </div>
+
+    <div class="global-search-backdrop" id="globalSearchPalette" role="dialog" aria-modal="true" aria-labelledby="globalSearchTitle" hidden>
+      <section class="global-search-card">
+        <header class="global-search-header">
+          <span data-icon="search"></span>
+          <input id="globalSearchInput" type="search" placeholder="搜索网页、站点、书签、任务，或输入网址" autocomplete="off" aria-label="全局搜索" />
+          <select id="globalSearchEngine" aria-label="本次搜索引擎"></select>
+          <button class="icon-button icon-button--small" id="closeGlobalSearch" type="button" aria-label="关闭全局搜索"><span data-icon="close"></span></button>
+        </header>
+        <h2 class="visually-hidden" id="globalSearchTitle">全局搜索</h2>
+        <div class="global-search-results" id="globalSearchResults" role="listbox" aria-live="polite"></div>
+        <footer><span>↑↓ 选择</span><span>Enter 打开</span><span>Esc 关闭</span><span>搜索内容仅在确认后联网</span></footer>
+      </section>
     </div>
 
     <div class="modal-backdrop" id="taskModal" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle">

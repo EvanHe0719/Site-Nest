@@ -22,6 +22,34 @@ function looksLikeHostOrUrl(value) {
   return /^[^\s./]+(?:\.[^\s./]+)+(?::\d+)?(?:[/?#]|$)/u.test(value);
 }
 
+function defaultProtocolForHost(value) {
+  const authority = String(value || "")
+    .split(/[/?#]/, 1)[0];
+  const bracketEnd = authority.startsWith("[") ? authority.indexOf("]") : -1;
+  const host = (bracketEnd > 0
+    ? authority.slice(1, bracketEnd)
+    : authority.replace(/:\d+$/, ""))
+    .toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost")) return "http:";
+  if (host === "::1" || /^f[cd][0-9a-f:]+$/i.test(host)) return "http:";
+  const octets = host.split(".").map((part) => Number(part));
+  if (
+    octets.length === 4 &&
+    octets.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)
+  ) {
+    if (
+      octets[0] === 10 ||
+      octets[0] === 127 ||
+      (octets[0] === 169 && octets[1] === 254) ||
+      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+      (octets[0] === 192 && octets[1] === 168)
+    ) {
+      return "http:";
+    }
+  }
+  return "https:";
+}
+
 function buildSearchUrl(query, template = DEFAULT_SEARCH_URL) {
   const normalizedTemplate = String(template || DEFAULT_SEARCH_URL);
   const encoded = encodeURIComponent(query);
@@ -42,17 +70,25 @@ function resolveNavigationTarget(rawValue, options = {}) {
     throw new Error("输入包含不安全控制字符");
   }
 
-  const schemeMatch = value.match(/^([a-z][a-z\d+.-]*:)/i);
+  const bareHostWithPort = /^(?:localhost|\[[0-9a-f:]+\]|\d{1,3}(?:\.\d{1,3}){3}|[^\s/:]+(?:\.[^\s/:]+)+):\d+(?:[/?#]|$)/i.test(value);
+  const schemeMatch = bareHostWithPort
+    ? null
+    : value.match(/^([a-z][a-z\d+.-]*:)/i);
   const scheme = schemeMatch?.[1]?.toLowerCase() || "";
   if (BLOCKED_SCHEMES.has(scheme)) {
     throw new Error("不允许从地址栏执行脚本或本地协议");
   }
   if (scheme && !['http:', 'https:'].includes(scheme)) {
-    throw new Error("地址栏仅支持 HTTP、HTTPS 或普通搜索文字");
+    return {
+      kind: "external",
+      url: value,
+      input: value,
+      protocol: scheme,
+    };
   }
 
   if (looksLikeHostOrUrl(value)) {
-    const parsed = new URL(scheme ? value : `https://${value}`);
+    const parsed = new URL(scheme ? value : `${defaultProtocolForHost(value)}//${value}`);
     if (!['http:', 'https:'].includes(parsed.protocol)) {
       throw new Error("仅支持 HTTP 或 HTTPS 网站");
     }
@@ -81,6 +117,7 @@ module.exports = {
   BLOCKED_SCHEMES,
   DEFAULT_SEARCH_URL,
   buildSearchUrl,
+  defaultProtocolForHost,
   resolveNavigationTarget,
   securityStateForUrl,
 };

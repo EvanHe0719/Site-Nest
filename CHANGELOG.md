@@ -1,5 +1,25 @@
 # 变更记录
 
+## 开发中 - Google Drive 同步治理 Sprint
+
+- Google Identity 与 Drive Sync 状态分离；旧 Token 缺少 `drive.appdata` 时保留账号登录并提示同账号重新授权。
+- Desktop OAuth 使用系统浏览器、loopback 与 PKCE，实际授权 Scope 必须包含 `openid email profile drive.appdata`；Token 与导入后的 Client Secret 使用 `safeStorage`。
+- 新增只读健康检查和用户主动触发的临时写入/删除测试，区分 API 未启用、Scope 缺失、测试用户、Token 过期、权限、限流和网络错误。
+- 同步白名单扩展到计划、公开设置、栖页搜索/浏览历史和用户脚本元数据；敏感 URL 再清洗，删除使用 30 天 Tombstone。
+- 增加 Manifest、设备/Revision/Checksum 与冲突治理；本地和云端同时变化时不再静默覆盖，覆盖前创建本机快照。
+- 开发脚本与打包脚本分离；普通 CI、`build` 和 `build:code` 不再调用 electron-builder。
+
+## 0.5.5 - 2026-08-30
+
+### 通用搜索与设置中心
+
+- 新增统一 `NavigationResolver` / `SearchService` / `SearchEngineRegistry` / `GlobalSearchService`：完整 URL、无协议域名、localhost、私网 IP 和普通关键词使用同一解析逻辑。脚本与本地协议始终阻止，未知自定义协议复用系统确认。
+- 新增顶部 `Ctrl/Cmd + K` 搜索面板，本地搜索当前会话、我的站点、Chrome 书签和计划任务；不论本地是否命中，都保留用选定引擎搜索互联网的操作。输入期间不请求第三方搜索建议。
+- 空浏览状态以搜索/网址输入为主操作；空状态打开一个页签，正常网页中的全局搜索新建页签，并继承当前空间与 BrowserProfile。临时页不会收藏或创建新分区。
+- 内置 Google、Bing、百度和 DuckDuckGo，支持持久化默认引擎与本次临时引擎。本地历史去重、限制 100 条，删除 Token、OAuth Code、Session、密码等敏感 URL 参数。
+- 设置页改为二级分类导航、右侧独立滚动和分类内折叠卡片；窄窗口使用顶部分类选择器。只挂载当前分类，Zoho 详细表单默认不创建。
+- 新增基于 Settings Registry 的设置搜索、最后分类恢复、旧路由定位和未保存表单离开确认。schema 升级到 v10，不清理现有 Cookie、分区、连接器配置或授权。
+
 ## 0.5.4 - 2026-08-30
 
 ### SAP HANA 请求兼容

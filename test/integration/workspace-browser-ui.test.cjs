@@ -82,7 +82,8 @@ function assertEmptyWorkspace(snapshot, workspaceId) {
   assert.equal(snapshot.currentSite, null);
   assert.equal(snapshot.browserVisible, false);
   assert.equal(snapshot.browserEmptyVisible, true);
-  assert.match(snapshot.browserEmptyText, new RegExp(`${workspaceId === "work" ? "工作" : "研究"}空间尚未打开网页`));
+  assert.match(snapshot.browserEmptyText, /搜索或输入网址/);
+  assert.match(snapshot.browserEmptyText, new RegExp(`${workspaceId === "work" ? "工作" : "研究"}空间打开任意网页`));
 }
 
 test("workspace browser state is isolated; unopened workspace is truly empty and a prior workspace restores only its own page", async () => {
@@ -282,7 +283,7 @@ test("top and sidebar session menus share duplicate behavior and target inactive
   assert.ok(result.afterCloseCopy.browserSnapshot.tabs.some((tab) => tab.tabId === result.menu.sourceTabId));
   assert.ok(!result.afterCloseCopy.browserSnapshot.tabs.some((tab) => tab.tabId === result.afterTopCopy.browserSnapshot.activeTabId));
 
-  assert.equal(result.chrome.version, "0.5.4");
+  assert.equal(result.chrome.version, "0.5.5");
   assert.equal(result.chrome.hasSidebarChromeNav, false);
   assert.equal(result.chrome.hasSidebarChromeCard, false);
   assert.equal(result.chrome.hasFixedSitesRegion, false);
@@ -333,6 +334,87 @@ test("current sessions stay cross-workspace, own the released sidebar height and
   assert.equal(result.state.uiSettings.sessionVisibility, "all");
 });
 
+test("0.5.5 universal search opens temporary pages without saving sites and keeps one shared navigation path", async () => {
+  const result = await runHarness("search-055");
+
+  assert.equal(result.afterEmptySearch.siteCount, result.initialSiteCount);
+  assert.equal(result.afterEmptySearch.tabCount, 1, "an empty workspace should receive one tab, not a redundant second tab");
+  assert.equal(result.afterEmptySearch.activeTab.siteId, null);
+  assert.equal(result.afterEmptySearch.activeTab.workspaceId, "personal");
+  assert.equal(result.afterEmptySearch.activeTab.browserProfileId, "default");
+  assert.equal(result.afterEmptySearch.activeTab.url, "https://temporary.example.test/path?q=1");
+  assert.equal(result.afterEmptySearch.emptyVisible, false);
+
+  assert.ok(result.localGroups.includes("当前会话"));
+  assert.ok(result.localGroups.includes("互联网搜索"));
+  assert.ok(result.sourceGroups.includes("我的站点"));
+  assert.ok(result.sourceGroups.includes("Chrome 书签"));
+  assert.ok(result.sourceGroups.includes("计划任务"));
+  assert.ok(result.sourceGroups.includes("互联网搜索"));
+  assert.deepEqual(result.noLocal.map((item) => item.group), ["互联网搜索"]);
+  assert.ok(result.directGroups.includes("直接打开网址"));
+  assert.ok(result.directGroups.includes("互联网搜索"));
+
+  assert.equal(result.afterGlobalSearch.paletteHidden, true);
+  assert.equal(result.afterGlobalSearch.tabCount, 2, "global search over a normal page should open a new tab");
+  assert.equal(result.afterGlobalSearch.activeTab.workspaceId, "personal");
+  assert.equal(result.afterGlobalSearch.activeTab.browserProfileId, "default");
+  assert.equal(result.afterGlobalSearch.activeTab.url, "https://www.bing.com/search?q=quarterly%20forecast");
+  assert.equal(result.afterGlobalSearch.defaultEngineId, "google", "temporary engine selection must not replace the default");
+  assert.equal(result.afterGlobalSearch.siteCount, result.initialSiteCount);
+  assert.equal(result.afterGlobalSearch.history[0].text, "quarterly forecast");
+  assert.equal(result.afterGlobalSearch.history[0].engineId, "bing");
+  assert.equal(result.escapeClosed, true);
+  assert.equal(result.historyMaintenance.afterRemove, 1);
+  assert.equal(result.historyMaintenance.afterClear, 0);
+  assert.equal(result.historyMaintenance.afterDisabledSearch, 0);
+  assert.equal(result.historyMaintenance.siteCount, result.initialSiteCount);
+  assert.equal(result.historyMaintenance.bookmarkCount, 2);
+  assert.equal(result.trace.searchActions.length, 3, "only the three confirmed submissions may navigate; typing must stay local");
+  assert.equal(result.trace.searchActions[0].disposition, "current");
+  assert.equal(result.trace.searchActions[1].disposition, "new");
+  assert.equal(result.trace.mounted.attached, true, "closing the palette must restore the transient tab view");
+  assert.equal(result.persisted.sites.length, result.initialSiteCount);
+});
+
+test("0.5.5 settings mounts one category, lazy-loads Zoho, searches the registry and honors dirty forms", async () => {
+  const result = await runHarness("settings-055");
+
+  assert.equal(result.initial.route, "settings");
+  assert.equal(result.initial.section, "general");
+  assert.deepEqual(result.initial.mountedSections, ["general"]);
+  assert.deepEqual(result.initial.navigation, [
+    "常规", "搜索与新标签页", "浏览与性能", "翻译", "计划与通知", "连接与集成", "账号与同步", "数据与备份", "关于",
+  ]);
+  assert.equal(result.initial.zohoMounted, false);
+  assert.equal(result.initial.contentOverflowY, "auto");
+
+  assert.deepEqual(result.connectionsCollapsed.mountedSections, ["connections"]);
+  assert.equal(result.connectionsCollapsed.zohoMounted, false, "the heavy connector form must not mount by default");
+  assert.match(result.connectionsCollapsed.summary, /配置已保存/);
+  assert.equal(result.zohoExpanded.mounted, true);
+  assert.equal(result.zohoExpanded.hidden, false);
+  assert.equal(result.zohoExpanded.expanded, "true");
+  assert.equal(result.zohoExpanded.orgId, "123456789");
+  assert.equal(result.zohoExpanded.displayName, "Zoho Desk 测试配置");
+  assert.equal(result.blockedDirtySwitch, "connections");
+  assert.equal(result.persistedSection, "search");
+  assert.equal(result.settingsSearch.hidden, false);
+  assert.match(result.settingsSearch.labels.join(" "), /Zoho Desk/);
+  assert.equal(result.searchLocated.section, "connections");
+  assert.equal(result.searchLocated.zohoMounted, true);
+  assert.equal(result.searchLocated.expanded, "true");
+  assert.equal(result.searchLocated.orgId, "unsaved-org", "detaching a settings category must not discard an unsaved form");
+  assert.equal(result.emptySearchText, "没有匹配的已实现设置");
+  assert.equal(result.legacyRoute.route, "settings");
+  assert.equal(result.legacyRoute.section, "connections");
+  assert.equal(result.legacyRoute.zohoMounted, true);
+  assert.equal(result.historyBackSection, "search");
+
+  const narrow = await runHarness("settings-055", { width: 900, height: 760 });
+  assert.notEqual(narrow.initial.mobileSelectDisplay, "none");
+});
+
 test("dragend with zero Windows coordinates falls back to the last real drag point and detaches", async () => {
   const result = await runHarness("tabs-drag-fallback");
   const detach = result.trace.tabActions.find((item) => item.action === "detach");
@@ -347,9 +429,9 @@ test("Google sync card exposes the full account flow and rerenders cloud-restore
   const result = await runHarness("google-sync-ui");
 
   assert.equal(result.initial.configured, true);
-  assert.equal(result.initial.signedIn, false);
-  assert.equal(result.initial.cardTitle, "连接 Google · Beta");
-  assert.match(result.initial.cardSubtitle, /同步栖页数据/);
+  assert.equal(result.initial.signedIn, true);
+  assert.equal(result.initial.cardTitle, "evanhe0719@gmail.com · Beta");
+  assert.match(result.initial.cardSubtitle, /Drive 未授权/);
   assert.equal(result.initial.popoverHidden, true);
 
   assert.equal(result.open.popoverHidden, false);
@@ -357,15 +439,20 @@ test("Google sync card exposes the full account flow and rerenders cloud-restore
   assert.equal(result.open.buttons.signInVisible, true);
   assert.equal(result.open.buttons.signInDisabled, false);
   assert.equal(result.open.buttons.syncVisible, false);
-  assert.match(result.open.notice, /同步栖页数据，不等于 Chrome 书签回写/);
+  assert.equal(result.open.identityStatus, "已登录");
+  assert.equal(result.open.driveStatus, "未授权");
+  assert.match(result.open.notice, /不会接管 Chrome 官方同步/);
 
   assert.equal(result.connected.signedIn, true);
   assert.equal(result.connected.cardTitle, "evan@example.com · Beta");
   assert.equal(result.connected.account, "evan@example.com");
+  assert.equal(result.connected.identityStatus, "已登录");
+  assert.equal(result.connected.driveStatus, "已就绪");
   assert.equal(result.connected.buttons.signInVisible, false);
   assert.equal(result.connected.buttons.syncVisible, true);
   assert.equal(result.connected.buttons.restoreVisible, true);
   assert.equal(result.connected.buttons.signOutVisible, true);
+  assert.equal(result.connected.buttons.testVisible, true);
 
   assert.match(result.synced.cardSubtitle, /上次同步/);
   assert.match(result.synced.lastSync, /上次同步/);
@@ -381,6 +468,15 @@ test("Google sync card exposes the full account flow and rerenders cloud-restore
   assert.equal(result.signedOut.cardExpanded, "false");
   assert.match(result.signedOut.toasts.join(" "), /已退出 Google/);
   assert.deepEqual(result.trace.googleActions, ["sign-in", "sync", "restore", "sign-out"]);
+});
+
+test("Google sync renders a real conflict and requires an explicit resolution", async () => {
+  const result = await runHarness("google-sync-conflict-ui");
+  assert.equal(result.conflict.driveStatus, "存在同步冲突");
+  assert.match(result.conflict.toasts.join(" "), /发现同步冲突/);
+  assert.equal(result.resolved.driveStatus, "已同步");
+  assert.match(result.resolved.toasts.join(" "), /同步冲突已处理/);
+  assert.deepEqual(result.trace.googleActions, ["sign-in", "sync", "conflict:merge"]);
 });
 
 test("Chrome bookmarks live in Settings, legacy and home entries focus the module, and explicit maintenance preserves then clears data", async () => {

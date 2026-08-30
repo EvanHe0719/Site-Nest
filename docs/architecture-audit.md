@@ -1,5 +1,14 @@
 # 栖页架构审计与增量改造记录
 
+## 0.5.5 搜索与设置审计（2026-08-30）
+
+- 桌面与前端仍为 Electron 44 + 原生 HTML/CSS/JavaScript；不新增 UI 框架、路由库、搜索进程或外部全文服务。
+- 网页打开继续使用主进程 `workspaceBrowserContexts[workspaceId].tabs` 和每页签 `WebContentsView`；通用搜索只增加统一解析/搜索服务，没有创建并行 SessionService。
+- `Ctrl/Cmd + K` 本轮开发前未占用；`Ctrl/Cmd + L` 仍只聚焦当前网页地址栏。地址栏、粘贴并转到、空页、聚合首页和全局面板共用主进程解析边界。
+- 搜索设置和历史存入原子 JSON 状态，schema v10；历史仅记录用户已执行的搜索/直接 URL，不记录输入过程，并删除或拒绝敏感认证内容。
+- 设置仍是原渲染页路由，但使用 Settings Registry 和 Hash/History 状态组织分类。只将当前分类卡片挂回 DOM；Zoho 表单使用 `<template>` 在用户展开后创建。
+- 新增状态不改名或重建 `persist:qiye-sites` / `persist:qiye-sap-support`，不清理 Cookie、Cache、LocalStorage、IndexedDB、Google/Zoho 安全凭据或 Chrome 书签。
+
 ## 0.5.0 最终审计（2026-08-30）
 
 - 桌面与浏览：Electron 44、`BrowserWindow` 和现有多 `WebContentsView` 会话模型；没有更换框架、引入 CEF、第二套 Chromium 或 Chrome 扩展运行时。
@@ -8,7 +17,7 @@
 - 会话与登录：所有网页仍使用 `persist:qiye-sites`；生命周期休眠只销毁 WebContents，不清理 Cookie、LocalStorage、IndexedDB、Cache、安全凭据或 Google/Zoho 状态。
 - 安全存储：翻译 API Key、Google/Zoho OAuth 令牌和连接器密钥继续使用 Electron `safeStorage`；渲染进程没有读取 Token 的 IPC。
 - IPC：右键、弹窗、翻译、任务、用户脚本、资源扫描和生命周期都通过 context-isolated preload 白名单；网页主世界不获得 Electron/Node API。
-- 测试与构建：`check`、自定义安全 `lint`、TypeScript `checkJs`、Node 单元测试、真实 Electron 集成测试和 electron-builder Windows x64 portable 均可执行。
+- 测试与构建：`dev`、`lint`、TypeScript `checkJs`、Node 单元测试、真实 Electron 集成测试与 `build:code` 和打包脚本分离；普通开发/CI 不调用 electron-builder。
 - 外部真实性：SAP Support Notes 仍缺少本机真实账号授权验证；本地 SSO/OAuth/POST/重定向/下载夹具已覆盖浏览器机制，跳转审计删除 query 与 fragment。翻译 Provider、Zoho、Emma 与 Customer Ops 的联机能力只在提供真实配置时启用，不用 Fixture 填充正式界面。
 
 ## 0.4.1 增量审计（2026-08-30）
@@ -55,7 +64,7 @@
 - Chrome 书签：只读解析 Chrome 配置中的 `Bookmarks` 与 `AccountBookmarks`，合并后写入栖页自己的全局书签库。
 - 登录会话：所有内置网页和奶昔签到窗口共用 `persist:qiye-sites` 持久分区。
 - 自动签到：主进程中的隐藏 `BrowserWindow` 复用同一持久分区，验证页面状态后才提交奶昔签到请求。
-- 构建：`electron-builder` 生成 Windows x64 便携 EXE。
+- 构建：`build:code` 只验证 main/preload/renderer 代码；`package:portable` 和 `package:win` 才调用 electron-builder，必须显式执行。
 
 ## 迭代前数据事实
 

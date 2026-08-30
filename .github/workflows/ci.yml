@@ -1,0 +1,23 @@
+name: code-checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build:code
+
+# Packaging and publishing intentionally stay outside ordinary push/PR CI.
+# A release workflow may invoke package:portable or package:win only through an
+# explicit tag or a separately reviewed workflow_dispatch action.

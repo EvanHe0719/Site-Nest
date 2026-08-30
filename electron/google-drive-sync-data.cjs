@@ -9,6 +9,10 @@ const MAX_SITES = 10000;
 const MAX_BOOKMARKS = 50000;
 const MAX_BROWSER_PROFILES = 500;
 const MAX_SETTING_ENTRIES = 500;
+const MAX_TASKS = 10000;
+const MAX_HISTORY_ENTRIES = 5000;
+const MAX_USER_SCRIPTS = 1000;
+const TOMBSTONE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 const DANGEROUS_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 const SENSITIVE_URL_PARAMETER = /^(?:access_token|refresh_token|id_token|token|oauth_token|oauth_verifier|authorization|auth|code|client_id|client_secret|redirect_uri|response_type|scope|state|session|session_id|sid|password|passwd|api_key|apikey)$/i;
@@ -153,6 +157,117 @@ function sanitizeHttpUrl(value, label) {
 function finiteNumber(value, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+function safeJsonValue(value, depth = 0) {
+  if (depth > 8 || value === undefined) return undefined;
+  if (value === null || ["boolean", "number"].includes(typeof value)) return value;
+  if (typeof value === "string") return scrubSensitiveText(value).slice(0, 5000);
+  if (Array.isArray(value)) return value.slice(0, 1000).map((item) => safeJsonValue(item, depth + 1)).filter((item) => item !== undefined);
+  if (!isRecord(value)) return undefined;
+  const result = {};
+  for (const [rawKey, rawValue] of Object.entries(value).slice(0, 1000)) {
+    const key = String(rawKey || "").slice(0, 120);
+    if (!key || /(?:secret|token|password|cookie|authorization|api[_-]?key|client[_-]?secret|credential)/i.test(key)) continue;
+    const normalized = safeJsonValue(rawValue, depth + 1);
+    if (normalized !== undefined) result[key] = normalized;
+  }
+  return result;
+}
+
+function normalizeSyncOptions(value) {
+  const input = isRecord(value) ? value : {};
+  return {
+    sites: input.sites !== false,
+    plans: input.plans !== false,
+    settings: input.settings !== false,
+    searchHistory: input.searchHistory !== false,
+    browsingHistory: input.browsingHistory !== false,
+    userScriptMetadata: input.userScriptMetadata !== false,
+    notifications: input.notifications === true,
+  };
+}
+
+function normalizePlans(value) {
+  return assertArray(value || [], "plans", MAX_TASKS).map((candidate, index) => {
+    assertRecord(candidate, "INVALID_SYNC_SNAPSHOT", `第 ${index + 1} 个计划无效`);
+    return safeJsonValue({
+      id: safeIdentifier(candidate.id, `plans[${index}].id`, 160),
+      title: boundedString(candidate.title || "未命名计划", `plans[${index}].title`, 500, { required: true }),
+      notes: boundedString(candidate.notes || "", `plans[${index}].notes`, 5000, { trim: false }) || "",
+      workspaceId: boundedString(candidate.workspaceId || "personal", `plans[${index}].workspaceId`, 120, { required: true }),
+      status: boundedString(candidate.status || "todo", `plans[${index}].status`, 40, { required: true }),
+      priority: boundedString(candidate.priority || "medium", `plans[${index}].priority`, 40, { required: true }),
+      startAt: optionalIso(candidate.startAt, `plans[${index}].startAt`),
+      dueAt: optionalIso(candidate.dueAt, `plans[${index}].dueAt`),
+      allDay: Boolean(candidate.allDay),
+      reminderOffsets: Array.isArray(candidate.reminderOffsets) ? candidate.reminderOffsets.slice(0, 20).map(Number).filter(Number.isFinite) : [],
+      tags: Array.isArray(candidate.tags) ? candidate.tags.slice(0, 50).map((tag) => String(tag).slice(0, 100)) : [],
+      orderKey: String(candidate.orderKey || "").slice(0, 200),
+      timeZone: String(candidate.timeZone || "").slice(0, 100),
+      createdAt: optionalIso(candidate.createdAt, `plans[${index}].createdAt`),
+      updatedAt: optionalIso(candidate.updatedAt, `plans[${index}].updatedAt`),
+      completedAt: optionalIso(candidate.completedAt, `plans[${index}].completedAt`),
+    });
+  });
+}
+
+function normalizeHistory(value, label) {
+  return assertArray(value || [], label, MAX_HISTORY_ENTRIES).flatMap((candidate, index) => {
+    if (!isRecord(candidate)) return [];
+    try {
+      const textValue = candidate.url || candidate.text || "";
+      const sanitizedText = /^https?:/i.test(String(textValue))
+        ? sanitizeHttpUrl(String(textValue), `${label}[${index}].url`)
+        : scrubSensitiveText(String(textValue)).slice(0, 2000);
+      if (!sanitizedText || SENSITIVE_FRAGMENT.test(String(textValue))) return [];
+      return [{
+        id: safeIdentifier(candidate.id, `${label}[${index}].id`, 180),
+        type: String(candidate.type || (candidate.url ? "page" : "webSearch")).slice(0, 60),
+        text: sanitizedText,
+        url: candidate.url ? sanitizedText : null,
+        title: String(candidate.title || "").slice(0, 500),
+        engineId: String(candidate.engineId || "").slice(0, 80),
+        workspaceId: String(candidate.workspaceId || "").slice(0, 120),
+        lastVisitedAt: optionalIso(candidate.lastVisitedAt || candidate.lastUsedAt || candidate.updatedAt, `${label}[${index}].lastVisitedAt`),
+        updatedAt: optionalIso(candidate.updatedAt || candidate.lastVisitedAt || candidate.lastUsedAt, `${label}[${index}].updatedAt`),
+        useCount: Math.max(1, finiteNumber(candidate.useCount, 1)),
+      }];
+    } catch {
+      return [];
+    }
+  });
+}
+
+function normalizeUserScriptMetadata(value) {
+  return assertArray(value || [], "userScriptMetadata", MAX_USER_SCRIPTS).map((candidate, index) => {
+    assertRecord(candidate, "INVALID_SYNC_SNAPSHOT", `第 ${index + 1} 个用户脚本无效`);
+    return {
+      id: safeIdentifier(candidate.id, `userScriptMetadata[${index}].id`, 160),
+      name: String(candidate.name || "未命名脚本").slice(0, 300),
+      enabled: candidate.enabled !== false,
+      matches: Array.isArray(candidate.matches) ? candidate.matches.slice(0, 100).map((item) => String(item).slice(0, 500)) : [],
+      runAt: String(candidate.runAt || "document-idle").slice(0, 40),
+      codeHash: String(candidate.codeHash || "").slice(0, 128),
+      updatedAt: optionalIso(candidate.updatedAt, `userScriptMetadata[${index}].updatedAt`),
+    };
+  });
+}
+
+function normalizeTombstones(value, now = Date.now()) {
+  const cutoff = now - TOMBSTONE_RETENTION_MS;
+  return assertArray(value || [], "tombstones", MAX_HISTORY_ENTRIES).flatMap((candidate, index) => {
+    if (!isRecord(candidate)) return [];
+    try {
+      const deletedAt = requiredIso(candidate.deletedAt, `tombstones[${index}].deletedAt`);
+      if (Date.parse(deletedAt) < cutoff) return [];
+      return [{
+        id: safeIdentifier(candidate.id, `tombstones[${index}].id`, 200),
+        module: String(candidate.module || "unknown").slice(0, 80),
+        deletedAt,
+      }];
+    } catch { return []; }
+  });
 }
 
 function normalizeWorkspaces(value) {
@@ -449,6 +564,13 @@ function normalizeSnapshot(value) {
     browserProfiles,
     assistantSettings: normalizeAssistantSettings(input.assistantSettings),
     automationSettings: normalizeAutomationSettings(input.automationSettings),
+    syncOptions: normalizeSyncOptions(input.syncOptions),
+    plans: normalizePlans(input.plans),
+    settings: safeJsonValue(input.settings || {}),
+    searchHistory: normalizeHistory(input.searchHistory, "searchHistory"),
+    browsingHistory: normalizeHistory(input.browsingHistory, "browsingHistory"),
+    userScriptMetadata: normalizeUserScriptMetadata(input.userScriptMetadata),
+    tombstones: normalizeTombstones(input.tombstones),
     activeWorkspaceId,
   };
 }
@@ -508,11 +630,31 @@ function normalizeRemoteEnvelope(value) {
       "云端同步封装版本不受支持",
     );
   }
+  const snapshot = normalizeSnapshot(input.snapshot);
+  const revision = snapshotFingerprint(snapshot);
+  if (input.manifest?.revision && input.manifest.revision !== revision) {
+    throw new GoogleDriveSyncDataError(
+      "SYNC_CHECKSUM_MISMATCH",
+      "云端同步数据校验失败",
+    );
+  }
   return {
     kind: SYNC_ENVELOPE_KIND,
     envelopeVersion: SYNC_ENVELOPE_VERSION,
     updatedAt: requiredIso(input.updatedAt, "updatedAt"),
-    snapshot: normalizeSnapshot(input.snapshot),
+    manifest: {
+      formatVersion: 1,
+      schemaVersion: snapshot.version,
+      appVersion: String(input.manifest?.appVersion || "unknown").slice(0, 40),
+      revision,
+      deviceId: String(input.manifest?.deviceId || "unknown").slice(0, 160),
+      deviceName: String(input.manifest?.deviceName || "unknown").slice(0, 160),
+      createdAt: optionalIso(input.manifest?.createdAt, "manifest.createdAt") || requiredIso(input.updatedAt, "updatedAt"),
+      updatedAt: optionalIso(input.manifest?.updatedAt, "manifest.updatedAt") || requiredIso(input.updatedAt, "updatedAt"),
+      modules: Object.keys(snapshot).filter((key) => !["version", "activeWorkspaceId"].includes(key)),
+      checksums: { snapshot: revision },
+    },
+    snapshot,
   };
 }
 
@@ -531,26 +673,52 @@ function validateRemoteEnvelope(value) {
   }
 }
 
-function createSafeSnapshot(state) {
+function createSafeSnapshot(state, options = {}) {
   const input = assertRecord(
     state,
     "INVALID_LOCAL_STATE",
     "本地数据必须是对象",
   );
+  const syncOptions = normalizeSyncOptions(options.syncOptions || input.uiSettings?.googleSync);
+  const userScriptMetadata = syncOptions.userScriptMetadata
+    ? (Array.isArray(input.userScripts) ? input.userScripts : []).map((script) => ({
+        id: script.id,
+        name: script.name,
+        enabled: script.enabled,
+        matches: script.matches,
+        runAt: script.runAt,
+        codeHash: createHash("sha256").update(String(script.code || "")).digest("hex"),
+        updatedAt: script.updatedAt,
+      }))
+    : [];
+  const tombstones = (Array.isArray(options.tombstones) ? options.tombstones : []).filter((item) => {
+    if (["workspaces", "sites", "bookmarks"].includes(item?.module)) return syncOptions.sites;
+    if (item?.module === "plans") return syncOptions.plans;
+    if (item?.module === "searchHistory") return syncOptions.searchHistory;
+    if (item?.module === "browsingHistory") return syncOptions.browsingHistory;
+    return true;
+  });
   return normalizeSnapshot({
     version: input.version,
     workspaces: input.workspaces,
-    sites: input.sites,
-    bookmarks: input.bookmarks,
-    browserProfiles: input.browserProfiles,
-    assistantSettings: input.assistantSettings,
-    automationSettings: input.automationSettings || input.automations,
+    sites: syncOptions.sites ? input.sites : [],
+    bookmarks: syncOptions.sites ? input.bookmarks : [],
+    browserProfiles: syncOptions.sites ? input.browserProfiles : [],
+    assistantSettings: syncOptions.settings ? input.assistantSettings : {},
+    automationSettings: syncOptions.settings ? (input.automationSettings || input.automations) : {},
+    syncOptions,
+    plans: syncOptions.plans ? input.localTasks : [],
+    settings: syncOptions.settings ? input.uiSettings : {},
+    searchHistory: syncOptions.searchHistory ? input.searchHistory : [],
+    browsingHistory: syncOptions.browsingHistory ? input.browsingHistory : [],
+    userScriptMetadata,
+    tombstones,
     activeWorkspaceId: input.activeWorkspaceId,
   });
 }
 
 function createSyncEnvelope(state, options = {}) {
-  const snapshot = createSafeSnapshot(state);
+  const snapshot = createSafeSnapshot(state, options);
   let updatedAt = null;
   for (const candidate of [options.updatedAt, state.updatedAt, state.createdAt, options.now]) {
     try {
@@ -561,10 +729,23 @@ function createSyncEnvelope(state, options = {}) {
     if (updatedAt) break;
   }
   if (!updatedAt) updatedAt = new Date().toISOString();
+  const revision = snapshotFingerprint(snapshot);
   return {
     kind: SYNC_ENVELOPE_KIND,
     envelopeVersion: SYNC_ENVELOPE_VERSION,
     updatedAt,
+    manifest: {
+      formatVersion: 1,
+      schemaVersion: snapshot.version,
+      appVersion: String(options.appVersion || "unknown").slice(0, 40),
+      revision,
+      deviceId: String(options.deviceId || "unknown").slice(0, 160),
+      deviceName: String(options.deviceName || "unknown").slice(0, 160),
+      createdAt: options.createdAt || updatedAt,
+      updatedAt,
+      modules: Object.keys(snapshot).filter((key) => !["version", "activeWorkspaceId"].includes(key)),
+      checksums: { snapshot: revision },
+    },
     snapshot,
   };
 }

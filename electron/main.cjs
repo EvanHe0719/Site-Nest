@@ -17,6 +17,7 @@ const {
 const { createHash, randomUUID } = require("node:crypto");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
+const os = require("node:os");
 const path = require("node:path");
 const {
   DEFAULT_BROWSER_PROFILE_ID,
@@ -39,7 +40,6 @@ const { atomicWriteJson, createStateStore } = require("./state-store.cjs");
 const { GoogleDriveSyncService } = require("./google-drive-sync.cjs");
 const {
   createSyncEnvelope,
-  decideSyncAction,
   normalizeRemoteEnvelope,
 } = require("./google-drive-sync-data.cjs");
 const { applyRemoteEnvelopeToState } = require("./google-sync-state.cjs");
@@ -70,7 +70,6 @@ const {
   WebContextMenuService,
   WindowOpenPolicyService,
   standardChromiumUserAgent,
-  resolveNavigationTarget,
   securityStateForUrl,
   normalizeBrowserMemorySettings,
   clearSapAuthenticationState,
@@ -79,6 +78,12 @@ const {
   isSapSessionUrl,
   sapRetryUrl,
 } = require("./browser/index.cjs");
+const {
+  GlobalSearchService,
+  normalizeSearchHistory,
+  normalizeSearchSettings,
+  recordSearchHistory,
+} = require("./browser/search-service.cjs");
 const {
   OpenAICompatibleTranslationProvider,
   PageTextExtractor,
@@ -223,6 +228,7 @@ let userScriptEngine;
 let userScriptSourceService;
 let pageResourceService;
 let webViewLifecycleManager;
+const globalSearchService = new GlobalSearchService();
 
 function dataFilePath() {
   return path.join(app.getPath("userData"), "site-nest-data.json");
@@ -236,6 +242,10 @@ function googleOAuthConfigPath() {
 
 function googleTokenPath() {
   return path.join(app.getPath("userData"), "google-oauth-token.json");
+}
+
+function googleClientSecretPath() {
+  return path.join(app.getPath("userData"), "google-oauth-client.secure.json");
 }
 
 function googleSyncMetaPath() {
@@ -1093,6 +1103,8 @@ function getGoogleDriveSyncService() {
     googleDriveSyncService = new GoogleDriveSyncService({
       configPath: googleOAuthConfigPath(),
       tokenPath: googleTokenPath(),
+      configSecretPath: googleClientSecretPath(),
+      redactConfigAfterImport: true,
       openExternal: (url) => shell.openExternal(url),
       // Use Chromium's network stack so OAuth and Drive follow the same
       // Windows proxy configuration as the user's browser.
@@ -1119,6 +1131,17 @@ async function loadGoogleSyncMeta() {
         typeof parsed?.lastMessage === "string"
           ? parsed.lastMessage.slice(0, 300)
           : null,
+      lastRestoreAt: typeof parsed?.lastRestoreAt === "string" ? parsed.lastRestoreAt : null,
+      lastSyncRevision: typeof parsed?.lastSyncRevision === "string" ? parsed.lastSyncRevision : null,
+      remoteRevision: typeof parsed?.remoteRevision === "string" ? parsed.remoteRevision : null,
+      localRevision: typeof parsed?.localRevision === "string" ? parsed.localRevision : null,
+      deviceId: typeof parsed?.deviceId === "string" ? parsed.deviceId : randomUUID(),
+      deviceName: typeof parsed?.deviceName === "string" ? parsed.deviceName : os.hostname(),
+      tombstones: Array.isArray(parsed?.tombstones) ? parsed.tombstones.slice(0, 5000) : [],
+      conflict: parsed?.conflict && typeof parsed.conflict === "object" ? parsed.conflict : null,
+      lastErrorCode: typeof parsed?.lastErrorCode === "string" ? parsed.lastErrorCode : null,
+      lastErrorMessage: typeof parsed?.lastErrorMessage === "string" ? parsed.lastErrorMessage.slice(0, 500) : null,
+      errorStatus: typeof parsed?.errorStatus === "string" ? parsed.errorStatus : null,
     };
   } catch (error) {
     if (error?.code !== "ENOENT") {
@@ -1128,6 +1151,17 @@ async function loadGoogleSyncMeta() {
       lastSyncAt: null,
       lastDirection: null,
       lastMessage: null,
+      lastRestoreAt: null,
+      lastSyncRevision: null,
+      remoteRevision: null,
+      localRevision: null,
+      deviceId: randomUUID(),
+      deviceName: os.hostname(),
+      tombstones: [],
+      conflict: null,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      errorStatus: null,
     };
   }
   return googleSyncMeta;
@@ -1143,32 +1177,109 @@ async function saveGoogleSyncMeta(patch) {
 function googleSyncUiStatus(serviceStatus, meta = {}) {
   const statusError = serviceStatus?.error;
   const configured = Boolean(serviceStatus?.configured);
+  const identity = serviceStatus?.identity || {
+    status: serviceStatus?.signedIn ? "signedIn" : "signedOut",
+    email: serviceStatus?.email || null,
+  };
+  const drive = serviceStatus?.drive || {
+    status: !configured ? "notConfigured" : serviceStatus?.signedIn ? "ready" : "authorizationRequired",
+    grantedScopes: [],
+    requiredScopes: [],
+  };
+  const driveStatus = meta.conflict
+    ? "conflict"
+    : meta.errorStatus || (statusError ? "error" : drive.status);
+  const sanitizedError = meta.lastErrorMessage || statusError?.message || drive.sanitizedErrorMessage || "";
+  const grantedScopeList = Array.isArray(drive.grantedScopes) ? drive.grantedScopes : [];
+  const publicGrantedScopes = {
+    identity: ["openid", "email", "profile"].every((scope) => grantedScopeList.includes(scope)),
+    driveAppData: grantedScopeList.includes("https://www.googleapis.com/auth/drive.appdata"),
+  };
   return {
     configured,
-    signedIn: Boolean(serviceStatus?.signedIn),
-    email: serviceStatus?.email || null,
+    identity: { ...identity, status: identity.status || "signedOut" },
+    drive: {
+      status: driveStatus,
+      grantedScopes: publicGrantedScopes,
+      requiredScopesSatisfied: publicGrantedScopes.identity && publicGrantedScopes.driveAppData,
+      lastSyncAt: meta.lastSyncAt || null,
+      lastRestoreAt: meta.lastRestoreAt || null,
+      remoteRevision: meta.remoteRevision || null,
+      localRevision: meta.localRevision || null,
+      lastErrorCode: meta.lastErrorCode || statusError?.code || drive.lastErrorCode || null,
+      sanitizedErrorMessage: sanitizedError,
+    },
+    signedIn: identity.status === "signedIn",
+    email: identity.email || null,
     lastSyncAt: meta.lastSyncAt || null,
+    lastRestoreAt: meta.lastRestoreAt || null,
+    remoteRevision: meta.remoteRevision || null,
+    localRevision: meta.localRevision || null,
+    deviceName: meta.deviceName || os.hostname(),
+    oauthConfigPath: googleOAuthConfigPath(),
+    conflict: meta.conflict || null,
     lastDirection: meta.lastDirection || null,
-    status: !configured
-      ? "not-configured"
-      : statusError
-        ? "error"
-        : serviceStatus?.signedIn
-          ? "connected"
-          : "ready",
-    error: statusError?.message || "",
-    errorCode: statusError?.code || null,
+    status: driveStatus,
+    error: sanitizedError,
+    errorCode: meta.lastErrorCode || statusError?.code || drive.lastErrorCode || null,
   };
 }
 
-function friendlyGoogleSyncError(error) {
-  if (error?.status === 403 && String(error?.code || "").startsWith("GOOGLE_DRIVE_")) {
-    const wrapped = new Error(
-      "Google Drive API 尚未启用、权限尚未生效，或当前账号不在 OAuth 测试用户中",
-    );
-    wrapped.code = error.code;
-    return wrapped;
+function driveStatusForError(code) {
+  return {
+    GOOGLE_CLIENT_CONFIG_MISSING: "notConfigured",
+    GOOGLE_CONFIG_NOT_FOUND: "notConfigured",
+    DRIVE_SCOPE_MISSING: "authorizationRequired",
+    GOOGLE_NOT_SIGNED_IN: "authorizationRequired",
+    GOOGLE_AUTH_EXPIRED: "tokenExpired",
+    GOOGLE_TOKEN_REFRESH_FAILED: "tokenExpired",
+    GOOGLE_PERMISSION_DENIED: "permissionDenied",
+    DRIVE_API_DISABLED: "apiDisabled",
+    GOOGLE_TEST_USER_REQUIRED: "testUserRequired",
+    GOOGLE_NETWORK_ERROR: "networkError",
+    GOOGLE_REQUEST_TIMEOUT: "networkError",
+    GOOGLE_NETWORK_FAILED: "networkError",
+    GOOGLE_RATE_LIMITED: "error",
+    GOOGLE_SYNC_CONFLICT: "conflict",
+  }[String(code || "")] || "error";
+}
+
+async function rememberGoogleFailure(error) {
+  const friendly = friendlyGoogleSyncError(error);
+  const meta = await saveGoogleSyncMeta({
+    lastErrorCode: friendly.code,
+    lastErrorMessage: friendly.message,
+    errorStatus: driveStatusForError(friendly.code),
+  });
+  return googleSyncUiStatus(await getGoogleDriveSyncService().status(), meta);
+}
+
+async function clearGoogleFailure(patch = {}) {
+  return saveGoogleSyncMeta({
+    lastErrorCode: null,
+    lastErrorMessage: null,
+    errorStatus: null,
+    ...patch,
+  });
+}
+
+async function appendGoogleTombstones(moduleName, ids) {
+  const meta = await loadGoogleSyncMeta();
+  const now = new Date().toISOString();
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const additions = (Array.isArray(ids) ? ids : [ids])
+    .map((id) => String(id || "").trim())
+    .filter(Boolean)
+    .map((id) => ({ id, module: String(moduleName || "unknown").slice(0, 80), deletedAt: now }));
+  const keyed = new Map();
+  for (const item of [...(meta.tombstones || []), ...additions]) {
+    if (Date.parse(item.deletedAt || "") < cutoff) continue;
+    keyed.set(`${item.module}:${item.id}`, item);
   }
+  await saveGoogleSyncMeta({ tombstones: Array.from(keyed.values()).slice(-5000) });
+}
+
+function friendlyGoogleSyncError(error) {
   const wrapped = new Error(String(error?.message || "Google 同步失败"));
   wrapped.code = String(error?.code || "GOOGLE_SYNC_FAILED");
   return wrapped;
@@ -1207,10 +1318,28 @@ async function applyGoogleRemoteEnvelope(remoteEnvelope) {
 async function signInGoogle() {
   return runGoogleSyncOperation(async () => {
     try {
-      const serviceStatus = await getGoogleDriveSyncService().signIn();
-      return googleSyncUiStatus(serviceStatus, await loadGoogleSyncMeta());
+      const service = getGoogleDriveSyncService();
+      const before = await service.status();
+      const serviceStatus = await service.signIn({
+        expectedEmail: before.identity?.email || before.email || "",
+        confirmAccountSwitch: async ({ expectedEmail, authorizedEmail }) => {
+          const result = await dialog.showMessageBox(mainWindow, {
+            type: "question",
+            buttons: ["切换同步账号", "取消"],
+            defaultId: 1,
+            cancelId: 1,
+            title: "确认 Google 同步账号",
+            message: "当前授权账号与已登录账号不同，是否切换同步账号？",
+            detail: `当前账号：${expectedEmail}\n授权账号：${authorizedEmail}`,
+          });
+          return result.response === 0;
+        },
+      });
+      await service.healthCheck();
+      const meta = await clearGoogleFailure({ conflict: null });
+      return googleSyncUiStatus(serviceStatus, meta);
     } catch (error) {
-      throw friendlyGoogleSyncError(error);
+      return rememberGoogleFailure(error);
     }
   });
 }
@@ -1219,10 +1348,35 @@ async function signOutGoogle() {
   return runGoogleSyncOperation(async () => {
     try {
       const serviceStatus = await getGoogleDriveSyncService().signOut();
-      return googleSyncUiStatus(serviceStatus, await loadGoogleSyncMeta());
+      const meta = await clearGoogleFailure({ conflict: null });
+      return googleSyncUiStatus(serviceStatus, meta);
     } catch (error) {
-      throw friendlyGoogleSyncError(error);
+      return rememberGoogleFailure(error);
     }
+  });
+}
+
+async function testGoogleDriveConnection() {
+  return runGoogleSyncOperation(async () => {
+    try {
+      const service = getGoogleDriveSyncService();
+      const health = await service.healthCheck({ writeTest: true });
+      const meta = await clearGoogleFailure({ conflict: null });
+      return { ...googleSyncUiStatus(await service.status(), meta), health };
+    } catch (error) {
+      return rememberGoogleFailure(error);
+    }
+  });
+}
+
+async function googleLocalEnvelope(meta, state = undefined) {
+  const localState = state || await getState();
+  return createSyncEnvelope(localState, {
+    appVersion: app.getVersion(),
+    deviceId: meta.deviceId,
+    deviceName: meta.deviceName,
+    tombstones: meta.tombstones,
+    syncOptions: localState.uiSettings?.googleSync,
   });
 }
 
@@ -1236,15 +1390,44 @@ async function syncGoogleNow() {
           code: "GOOGLE_NOT_SIGNED_IN",
         });
       }
+      if (currentStatus.drive?.status !== "ready") {
+        throw Object.assign(new Error("需要重新授权 Drive 数据同步"), {
+          code: currentStatus.drive?.lastErrorCode || "DRIVE_SCOPE_MISSING",
+        });
+      }
+      await service.healthCheck();
       const remoteFile = await service.readRemote();
-      const localEnvelope = createSyncEnvelope(await getState());
+      const currentMeta = await loadGoogleSyncMeta();
+      const localEnvelope = await googleLocalEnvelope(currentMeta);
       const remoteEnvelope = remoteFile.found
         ? normalizeRemoteEnvelope(remoteFile.data)
         : null;
-      const decision = decideSyncAction({
-        localEnvelope,
-        remoteEnvelope,
-      });
+      const localRevision = localEnvelope.manifest.revision;
+      const remoteRevision = remoteEnvelope?.manifest?.revision || null;
+      const same = remoteRevision && remoteRevision === localRevision;
+      const last = currentMeta.lastSyncRevision;
+      const localChanged = !last || localRevision !== last;
+      const remoteChanged = Boolean(remoteRevision && (!last || remoteRevision !== last));
+      if (remoteEnvelope && !same && localChanged && remoteChanged) {
+        const conflict = {
+          detectedAt: new Date().toISOString(),
+          localRevision,
+          remoteRevision,
+          message: "本地数据和云端数据都发生了变化。",
+        };
+        const meta = await clearGoogleFailure({ conflict, localRevision, remoteRevision });
+        return {
+          ...googleSyncUiStatus(await service.status(), meta),
+          syncResult: { action: "conflict", direction: "noop", reason: "both-changed", message: conflict.message },
+        };
+      }
+      const decision = !remoteEnvelope
+        ? { action: "first-upload", direction: "upload", reason: "remote-missing" }
+        : same
+          ? { action: "same", direction: "noop", reason: "same-snapshot" }
+          : remoteChanged && !localChanged
+            ? { action: "download", direction: "download", reason: "remote-newer" }
+            : { action: "upload", direction: "upload", reason: "local-newer" };
       let message;
       let state = await getState();
       if (decision.direction === "upload") {
@@ -1257,19 +1440,19 @@ async function syncGoogleNow() {
         message = decision.action === "first-download"
           ? "已从 Google Drive 恢复栖页数据"
           : "已使用较新的云端数据更新本机";
-      } else if (decision.reason === "equal-timestamp-conflict") {
-        throw Object.assign(
-          new Error("本机与云端数据时间相同但内容不同，请选择“从云端恢复”或先修改本机数据后再同步"),
-          { code: "GOOGLE_SYNC_CONFLICT" },
-        );
       } else {
         message = "本机与 Google Drive 数据已经一致";
       }
       const now = new Date().toISOString();
-      const meta = await saveGoogleSyncMeta({
+      const finalEnvelope = await googleLocalEnvelope(currentMeta, state);
+      const meta = await clearGoogleFailure({
         lastSyncAt: now,
         lastDirection: decision.direction,
         lastMessage: message,
+        lastSyncRevision: finalEnvelope.manifest.revision,
+        localRevision: finalEnvelope.manifest.revision,
+        remoteRevision: finalEnvelope.manifest.revision,
+        conflict: null,
       });
       return {
         ...googleSyncUiStatus(await service.status(), meta),
@@ -1277,7 +1460,7 @@ async function syncGoogleNow() {
         syncResult: { ...decision, message },
       };
     } catch (error) {
-      throw friendlyGoogleSyncError(error);
+      return rememberGoogleFailure(error);
     }
   });
 }
@@ -1302,10 +1485,16 @@ async function restoreGoogleCloudData() {
       const state = await applyGoogleRemoteEnvelope(remoteEnvelope);
       const now = new Date().toISOString();
       const message = "已从 Google Drive 恢复栖页数据；恢复前的本机数据已备份";
-      const meta = await saveGoogleSyncMeta({
+      const revision = remoteEnvelope.manifest.revision;
+      const meta = await clearGoogleFailure({
         lastSyncAt: now,
+        lastRestoreAt: now,
         lastDirection: "download",
         lastMessage: message,
+        lastSyncRevision: revision,
+        localRevision: revision,
+        remoteRevision: revision,
+        conflict: null,
       });
       return {
         ...googleSyncUiStatus(await service.status(), meta),
@@ -1318,7 +1507,74 @@ async function restoreGoogleCloudData() {
         },
       };
     } catch (error) {
-      throw friendlyGoogleSyncError(error);
+      return rememberGoogleFailure(error);
+    }
+  });
+}
+
+async function resolveGoogleSyncConflict(strategy) {
+  return runGoogleSyncOperation(async () => {
+    try {
+      const requested = String(strategy || "cancel");
+      const service = getGoogleDriveSyncService();
+      const metaBefore = await loadGoogleSyncMeta();
+      if (requested === "cancel") {
+        const meta = await clearGoogleFailure({ conflict: null });
+        return googleSyncUiStatus(await service.status(), meta);
+      }
+      const remoteFile = await service.readRemote();
+      if (!remoteFile.found) throw Object.assign(new Error("云端暂无栖页同步数据"), { code: "DATA_UNAVAILABLE" });
+      const remoteEnvelope = normalizeRemoteEnvelope(remoteFile.data);
+      const localState = await getState();
+      await backupStateBeforeGoogleRestore(localState);
+      let state = localState;
+      let conflicts = { userScripts: [] };
+      let direction = "upload";
+      if (requested === "cloud") {
+        state = await applyGoogleRemoteEnvelope(remoteEnvelope);
+        direction = "download";
+      } else if (requested === "merge") {
+        const applied = applyRemoteEnvelopeToState(localState, remoteEnvelope, {
+          defaultSites: DEFAULT_SITES,
+          mode: "merge",
+        });
+        conflicts = applied.conflicts;
+        cachedState = await getStateStore().save(applied.state);
+        state = cachedState;
+        await service.writeRemote(await googleLocalEnvelope(metaBefore, state));
+      } else if (requested === "local") {
+        await service.writeRemote(await googleLocalEnvelope(metaBefore, localState));
+      } else if (requested === "details") {
+        return {
+          ...googleSyncUiStatus(await service.status(), metaBefore),
+          diff: {
+            localRevision: metaBefore.conflict?.localRevision || null,
+            remoteRevision: metaBefore.conflict?.remoteRevision || remoteEnvelope.manifest.revision,
+            localModules: (await googleLocalEnvelope(metaBefore, localState)).manifest.modules,
+            remoteModules: remoteEnvelope.manifest.modules,
+          },
+        };
+      } else {
+        throw Object.assign(new Error("未知的同步冲突处理方式"), { code: "GOOGLE_SYNC_CONFLICT" });
+      }
+      const finalEnvelope = await googleLocalEnvelope(metaBefore, state);
+      const now = new Date().toISOString();
+      const nextMeta = await clearGoogleFailure({
+        conflict: null,
+        lastSyncAt: now,
+        lastDirection: direction,
+        lastSyncRevision: finalEnvelope.manifest.revision,
+        localRevision: finalEnvelope.manifest.revision,
+        remoteRevision: finalEnvelope.manifest.revision,
+        lastMessage: requested === "merge" ? "已智能合并本地与云端数据" : requested === "cloud" ? "已使用云端数据" : "已使用本地数据覆盖云端",
+      });
+      return {
+        ...googleSyncUiStatus(await service.status(), nextMeta),
+        state,
+        syncResult: { action: requested, direction, message: nextMeta.lastMessage, conflicts },
+      };
+    } catch (error) {
+      return rememberGoogleFailure(error);
     }
   });
 }
@@ -2150,6 +2406,11 @@ function ensureSiteView(context = activeBrowserContext()) {
     persistWorkspaceBrowserContext(context, {
       currentURL: view.webContents.getURL(),
     });
+    void rememberBrowsingVisit(
+      context,
+      view.webContents.getURL(),
+      view.webContents.getTitle(),
+    );
     setTimeout(() => void inspectKnownSiteIssue(context), 350);
   });
   view.webContents.on("did-finish-load", () => {
@@ -2519,8 +2780,10 @@ async function openTransientBrowserTab(workspaceId, rawUrl, options = {}) {
   });
   const workspace = ensureWorkspaceBrowserContext(workspaceId, snapshot);
   const url = normalizeUrl(rawUrl);
-  const existing = findRuntimeTabByReliableContext(workspace, options.reliableContext) ||
-    findDuplicateRuntimeTab(workspace, null, url);
+  const existing = options.allowDuplicate === true
+    ? null
+    : findRuntimeTabByReliableContext(workspace, options.reliableContext) ||
+      findDuplicateRuntimeTab(workspace, null, url);
   if (existing) {
     if (options.background === true) return emitWorkspaceBrowserState(workspace);
     if (workspaceId === activeBrowserWorkspaceId) {
@@ -2540,6 +2803,7 @@ async function openTransientBrowserTab(workspaceId, rawUrl, options = {}) {
     title: options.title || "",
     reliableContext: options.reliableContext || null,
     browserProfileId: options.browserProfileId || DEFAULT_BROWSER_PROFILE_ID,
+    allowDuplicate: options.allowDuplicate === true,
     activate: options.background !== true,
   });
   if (options.background === true) {
@@ -2555,6 +2819,120 @@ async function openTransientBrowserTab(workspaceId, rawUrl, options = {}) {
   persistWorkspaceBrowserWorkspace(workspace);
   scheduleLifecycleEnforcement("background-tab-opened");
   return emitWorkspaceBrowserState(workspace);
+}
+
+function currentSearchSettings(state = cachedState) {
+  return normalizeSearchSettings(state?.uiSettings?.search, globalSearchService.registry);
+}
+
+function resolveSearchInput(rawInput, engineId, state = cachedState) {
+  const settings = currentSearchSettings(state);
+  return globalSearchService.resolve(rawInput, {
+    engineId: engineId || settings.defaultSearchEngineId,
+  });
+}
+
+async function rememberSearchTarget(target) {
+  const state = await getState();
+  const settings = currentSearchSettings(state);
+  state.searchHistory = recordSearchHistory(state.searchHistory, target, settings);
+  state.updatedAt = new Date().toISOString();
+  cachedState = state;
+  await persistState();
+  return state.searchHistory;
+}
+
+function sanitizeBrowsingHistoryUrl(rawUrl) {
+  let parsed;
+  try { parsed = new URL(String(rawUrl || "")); } catch { return null; }
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) return null;
+  const sensitive = /^(?:access_token|refresh_token|id_token|token|oauth_token|authorization|auth|code|client_secret|state|session|session_id|sid|password|passwd|api_key|apikey)$/i;
+  for (const key of Array.from(parsed.searchParams.keys())) {
+    if (sensitive.test(key)) parsed.searchParams.delete(key);
+  }
+  if (/(?:^|[?&#])(?:access_token|refresh_token|token|code|state|session|password)=/i.test(parsed.hash.slice(1))) parsed.hash = "";
+  return parsed.toString();
+}
+
+async function rememberBrowsingVisit(context, rawUrl, title) {
+  const url = sanitizeBrowsingHistoryUrl(rawUrl);
+  if (!url) return;
+  const state = await getState();
+  const id = `visit-${createHash("sha256").update(url).digest("hex").slice(0, 32)}`;
+  const now = new Date().toISOString();
+  const history = Array.isArray(state.browsingHistory) ? state.browsingHistory : [];
+  const existing = history.find((item) => item.id === id);
+  const next = {
+    id,
+    type: "page",
+    url,
+    title: String(title || "").slice(0, 500),
+    workspaceId: context?.workspaceId || state.activeWorkspaceId,
+    lastVisitedAt: now,
+    updatedAt: now,
+    useCount: Math.max(1, Number(existing?.useCount || 0) + 1),
+  };
+  state.browsingHistory = [next, ...history.filter((item) => item.id !== id)].slice(0, 2000);
+  cachedState = state;
+  await persistState();
+}
+
+async function navigateBrowserContextToTarget(context, target) {
+  context.currentSiteId = null;
+  context.currentHomeUrl = target.url;
+  syncActiveBrowserAliases(context);
+  persistWorkspaceBrowserContext(context, { currentURL: context.currentHomeUrl });
+  compactBrowserState(
+    { loading: true, error: "", siteIssue: "", url: context.currentHomeUrl },
+    context,
+  );
+  await loadUrlAllowingRedirectAbort(context.view.webContents, context.currentHomeUrl);
+  await rememberSearchTarget(target);
+  return context.browserState;
+}
+
+async function openSearchInput(payload = {}) {
+  const state = await getState();
+  const workspaceId = String(payload.workspaceId || state.activeWorkspaceId);
+  const target = payload.forceSearch === true
+    ? globalSearchService.search(payload.input, {
+        engineId: payload.engineId || currentSearchSettings(state).defaultSearchEngineId,
+      })
+    : resolveSearchInput(payload.input, payload.engineId, state);
+  if (target.kind === "external") {
+    const externalResult = await getBrowserServices().externalProtocol.open(
+      target.url,
+      mainWindow,
+    );
+    return {
+      state,
+      browserState: null,
+      target,
+      externalResult,
+    };
+  }
+  const activeWorkspace = workspaceBrowserContexts.get(workspaceId) || null;
+  const activeTab = activeBrowserContext(activeWorkspace);
+  const disposition = payload.disposition === "current" ? "current" : "new";
+  let nextBrowserState;
+  if (
+    disposition === "current" &&
+    !activeTab?.detached &&
+    activeTab?.view &&
+    !activeTab.view.webContents.isDestroyed()
+  ) {
+    nextBrowserState = await navigateBrowserContextToTarget(activeTab, target);
+    nextBrowserState = emitWorkspaceBrowserState(activeWorkspace);
+  } else {
+    nextBrowserState = await openTransientBrowserTab(workspaceId, target.url, {
+      title: target.kind === "search" ? `${target.engineName} 搜索` : "",
+      browserProfileId: payload.browserProfileId || activeTab?.browserProfileId || DEFAULT_BROWSER_PROFILE_ID,
+      allowDuplicate: disposition === "new",
+      bounds: payload.bounds,
+    });
+    await rememberSearchTarget(target);
+  }
+  return { state: cachedState, browserState: nextBrowserState, target };
 }
 
 function safeZohoTicketNavigationUrl(rawUrl, configuredWebBase, ticketId) {
@@ -2750,14 +3128,7 @@ function showAddressContextMenu(event) {
         click: () => {
           selectedAction = "paste-and-go";
           const pasted = clipboard.readText();
-          let target;
-          try {
-            target = resolveNavigationTarget(pasted);
-          } catch (error) {
-            emitBrowserNotice(error?.message || "无法识别剪贴板内容", "error");
-            return;
-          }
-          void browserActionForContext(context, "navigate", target.url).catch((error) => {
+          void browserActionForContext(context, "navigate", pasted).catch((error) => {
             emitBrowserNotice(error?.message || "无法打开剪贴板内容", "error");
           });
         },
@@ -2860,18 +3231,15 @@ async function browserActionForContext(context, action, value) {
       break;
     case "navigate":
       {
-      const target = resolveNavigationTarget(value);
-      context.currentSiteId = null;
-      context.currentHomeUrl = target.url;
-      syncActiveBrowserAliases(context);
-      persistWorkspaceBrowserContext(context, {
-        currentURL: context.currentHomeUrl,
-      });
-      compactBrowserState(
-        { loading: true, error: "", siteIssue: "", url: context.currentHomeUrl },
-        context,
-      );
-      await loadUrlAllowingRedirectAbort(contents, context.currentHomeUrl);
+      const target = resolveSearchInput(value);
+      if (target.kind === "external") {
+        await getBrowserServices().externalProtocol.open(
+          target.url,
+          browserOwnerWindow(context),
+        );
+        break;
+      }
+      await navigateBrowserContextToTarget(context, target);
       break;
       }
     case "zoom-in":
@@ -3794,6 +4162,49 @@ function registerIpc() {
     }
     return { state: cachedState, uiSettings: result.uiSettings };
   });
+  ipcMain.handle("search:get-state", async () => {
+    const state = await getState();
+    return globalSearchService.snapshot(state.uiSettings?.search, state.searchHistory);
+  });
+  ipcMain.handle("search:resolve-input", async (_event, payload) => {
+    const state = await getState();
+    return resolveSearchInput(payload?.input, payload?.engineId, state);
+  });
+  ipcMain.handle("search:update-settings", async (_event, patch) => {
+    const state = await getState();
+    const search = normalizeSearchSettings({
+      ...state.uiSettings?.search,
+      ...(patch && typeof patch === "object" ? patch : {}),
+    }, globalSearchService.registry);
+    const result = updateUiSettingsInState(state, { search }, {
+      defaultSites: DEFAULT_SITES,
+    });
+    result.state.searchHistory = normalizeSearchHistory(result.state.searchHistory, search);
+    cachedState = result.state;
+    await persistState();
+    return globalSearchService.snapshot(search, cachedState.searchHistory);
+  });
+  ipcMain.handle("search:remove-history", async (_event, historyId) => {
+    const state = await getState();
+    const settings = currentSearchSettings(state);
+    state.searchHistory = normalizeSearchHistory(state.searchHistory, settings)
+      .filter((item) => item.id !== String(historyId || ""));
+    state.updatedAt = new Date().toISOString();
+    cachedState = state;
+    await persistState();
+    await appendGoogleTombstones("searchHistory", historyId);
+    return globalSearchService.snapshot(settings, state.searchHistory);
+  });
+  ipcMain.handle("search:clear-history", async () => {
+    const state = await getState();
+    const removedIds = state.searchHistory.map((item) => item.id);
+    state.searchHistory = [];
+    state.updatedAt = new Date().toISOString();
+    cachedState = state;
+    await persistState();
+    await appendGoogleTombstones("searchHistory", removedIds);
+    return globalSearchService.snapshot(currentSearchSettings(state), []);
+  });
   ipcMain.handle("workspace:set-active", async (_event, workspaceId) => {
     const state = await getState();
     const result = setActiveWorkspaceInState(state, String(workspaceId || ""), {
@@ -3868,6 +4279,7 @@ function registerIpc() {
       await closeBrowserTab({ tabId: tab.tabId });
     }
     await persistState();
+    await appendGoogleTombstones("sites", site.id);
     return { state: cachedState };
   });
   ipcMain.handle("sites:reorder", async (_event, input) => {
@@ -3899,6 +4311,9 @@ function registerIpc() {
   ipcMain.handle("google:sign-out", () => signOutGoogle());
   ipcMain.handle("google:sync-now", () => syncGoogleNow());
   ipcMain.handle("google:restore", () => restoreGoogleCloudData());
+  ipcMain.handle("google:test-connection", () => testGoogleDriveConnection());
+  ipcMain.handle("google:resolve-conflict", (_event, strategy) =>
+    resolveGoogleSyncConflict(strategy));
   ipcMain.handle("connectors:list", async () => {
     const services = getConnectorServices();
     const definitions = services.registry.list();
@@ -4029,6 +4444,7 @@ function registerIpc() {
     if (payload?.siteId) await markSiteOpened(payload.siteId);
     return showBrowser(payload);
   });
+  ipcMain.handle("browser:open-input", (_event, payload) => openSearchInput(payload));
   ipcMain.on("browser:hide", () => {
     detachSiteView(activeBrowserContext());
     scheduleLifecycleEnforcement("browser-hidden");
@@ -4162,9 +4578,11 @@ function registerIpc() {
   ipcMain.handle("tasks:update", (_event, payload) =>
     mutateTaskState((state) => updateTaskInState(state, payload)),
   );
-  ipcMain.handle("tasks:delete", (_event, taskId) =>
-    mutateTaskState((state) => deleteTaskFromState(state, taskId)),
-  );
+  ipcMain.handle("tasks:delete", async (_event, taskId) => {
+    const result = await mutateTaskState((state) => deleteTaskFromState(state, taskId));
+    await appendGoogleTombstones("plans", taskId);
+    return result;
+  });
   ipcMain.handle("tasks:set-status", (_event, payload) =>
     mutateTaskState((state) => updateTaskInState(state, {
       id: payload?.taskId,
@@ -4499,13 +4917,14 @@ function createMainWindow() {
           await mainWindow.webContents.executeJavaScript("openImportModal()");
           await new Promise((resolve) => setTimeout(resolve, 700));
         } else if (
+          CAPTURE_ROUTE === "google-live-status" ||
           CAPTURE_ROUTE === "google-live-sign-in" ||
           CAPTURE_ROUTE === "google-live-sync"
         ) {
           const result = await mainWindow.webContents.executeJavaScript(`(async () => {
             setGoogleSyncPopoverOpen(true);
             let status = await window.siteNest.googleSyncStatus();
-            if (!status.signedIn) status = await window.siteNest.googleSignIn();
+            if (${JSON.stringify(CAPTURE_ROUTE)} !== 'google-live-status' && !status.signedIn) status = await window.siteNest.googleSignIn();
             mergeGoogleSyncState(status);
             renderGoogleSync();
             if (${JSON.stringify(CAPTURE_ROUTE)} === 'google-live-sync') {
@@ -4525,6 +4944,10 @@ function createMainWindow() {
             return {
               configured: Boolean(status.configured),
               signedIn: Boolean(status.signedIn),
+              identityStatus: status.identity?.status || null,
+              driveStatus: status.drive?.status || null,
+              driveScopeGranted: Boolean(status.drive?.grantedScopes?.driveAppData),
+              errorCode: status.errorCode || null,
             };
           })()`);
           console.log(JSON.stringify({ googleLiveProbe: result }));

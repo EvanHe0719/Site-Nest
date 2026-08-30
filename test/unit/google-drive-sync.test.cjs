@@ -10,9 +10,11 @@ const {
   DRIVE_FILE_NAME,
   DRIVE_SCOPE,
   EMAIL_SCOPE,
+  GOOGLE_SCOPES,
   GoogleDriveSyncError,
   GoogleDriveSyncService,
   OPENID_SCOPE,
+  PROFILE_SCOPE,
   validateInstalledClientConfig,
 } = require("../../electron/google-drive-sync.cjs");
 
@@ -173,19 +175,22 @@ test("OAuth loopback uses PKCE S256 and rejects a mismatched state before token 
   assert.ok(openedUrl.searchParams.get("code_challenge").length >= 43);
   assert.ok(openedUrl.searchParams.get("state").length >= 32);
   const scopes = openedUrl.searchParams.get("scope").split(" ");
-  assert.deepEqual(new Set(scopes), new Set([DRIVE_SCOPE, EMAIL_SCOPE, OPENID_SCOPE]));
+  assert.deepEqual(new Set(scopes), new Set([DRIVE_SCOPE, EMAIL_SCOPE, PROFILE_SCOPE, OPENID_SCOPE]));
 });
 
 test("successful sign-in proves PKCE, obtains email, and persists only safeStorage ciphertext", async (t) => {
   const directory = await temporaryDirectory(t);
   const configPath = await writeConfig(directory);
   const tokenPath = path.join(directory, "google-token.enc.json");
+  const configSecretPath = path.join(directory, "google-client.secure.json");
   const safeStorage = safeStorageFixture();
   const requests = [];
   let authorizationUrl;
   const service = new GoogleDriveSyncService({
     configPath,
     tokenPath,
+    configSecretPath,
+    redactConfigAfterImport: true,
     safeStorage,
     now: () => NOW,
     authTimeoutMs: 5_000,
@@ -217,7 +222,7 @@ test("successful sign-in proves PKCE, obtains email, and persists only safeStora
           refresh_token: "refresh-token-private",
           expires_in: 3600,
           token_type: "Bearer",
-          scope: `${DRIVE_SCOPE} ${EMAIL_SCOPE} ${OPENID_SCOPE}`,
+          scope: `${DRIVE_SCOPE} ${EMAIL_SCOPE} ${PROFILE_SCOPE} ${OPENID_SCOPE}`,
         });
       }
       assert.equal(url, "https://openidconnect.googleapis.com/v1/userinfo");
@@ -241,6 +246,12 @@ test("successful sign-in proves PKCE, obtains email, and persists only safeStora
   assert.equal(wrapper.format, "electron-safe-storage");
   assert.ok(wrapper.ciphertext.length > 40);
   assert.match(safeStorage.encryptedPlaintexts.at(-1), /access-token-private/);
+  const redactedConfig = await fsp.readFile(configPath, "utf8");
+  assert.doesNotMatch(redactedConfig, /desktop-client-secret/);
+  assert.match(redactedConfig, /client_secret_reference/);
+  const encryptedClient = await fsp.readFile(configSecretPath, "utf8");
+  assert.doesNotMatch(encryptedClient, /desktop-client-secret/);
+  assert.match(encryptedClient, /electron-safe-storage/);
 
   const signedOut = await service.signOut();
   assert.equal(signedOut.configured, true);
@@ -258,6 +269,7 @@ test("readRemote searches only appDataFolder and reads the fixed sync file as JS
     refreshToken: "drive-refresh-private",
     expiresAt: NOW + 3_600_000,
     email: "drive@example.test",
+    scope: `${DRIVE_SCOPE} ${EMAIL_SCOPE} ${PROFILE_SCOPE} ${OPENID_SCOPE}`,
   });
   const calls = [];
   const service = new GoogleDriveSyncService({
@@ -311,6 +323,7 @@ test("writeRemote updates the fixed file when found and creates it in appDataFol
     refreshToken: "drive-write-refresh",
     expiresAt: NOW + 3_600_000,
     email: "writer@example.test",
+    scope: `${DRIVE_SCOPE} ${EMAIL_SCOPE} ${PROFILE_SCOPE} ${OPENID_SCOPE}`,
   };
 
   const updateTokenPath = path.join(directory, "update-token.enc.json");
@@ -383,4 +396,113 @@ test("writeRemote updates the fixed file when found and creates it in appDataFol
   assert.equal(created.fileId, "created-file");
   assert.equal(created.name, DRIVE_FILE_NAME);
   assert.equal(createCalls.length, 2);
+});
+
+test("identity remains signed in while an old token without drive.appdata requires reauthorization", async (t) => {
+  const directory = await temporaryDirectory(t);
+  const configPath = await writeConfig(directory);
+  const tokenPath = path.join(directory, "token.enc.json");
+  const safeStorage = safeStorageFixture();
+  await seedEncryptedToken(tokenPath, safeStorage, {
+    accessToken: "identity-only-access",
+    refreshToken: "identity-only-refresh",
+    expiresAt: NOW + 3_600_000,
+    email: "same-account@example.test",
+    scope: `${OPENID_SCOPE} ${EMAIL_SCOPE} ${PROFILE_SCOPE}`,
+  });
+  const service = new GoogleDriveSyncService({
+    configPath,
+    tokenPath,
+    safeStorage,
+    now: () => NOW,
+    fetchFn: async () => {
+      throw new Error("Drive must not be called without scope");
+    },
+  });
+  const status = await service.status();
+  assert.equal(status.identity.status, "signedIn");
+  assert.equal(status.identity.email, "same-account@example.test");
+  assert.equal(status.drive.status, "authorizationRequired");
+  assert.equal(status.drive.lastErrorCode, "DRIVE_SCOPE_MISSING");
+  await assert.rejects(service.readRemote(), (error) => error.code === "DRIVE_SCOPE_MISSING");
+});
+
+test("health check treats an empty appDataFolder as normal and maps a disabled API precisely", async (t) => {
+  const directory = await temporaryDirectory(t);
+  const configPath = await writeConfig(directory);
+  const tokenPath = path.join(directory, "token.enc.json");
+  const safeStorage = safeStorageFixture();
+  await seedEncryptedToken(tokenPath, safeStorage, {
+    accessToken: "health-access",
+    refreshToken: "health-refresh",
+    expiresAt: NOW + 3_600_000,
+    email: "health@example.test",
+    scope: GOOGLE_SCOPES.join(" "),
+  });
+  const emptyService = new GoogleDriveSyncService({
+    configPath,
+    tokenPath,
+    safeStorage,
+    now: () => NOW,
+    fetchFn: async (rawUrl) => {
+      const url = new URL(String(rawUrl));
+      assert.equal(url.searchParams.get("spaces"), "appDataFolder");
+      return jsonResponse({ files: [] });
+    },
+  });
+  assert.deepEqual(await emptyService.healthCheck(), {
+    ok: true,
+    empty: true,
+    file: null,
+    grantedScopes: GOOGLE_SCOPES,
+  });
+
+  const disabledService = new GoogleDriveSyncService({
+    configPath,
+    tokenPath,
+    safeStorage,
+    now: () => NOW,
+    fetchFn: async () => jsonResponse({
+      error: {
+        code: 403,
+        message: "Google Drive API has not been used or is disabled",
+        errors: [{ reason: "accessNotConfigured" }],
+      },
+    }, 403),
+  });
+  await assert.rejects(
+    disabledService.healthCheck(),
+    (error) => error.code === "DRIVE_API_DISABLED" && error.status === 403,
+  );
+});
+
+test("health check separates expired authorization from network failure", async (t) => {
+  const directory = await temporaryDirectory(t);
+  const configPath = await writeConfig(directory);
+  const tokenPath = path.join(directory, "token.enc.json");
+  const safeStorage = safeStorageFixture();
+  await seedEncryptedToken(tokenPath, safeStorage, {
+    accessToken: "expired-access",
+    refreshToken: "expired-refresh",
+    expiresAt: NOW - 1,
+    email: "expired@example.test",
+    scope: GOOGLE_SCOPES.join(" "),
+  });
+  const expiredService = new GoogleDriveSyncService({
+    configPath,
+    tokenPath,
+    safeStorage,
+    now: () => NOW,
+    fetchFn: async () => jsonResponse({ error: "invalid_grant", error_description: "Token has been expired or revoked" }, 400),
+  });
+  await assert.rejects(expiredService.healthCheck(), (error) => error.code === "GOOGLE_AUTH_EXPIRED");
+
+  const networkService = new GoogleDriveSyncService({
+    configPath,
+    tokenPath,
+    safeStorage,
+    now: () => NOW,
+    fetchFn: async () => { throw new Error("offline"); },
+  });
+  await assert.rejects(networkService.healthCheck(), (error) => error.code === "GOOGLE_NETWORK_ERROR");
 });

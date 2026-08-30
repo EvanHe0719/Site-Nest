@@ -4,6 +4,10 @@ const { normalizeBrowserMemorySettings } = require("./browser/webview-lifecycle-
 const { isSapSessionUrl } = require("./browser/sap-auth-recovery.cjs");
 const { normalizeTranslationSettings } = require("./translation/settings.cjs");
 const {
+  normalizeSearchHistory,
+  normalizeSearchSettings,
+} = require("./browser/search-service.cjs");
+const {
   deviceTimeZone,
   buildTaskReminders,
   normalizeLocalTasks,
@@ -17,7 +21,7 @@ const {
   normalizeValues: normalizeUserScriptValues,
 } = require("./userscripts/model.cjs");
 
-const CURRENT_SCHEMA_VERSION = 9;
+const CURRENT_SCHEMA_VERSION = 10;
 const DEFAULT_WORKSPACE_ID = "personal";
 const DEFAULT_BROWSER_PROFILE_ID = "default";
 const SAP_BROWSER_PROFILE_ID = "sap-support";
@@ -299,7 +303,39 @@ function normalizeUiSettings(value) {
     sitePopupPolicies: normalizeSitePopupPolicies(input.sitePopupPolicies),
     translation: normalizeTranslationSettings(input.translation),
     browserMemory: normalizeBrowserMemorySettings(input.browserMemory),
+    search: normalizeSearchSettings(input.search),
+    googleSync: {
+      sites: input.googleSync?.sites !== false,
+      plans: input.googleSync?.plans !== false,
+      settings: input.googleSync?.settings !== false,
+      searchHistory: input.googleSync?.searchHistory !== false,
+      browsingHistory: input.googleSync?.browsingHistory !== false,
+      userScriptMetadata: input.googleSync?.userScriptMetadata !== false,
+      notifications: input.googleSync?.notifications === true,
+    },
   };
+}
+
+function normalizeBrowsingHistory(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const id = String(candidate.id || "").trim().slice(0, 180);
+    const url = safeOptionalHttpUrl(candidate.url);
+    if (!id || !url || seen.has(id)) return [];
+    seen.add(id);
+    return [{
+      id,
+      type: "page",
+      url,
+      title: sanitizeLogText(candidate.title, 500),
+      workspaceId: sanitizeLogText(candidate.workspaceId, 120),
+      lastVisitedAt: typeof candidate.lastVisitedAt === "string" ? candidate.lastVisitedAt : null,
+      updatedAt: typeof candidate.updatedAt === "string" ? candidate.updatedAt : candidate.lastVisitedAt || null,
+      useCount: Math.max(1, Number(candidate.useCount) || 1),
+    }];
+  }).sort((left, right) => String(right.lastVisitedAt || "").localeCompare(String(left.lastVisitedAt || ""))).slice(0, 2000);
 }
 
 function sanitizePublicConfig(value) {
@@ -792,6 +828,8 @@ function createInitialState(options = {}) {
     assistantSettings: normalizeAssistantSettings(),
     assistantExecutionLogs: [],
     uiSettings: normalizeUiSettings(),
+    searchHistory: [],
+    browsingHistory: [],
     connectorConnections: [],
     connectorExecutions: [],
     externalObjectLinks: [],
@@ -899,6 +937,7 @@ function normalizeStateV4(value, options = {}) {
   const userScripts = normalizeUserScripts(input.userScripts, { now });
   const userScriptIds = userScripts.map((script) => script.id);
 
+  const uiSettings = normalizeUiSettings(input.uiSettings);
   const normalized = {
     ...input,
     version: CURRENT_SCHEMA_VERSION,
@@ -917,7 +956,9 @@ function normalizeStateV4(value, options = {}) {
     assistantExecutionLogs: normalizeAssistantExecutionLogs(
       input.assistantExecutionLogs,
     ),
-    uiSettings: normalizeUiSettings(input.uiSettings),
+    uiSettings,
+    searchHistory: normalizeSearchHistory(input.searchHistory, uiSettings.search),
+    browsingHistory: normalizeBrowsingHistory(input.browsingHistory),
     connectorConnections: normalizeConnectorConnections(
       input.connectorConnections,
       now,
@@ -1618,6 +1659,7 @@ const normalizeStateV6 = normalizeStateV4;
 const normalizeStateV7 = normalizeStateV4;
 const normalizeStateV8 = normalizeStateV4;
 const normalizeStateV9 = normalizeStateV4;
+const normalizeStateV10 = normalizeStateV4;
 
 module.exports = {
   CURRENT_SCHEMA_VERSION,
@@ -1649,6 +1691,8 @@ module.exports = {
   normalizeStateV6,
   normalizeStateV7,
   normalizeStateV8,
+  normalizeStateV9,
+  normalizeStateV10,
   updateUiSettingsInState,
   upsertConnectorConnectionInState,
   appendConnectorExecutionInState,

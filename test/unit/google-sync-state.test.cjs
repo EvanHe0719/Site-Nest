@@ -15,7 +15,7 @@ function baseState(now) {
   return createInitialState({ now, defaultSites: [] });
 }
 
-test("remote sync replaces only the cloud whitelist and preserves local-only runtime data", () => {
+test("remote sync replaces cloud modules while preserving sessions, logs and local task preferences", () => {
   const local = baseState("2026-08-29T10:00:00.000Z");
   local.workspaceBrowserStates.personal = {
     activeTabId: "tab-local",
@@ -102,8 +102,8 @@ test("remote sync replaces only the cloud whitelist and preserves local-only run
   assert.equal(result.automations.naixi.enabled, false);
   assert.equal(result.automations.naixi.time, "07:15");
   assert.equal(result.automations.naixi.lastSuccessDate, "2026-08-29");
-  assert.equal(result.localTasks[0].id, "local-task");
-  assert.equal(result.taskReminders[0].id, "task-reminder:local-task:10");
+  assert.equal(result.localTasks.length, 0);
+  assert.equal(result.taskReminders.length, 0);
   assert.equal(result.taskSettings.remindersEnabled, true);
 });
 
@@ -115,4 +115,109 @@ test("invalid remote envelopes never mutate local state", () => {
     /栖页同步数据/,
   );
   assert.equal(JSON.stringify(local), before);
+});
+
+test("disabled sync modules never turn an empty cloud module into a local deletion", () => {
+  const local = baseState("2026-08-29T10:00:00.000Z");
+  local.activeWorkspaceId = "work";
+  local.bookmarks = [{
+    id: "bookmark-local",
+    name: "Local bookmark",
+    url: "https://local.example/",
+    folder: "本地",
+    addedAt: null,
+    sourceProfile: "Chrome",
+  }];
+  local.localTasks = [{
+    id: "task-local",
+    title: "本地任务",
+    notes: "",
+    workspaceId: "work",
+    status: "todo",
+    priority: "medium",
+    startAt: null,
+    dueAt: null,
+    allDay: false,
+    reminderOffsets: [],
+    tags: [],
+    orderKey: "1:task-local",
+    timeZone: local.timeZone,
+    createdAt: "2026-08-29T10:00:00.000Z",
+    updatedAt: "2026-08-29T10:00:00.000Z",
+    completedAt: null,
+  }];
+  local.searchHistory = [{
+    id: "search-local",
+    type: "webSearch",
+    text: "local only",
+    engineId: "google",
+    createdAt: "2026-08-29T10:00:00.000Z",
+    lastUsedAt: "2026-08-29T10:00:00.000Z",
+    useCount: 1,
+  }];
+
+  const remote = baseState("2026-08-29T11:00:00.000Z");
+  remote.uiSettings.googleSync = {
+    sites: false,
+    plans: false,
+    settings: false,
+    searchHistory: false,
+    browsingHistory: false,
+    userScriptMetadata: false,
+    notifications: false,
+  };
+  const envelope = createSyncEnvelope(remote);
+  const result = applyRemoteEnvelopeToState(local, envelope).state;
+
+  assert.equal(result.activeWorkspaceId, "work");
+  assert.equal(result.bookmarks[0].id, "bookmark-local");
+  assert.equal(result.localTasks[0].id, "task-local");
+  assert.equal(result.searchHistory[0].id, "search-local");
+});
+
+test("smart merge uses stable ids, applies tombstones, and never overwrites conflicting script code", () => {
+  const local = baseState("2026-08-29T10:00:00.000Z");
+  local.localTasks = [{
+    id: "task-local",
+    title: "本地任务",
+    notes: "",
+    workspaceId: "work",
+    status: "todo",
+    priority: "medium",
+    startAt: null,
+    dueAt: null,
+    allDay: false,
+    reminderOffsets: [],
+    tags: [],
+    orderKey: "1:task-local",
+    timeZone: local.timeZone,
+    createdAt: "2026-08-29T09:00:00.000Z",
+    updatedAt: "2026-08-29T10:00:00.000Z",
+    completedAt: null,
+  }];
+  local.searchHistory = [{
+    id: "search-deleted",
+    type: "webSearch",
+    text: "should disappear",
+    engineId: "google",
+    createdAt: "2026-08-29T08:00:00.000Z",
+    lastUsedAt: "2026-08-29T08:00:00.000Z",
+    useCount: 1,
+  }];
+  const localScript = local.userScripts[0];
+  const localCode = localScript.code;
+
+  const remote = baseState("2026-08-29T11:00:00.000Z");
+  remote.localTasks = [{ ...local.localTasks[0], id: "task-remote", title: "云端任务", updatedAt: "2026-08-29T11:00:00.000Z" }];
+  remote.userScripts[0] = { ...remote.userScripts[0], id: localScript.id, code: "// different remote code", updatedAt: "2026-08-29T11:00:00.000Z" };
+  const envelope = createSyncEnvelope(remote, {
+    tombstones: [{ id: "search-deleted", module: "searchHistory", deletedAt: "2026-08-29T12:00:00.000Z" }],
+  });
+  const result = applyRemoteEnvelopeToState(local, envelope, { mode: "merge" });
+
+  assert.deepEqual(result.state.localTasks.map((task) => task.id).sort(), ["task-local", "task-remote"]);
+  assert.equal(result.state.searchHistory.some((item) => item.id === "search-deleted"), false);
+  assert.equal(result.state.userScripts.find((script) => script.id === localScript.id).code, localCode);
+  assert.equal(result.conflicts.userScripts.length, 1);
+  assert.equal(result.conflicts.userScripts[0].id, localScript.id);
 });

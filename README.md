@@ -5,6 +5,8 @@
 ## 当前已实现
 
 - 个人、工作、研究三个系统空间；当前空间会在重启后恢复。
+- 顶部、三个聚合主页和空浏览页均可直接输入网址或关键词；临时页面只进入当前会话，不会自动添加站点、固定或写回 Chrome 书签。`Ctrl/Cmd + K` 可搜索当前会话、我的站点、Chrome 书签和本地任务，并始终保留互联网搜索入口。
+- 默认搜索引擎可在 Google、Bing、百度和 DuckDuckGo 间切换；搜索面板允许只对本次搜索临时换引擎。搜索历史最多保留 100 条且仅存本机，敏感认证参数会被移除或拒绝记录。
 - 个人空间保留原聚合主页，工作空间提供真实 Zoho 数据驱动的工单分诊台，研究空间提供真实空状态和资源入口。
 - 每个空间分别管理站点、固定项、排序和本地最近访问；Chrome 书签仍是全局书签库。
 - 当前标签以“当前会话”跨空间展示并标明来源空间；左侧不再重复展示固定站点，固定数据和管理能力仍保留在“我的站点”、首页快捷访问与工作应用中。普通点击同一站点或规范化 URL 时定位已有会话，用户可显式新建第二个会话。
@@ -30,13 +32,14 @@
 - 内置 Zoho Desk 只读连接器：安全 Desktop OAuth、当前 Agent、有限分页工单、最近公开线程、五项分诊指标、缓存、手动刷新和当前工单右侧上下文助手。
 - 未配置的 Emma、B1 运维台、Gitee、Customer Ops 和回复草稿连接器明确显示“未配置/未关联”，不会模拟成功，也不会执行写入。
 - Chrome 导入只读扫描本机 `Bookmarks` 与 `AccountBookmarks`，不会读取密码、历史、Cookie 或标签页。
-- 左下角 Google 入口使用 Desktop OAuth，可手动同步或从云端恢复空间、站点、收藏书签和可迁移设置；这不是 Chrome 书签写回。
+- 左下角 Google 入口将账号身份与 Drive 授权分开显示；Desktop OAuth 使用同一账号申请最小 `drive.appdata` Scope，可同步站点、计划、设置、栖页搜索/浏览历史和用户脚本元数据；这不是 Chrome 书签或 Chrome 历史同步。
+- “设置与数据”改为分类导航和当前分类独立滚动；只挂载当前分类，Zoho 详细表单在用户点击配置后才创建。设置搜索来自已实现的设置注册表，旧书签、Zoho、翻译、任务、内存和弹窗入口继续定位到新分类。
 
 ## 本地数据与迁移
 
 应用状态保存在 Electron 的 Windows `userData` 目录中的 `site-nest-data.json`。
 
-0.5.4 继续使用 schema v9；SAP 系统浏览身份会安全补齐，不删除书签、站点、固定数据，也不清理原共享身份中的 Cookie。v2/v3/v4/v5/v6/v7/v8 升级时：
+0.5.5 使用 schema v10；新增搜索偏好和本机搜索历史，不删除书签、站点、固定数据，也不清理浏览分区中的 Cookie。v2/v3/v4/v5/v6/v7/v8/v9 升级时：
 
 - 旧站点和固定项进入个人空间；原 ID、URL、书签、最近访问和奶昔状态保留。
 - 旧站点补齐 `workspaceId: personal`、`siteKind: normal`、`openMode: internal`、`browserProfileId: default` 和空助手绑定。
@@ -49,6 +52,7 @@
 - v8 增加用户脚本、批准权限、隔离存储与脱敏执行记录；只创建一个默认停用的内置“恢复复制与选择”脚本，不自动执行远程代码。
 - v8 缺失的 `uiSettings.browserMemory` 会补齐为标准模式/15 分钟，页签 `keepRunning` 默认关闭；不创建新分区或清理浏览存储。
 - v9 增加系统浏览身份 `sap-support`；现有 SAP Support、SAP for Me、SAP ID 和认证链页签会迁移到 `persist:qiye-sap-support`，非 SAP 页签继续使用原 `persist:qiye-sites`。原分区数据不会被删除。
+- v10 增加 `uiSettings.search` 与 `searchHistory`；默认 Google、保存历史、100 条上限和最后设置分类。旧数据缺少字段时只补默认值，不重置 Google/Zoho OAuth、站点、书签、会话、BrowserProfile 或 Partition。
 - v3 首次升级也创建版本备份；连接器与界面默认项可重复归一化，不重复创建默认连接。
 
 ## 登录会话边界
@@ -65,11 +69,13 @@
 
 ## Google 数据同步边界
 
-Google 同步是可选功能。OAuth 客户端文件位于 Electron `userData` 目录的 `google-oauth-client.json`，不会打包进 EXE。访问与刷新令牌保存在 `google-oauth-token.json`，内容由 Windows 可用的 Electron `safeStorage` 加密；系统安全存储不可用时会拒绝保存令牌。
+Google 同步是可选功能。OAuth 客户端文件位于 Electron `userData` 目录的 `google-oauth-client.json`，不会打包进 EXE。访问与刷新令牌保存在 `google-oauth-token.json`，内容由 Windows 可用的 Electron `safeStorage` 加密；导入后的 Client Secret 也会加密并从默认导入 JSON 中清除。系统安全存储不可用时会拒绝保存凭据。
 
-授权使用系统默认浏览器、`127.0.0.1` 随机回调端口、PKCE S256 和 state 校验，只申请 `drive.appdata`、邮箱和 OpenID 权限。Drive 中的固定文件名为 `qiye-sync-v1.json`，位于应用专属隐藏空间，不会出现在普通“我的云端硬盘”列表中。
+授权使用系统默认浏览器、`127.0.0.1` 随机回调端口、PKCE S256 和 state 校验，只申请 `openid`、`email`、`profile` 与 `drive.appdata`。已有基础登录 Token 不会被假定拥有 Drive 权限；缺少 Scope 时继续保留账号身份，并提示使用同一个账号重新授权。Drive 中的固定文件名为 `qiye-sync-v1.json`，位于应用专属隐藏空间，不会出现在普通“我的云端硬盘”列表中。
 
-同步白名单只包含空间、站点、收藏书签、浏览身份描述、助手开关和自动化时间设置。同步前会移除 URL 中的 OAuth、Token、Session 等参数；不会上传 Cookie、网站登录会话、浏览身份分区、当前标签页、最近访问、执行日志、页面正文或 OAuth 凭据。从云端恢复前会写入 `site-nest-data.before-google-sync.json` 本机备份。
+同步白名单包含空间、站点、收藏书签、计划、公开设置、栖页搜索/浏览历史、浏览身份描述、助手开关、自动化时间和用户脚本元数据。同步前会再次移除 URL 中的 OAuth、Token、Session 等参数；不会上传 Cookie、网站登录会话、浏览身份分区、当前标签页、执行日志、页面正文、表单输入、用户脚本授权/值或 OAuth 凭据。删除记录使用 30 天 Tombstone。双方都变更时不会静默覆盖，而是让用户选择智能合并、本地、云端或查看差异；覆盖或恢复前写入 `site-nest-data.before-google-sync.json` 本机快照。
+
+完整 Google Cloud 配置、错误码和开发边界见 [Google Drive 同步配置](docs/integrations/google-drive-sync-setup.md)。
 
 Google Drive API 不能访问 Chrome Sync 的书签树。栖页中的收藏书签是导入副本；要真正回写 Chrome 账号书签，仍需要 Manifest V3 扩展通过 `chrome.bookmarks` 修改当前 Chrome 配置，再由 Chrome 按账号设置同步。
 
@@ -92,13 +98,14 @@ Zoho 公共配置在“设置与数据 → 连接与集成”填写。Desktop OA
 
 ```powershell
 npm install
-npm run check
-npm run test:unit
-npm run test:integration
-npm run dist:win
+npm.cmd run dev
+npm.cmd run lint
+npm.cmd run typecheck
+npm.cmd run test
+npm.cmd run build:code
 ```
 
-也可以执行 `npm test` 依次运行单元与 Electron 集成回归，执行 `npm run build` 构建 Windows x64 便携版。输出位于 `release/`。
+`dev`、`lint`、`typecheck`、`test`、`check` 和 `build:code` 均不打包。`build` 是 `build:code` 的兼容别名。只有用户明确要求时才运行 `package:portable`（便携版）或 `package:win`（安装包）；`release` 属于正式发布流程。
 
 `npm run lint` 会检查全部 JavaScript/CJS 语法及生产代码安全禁用项；`npm run typecheck` 使用 TypeScript `checkJs` 检查浏览器与翻译核心服务。这两项均为真实执行命令，不替代 Electron 集成测试。
 

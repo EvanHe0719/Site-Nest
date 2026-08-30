@@ -5,6 +5,12 @@ contextBridge.exposeInMainWorld("siteNest", {
   setActiveWorkspace: (workspaceId) =>
     ipcRenderer.invoke("workspace:set-active", workspaceId),
   updateUiSettings: (patch) => ipcRenderer.invoke("settings:update-ui", patch),
+  getSearchState: () => ipcRenderer.invoke("search:get-state"),
+  resolveSearchInput: (input, engineId) =>
+    ipcRenderer.invoke("search:resolve-input", { input, engineId }),
+  updateSearchSettings: (patch) => ipcRenderer.invoke("search:update-settings", patch),
+  removeSearchHistory: (historyId) => ipcRenderer.invoke("search:remove-history", historyId),
+  clearSearchHistory: () => ipcRenderer.invoke("search:clear-history"),
   addSite: (site) => ipcRenderer.invoke("sites:add", site),
   updateSite: (site) => ipcRenderer.invoke("sites:update", site),
   deleteSite: (siteId) => ipcRenderer.invoke("sites:delete", siteId),
@@ -21,6 +27,9 @@ contextBridge.exposeInMainWorld("siteNest", {
   googleSignOut: () => ipcRenderer.invoke("google:sign-out"),
   googleSyncNow: () => ipcRenderer.invoke("google:sync-now"),
   googleRestoreFromCloud: () => ipcRenderer.invoke("google:restore"),
+  googleTestConnection: () => ipcRenderer.invoke("google:test-connection"),
+  googleResolveConflict: (strategy) =>
+    ipcRenderer.invoke("google:resolve-conflict", strategy),
   listConnectors: () => ipcRenderer.invoke("connectors:list"),
   getConnectorStatus: (connectorType) =>
     ipcRenderer.invoke("connectors:get-status", connectorType),
@@ -41,6 +50,7 @@ contextBridge.exposeInMainWorld("siteNest", {
   openDataFolder: () => ipcRenderer.invoke("system:open-data-folder"),
   openExternal: (url) => ipcRenderer.invoke("system:open-external", url),
   showBrowser: (payload) => ipcRenderer.invoke("browser:show", payload),
+  openSearchInput: (payload) => ipcRenderer.invoke("browser:open-input", payload),
   hideBrowser: () => ipcRenderer.send("browser:hide"),
   setBrowserBounds: (bounds) => ipcRenderer.send("browser:bounds", bounds),
   browserAction: (action, value) =>

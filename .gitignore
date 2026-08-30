@@ -18,6 +18,9 @@ site-nest-data.json.*
 .env.*
 !.env.example
 client_secret_*.json
+google-oauth-client*.json
+google-oauth-token*.json
+google-sync-meta.json
 *credentials*.json
 *.secret.json
 *.pem
@@ -29,4 +32,3 @@ client_secret_*.json
 Thumbs.db
 .idea/
 .vscode/
-

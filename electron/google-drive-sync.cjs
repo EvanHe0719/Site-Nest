@@ -5,9 +5,10 @@ const path = require("node:path");
 
 const DRIVE_FILE_NAME = "qiye-sync-v1.json";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
-const EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email";
+const EMAIL_SCOPE = "email";
+const PROFILE_SCOPE = "profile";
 const OPENID_SCOPE = "openid";
-const GOOGLE_SCOPES = Object.freeze([DRIVE_SCOPE, EMAIL_SCOPE, OPENID_SCOPE]);
+const GOOGLE_SCOPES = Object.freeze([OPENID_SCOPE, EMAIL_SCOPE, PROFILE_SCOPE, DRIVE_SCOPE]);
 const DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
 const DRIVE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files";
 const USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
@@ -19,6 +20,8 @@ class GoogleDriveSyncError extends Error {
     this.name = "GoogleDriveSyncError";
     this.code = code;
     if (Number.isInteger(options.status)) this.status = options.status;
+    if (options.reason) this.reason = String(options.reason).slice(0, 120);
+    if (options.googleCode) this.googleCode = String(options.googleCode).slice(0, 120);
   }
 }
 
@@ -118,6 +121,15 @@ function validateInstalledClientConfig(value) {
   };
 }
 
+function normalizeScopes(value) {
+  const source = Array.isArray(value) ? value : String(value || "").split(/\s+/);
+  return Array.from(new Set(source.map((scope) => String(scope || "").trim()).filter(Boolean)));
+}
+
+function hasDriveScope(value) {
+  return normalizeScopes(value).includes(DRIVE_SCOPE);
+}
+
 function safeStatusError(error) {
   return {
     code: String(error?.code || "GOOGLE_SYNC_ERROR"),
@@ -125,6 +137,44 @@ function safeStatusError(error) {
       ? error.message
       : "Google 同步状态暂时无法读取",
   };
+}
+
+function googleErrorDetails(value) {
+  const root = value?.error && typeof value.error === "object" ? value.error : value;
+  const reason = root?.errors?.[0]?.reason || root?.status || value?.error || "";
+  const message = root?.message || value?.error_description || "";
+  return {
+    reason: String(reason || "").slice(0, 120),
+    message: String(message || "").slice(0, 500),
+  };
+}
+
+function mapGoogleResponseError(response, value, fallbackCode, fallbackMessage) {
+  const details = googleErrorDetails(value);
+  const combined = `${details.reason} ${details.message}`.toLowerCase();
+  let code = fallbackCode;
+  let message = fallbackMessage;
+  if (response.status === 401 || /invalid[_ ]grant|invalid credentials/.test(combined)) {
+    code = "GOOGLE_AUTH_EXPIRED";
+    message = "Google Drive 授权已失效，请重新授权";
+  } else if (/access[_ ]not[_ ]configured|api.*(?:disabled|not.*enabled)|service disabled/.test(combined)) {
+    code = "DRIVE_API_DISABLED";
+    message = "Google Drive API 未启用";
+  } else if (/test user|testing.*access|access blocked|developer-approved testers/.test(combined)) {
+    code = "GOOGLE_TEST_USER_REQUIRED";
+    message = "当前账号不在 OAuth 测试用户中";
+  } else if (response.status === 429 || /rate.?limit|quota.*exceeded/.test(combined)) {
+    code = "GOOGLE_RATE_LIMITED";
+    message = "Google Drive 请求过于频繁，请稍后重试";
+  } else if (response.status === 403) {
+    code = "GOOGLE_PERMISSION_DENIED";
+    message = "Google Drive 权限不足，请重新授权";
+  }
+  return serviceError(code, message, {
+    status: response.status,
+    reason: details.reason,
+    googleCode: value?.error?.code || value?.error || "",
+  });
 }
 
 function responseHtml(title, detail) {
@@ -167,17 +217,13 @@ async function parseResponseJson(response, code, message) {
       value = JSON.parse(text);
     } catch {
       if (response.ok) {
-        throw serviceError(code, `${message}：服务返回了无法识别的数据`, {
+        throw serviceError("GOOGLE_INVALID_RESPONSE", `${message}：服务返回了无法识别的数据`, {
           status: response.status,
         });
       }
     }
   }
-  if (!response.ok) {
-    throw serviceError(code, `${message}（HTTP ${response.status || "错误"}）`, {
-      status: response.status,
-    });
-  }
+  if (!response.ok) throw mapGoogleResponseError(response, value, code, message);
   return value;
 }
 
@@ -208,6 +254,10 @@ class GoogleDriveSyncService {
   constructor(options = {}) {
     this.configPath = options.configPath ? path.resolve(options.configPath) : "";
     this.tokenPath = options.tokenPath ? path.resolve(options.tokenPath) : "";
+    this.configSecretPath = options.configSecretPath
+      ? path.resolve(options.configSecretPath)
+      : this.configPath ? `${this.configPath}.secure.json` : "";
+    this.redactConfigAfterImport = options.redactConfigAfterImport === true;
     this.openExternal = options.openExternal;
     this.fetchFn = options.fetchFn || globalThis.fetch;
     this.safeStorage = options.safeStorage;
@@ -216,6 +266,7 @@ class GoogleDriveSyncService {
       1_000,
       Number(options.authTimeoutMs) || 5 * 60 * 1_000,
     );
+    this.requestTimeoutMs = Math.max(1_000, Number(options.requestTimeoutMs) || 20_000);
     this.now = typeof options.now === "function" ? options.now : () => Date.now();
     this.cachedConfig = null;
     this.cachedToken = undefined;
@@ -228,6 +279,8 @@ class GoogleDriveSyncService {
     } catch (error) {
       return {
         configured: false,
+        identity: { status: "signedOut", accountId: null, email: null, displayName: null, avatarUrl: null, signedInAt: null, lastErrorCode: error?.code || "GOOGLE_CLIENT_CONFIG_MISSING" },
+        drive: { status: "notConfigured", grantedScopes: [], requiredScopes: [...GOOGLE_SCOPES], lastErrorCode: error?.code || "GOOGLE_CLIENT_CONFIG_MISSING", sanitizedErrorMessage: error?.message || "未找到 Google 桌面 OAuth 配置" },
         signedIn: false,
         email: null,
         fileName: DRIVE_FILE_NAME,
@@ -239,6 +292,8 @@ class GoogleDriveSyncService {
     } catch (error) {
       return {
         configured: true,
+        identity: { status: "error", accountId: null, email: null, displayName: null, avatarUrl: null, signedInAt: null, lastErrorCode: error?.code || "GOOGLE_SECURE_STORAGE_UNAVAILABLE" },
+        drive: { status: "error", grantedScopes: [], requiredScopes: [...GOOGLE_SCOPES], lastErrorCode: error?.code || "GOOGLE_SECURE_STORAGE_UNAVAILABLE", sanitizedErrorMessage: error?.message || "安全存储不可用" },
         signedIn: false,
         email: null,
         fileName: DRIVE_FILE_NAME,
@@ -252,6 +307,8 @@ class GoogleDriveSyncService {
     } catch (error) {
       return {
         configured: true,
+        identity: { status: "error", accountId: null, email: null, displayName: null, avatarUrl: null, signedInAt: null, lastErrorCode: error?.code || "GOOGLE_TOKEN_READ_FAILED" },
+        drive: { status: "error", grantedScopes: [], requiredScopes: [...GOOGLE_SCOPES], lastErrorCode: error?.code || "GOOGLE_TOKEN_READ_FAILED", sanitizedErrorMessage: error?.message || "无法读取 Google 凭据" },
         signedIn: false,
         email: null,
         fileName: DRIVE_FILE_NAME,
@@ -259,13 +316,34 @@ class GoogleDriveSyncService {
         error: safeStatusError(error),
       };
     }
+    const signedIn = Boolean(
+      token &&
+        (token.refreshToken ||
+          (token.accessToken && Number(token.expiresAt || 0) > this.now())),
+    );
+    const grantedScopes = normalizeScopes(token?.scope);
+    const scopeReady = hasDriveScope(grantedScopes);
     return {
       configured: true,
-      signedIn: Boolean(
-        token &&
-          (token.refreshToken ||
-            (token.accessToken && Number(token.expiresAt || 0) > this.now())),
-      ),
+      identity: {
+        status: signedIn ? "signedIn" : "signedOut",
+        accountId: token?.accountId || null,
+        email: token?.email || null,
+        displayName: token?.displayName || null,
+        avatarUrl: token?.avatarUrl || null,
+        signedInAt: token?.signedInAt || null,
+        lastErrorCode: null,
+      },
+      drive: {
+        status: !signedIn ? "authorizationRequired" : scopeReady ? "ready" : "authorizationRequired",
+        grantedScopes,
+        requiredScopes: [...GOOGLE_SCOPES],
+        lastErrorCode: signedIn && !scopeReady ? "DRIVE_SCOPE_MISSING" : null,
+        sanitizedErrorMessage: signedIn && !scopeReady
+          ? "当前 Google 登录仅包含基础账号权限，需要使用同一个账号重新授权云同步。"
+          : "",
+      },
+      signedIn,
       email: token?.email || null,
       fileName: DRIVE_FILE_NAME,
       clientId: config.clientId,
@@ -273,7 +351,7 @@ class GoogleDriveSyncService {
     };
   }
 
-  async signIn() {
+  async signIn(options = {}) {
     const config = await this._loadConfig();
     this._requireFetch();
     this._requireSafeStorage();
@@ -296,6 +374,7 @@ class GoogleDriveSyncService {
       verifier,
       challenge,
       state,
+      expectedEmail: options.expectedEmail,
     });
     const tokenValue = await this._exchangeAuthorizationCode({
       config,
@@ -303,10 +382,61 @@ class GoogleDriveSyncService {
       redirectUri: authorization.redirectUri,
       verifier,
     });
-    const email = await this._fetchUserEmail(tokenValue.accessToken);
-    const token = { ...tokenValue, email };
+    const profile = await this._fetchUserProfile(tokenValue.accessToken);
+    const token = {
+      ...tokenValue,
+      accountId: profile.accountId,
+      email: profile.email,
+      displayName: profile.displayName,
+      avatarUrl: profile.avatarUrl,
+      signedInAt: new Date(this.now()).toISOString(),
+    };
+    if (!hasDriveScope(token.scope)) {
+      throw serviceError(
+        "DRIVE_SCOPE_MISSING",
+        "Google 未授予 Drive appDataFolder 权限，请重新授权",
+      );
+    }
+    const expectedEmail = String(options.expectedEmail || "").trim().toLowerCase();
+    if (expectedEmail && profile.email.toLowerCase() !== expectedEmail) {
+      const accepted = typeof options.confirmAccountSwitch === "function"
+        ? await options.confirmAccountSwitch({ expectedEmail, authorizedEmail: profile.email })
+        : false;
+      if (!accepted) {
+        throw serviceError(
+          "GOOGLE_ACCOUNT_MISMATCH",
+          "当前授权账号与已登录账号不同，已取消切换同步账号",
+        );
+      }
+    }
     await this._saveToken(token);
     return this.status();
+  }
+
+  async healthCheck(options = {}) {
+    await this._loadConfig();
+    this._requireFetch();
+    this._requireSafeStorage();
+    const token = await this._loadToken();
+    if (!token) throw serviceError("GOOGLE_NOT_SIGNED_IN", "尚未登录 Google 账号");
+    if (!token.refreshToken) {
+      throw serviceError("GOOGLE_AUTH_EXPIRED", "Google Drive 授权已失效，请重新授权");
+    }
+    if (!hasDriveScope(token.scope)) {
+      throw serviceError(
+        "DRIVE_SCOPE_MISSING",
+        "当前 Google 登录仅包含基础账号权限，需要使用同一个账号重新授权云同步。",
+      );
+    }
+    await this._accessToken(Number(token.expiresAt || 0) <= this.now() + 60_000);
+    const file = await this._findRemoteFile();
+    if (options.writeTest === true) await this._writeHealthProbe();
+    return {
+      ok: true,
+      empty: !file,
+      file: file ? { id: file.id, name: file.name, modifiedTime: file.modifiedTime || null } : null,
+      grantedScopes: normalizeScopes(token.scope),
+    };
   }
 
   async signOut() {
@@ -460,7 +590,7 @@ class GoogleDriveSyncService {
     if (this.cachedConfig) return this.cachedConfig;
     if (!this.configPath) {
       throw serviceError(
-        "GOOGLE_CONFIG_NOT_FOUND",
+        "GOOGLE_CLIENT_CONFIG_MISSING",
         "尚未配置 Google OAuth 桌面应用客户端文件",
       );
     }
@@ -470,7 +600,7 @@ class GoogleDriveSyncService {
     } catch (error) {
       if (error?.code === "ENOENT") {
         throw serviceError(
-          "GOOGLE_CONFIG_NOT_FOUND",
+          "GOOGLE_CLIENT_CONFIG_MISSING",
           "未找到 Google OAuth 桌面应用客户端配置文件",
           { cause: error },
         );
@@ -492,6 +622,34 @@ class GoogleDriveSyncService {
       );
     }
     this.cachedConfig = validateInstalledClientConfig(parsed);
+    if (this.cachedConfig.clientSecret && this.redactConfigAfterImport) {
+      const storage = this._requireSafeStorage();
+      const encrypted = storage.encryptString(JSON.stringify({
+        clientSecret: this.cachedConfig.clientSecret,
+      }));
+      await atomicWriteText(this.configSecretPath, `${JSON.stringify({
+        version: 1,
+        format: "electron-safe-storage",
+        ciphertext: Buffer.from(encrypted).toString("base64"),
+      }, null, 2)}\n`);
+      const redacted = JSON.parse(raw);
+      delete redacted.installed.client_secret;
+      redacted.installed.client_secret_reference = path.basename(this.configSecretPath);
+      await atomicWriteText(this.configPath, `${JSON.stringify(redacted, null, 2)}\n`);
+    } else if (!this.cachedConfig.clientSecret && parsed?.installed?.client_secret_reference) {
+      try {
+        const wrapper = JSON.parse(await fsp.readFile(this.configSecretPath, "utf8"));
+        const plaintext = this._requireSafeStorage().decryptString(Buffer.from(wrapper.ciphertext, "base64"));
+        const secret = JSON.parse(plaintext)?.clientSecret;
+        if (secret) this.cachedConfig.clientSecret = String(secret);
+      } catch (error) {
+        throw serviceError(
+          "GOOGLE_CLIENT_SECRET_UNAVAILABLE",
+          "无法读取安全保存的 Google OAuth 客户端凭据",
+          { cause: error },
+        );
+      }
+    }
     return this.cachedConfig;
   }
 
@@ -501,6 +659,21 @@ class GoogleDriveSyncService {
         "GOOGLE_NETWORK_UNAVAILABLE",
         "当前环境无法连接 Google 服务",
       );
+    }
+  }
+
+  async _fetchWithTimeout(url, options = {}) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    try {
+      return await this.fetchFn(url, { ...options, signal: controller.signal });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw serviceError("GOOGLE_REQUEST_TIMEOUT", "Google Drive 请求超时，请重试", { cause: error });
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -622,7 +795,7 @@ class GoogleDriveSyncService {
     this.cachedToken = { ...token };
   }
 
-  async _receiveAuthorizationCode({ config, challenge, state }) {
+  async _receiveAuthorizationCode({ config, challenge, state, expectedEmail }) {
     let callbackResolve;
     let callbackReject;
     let settled = false;
@@ -669,13 +842,18 @@ class GoogleDriveSyncService {
       }
       const oauthError = requestUrl.searchParams.get("error");
       if (oauthError) {
+        const description = requestUrl.searchParams.get("error_description") || "";
+        const testUserRequired = /test user|testing.*access|access blocked|developer-approved testers/i.test(description);
         response.writeHead(400, { "content-type": "text/html; charset=utf-8" });
         response.end(responseHtml("Google 登录已取消", "可以关闭此页面并返回栖页。"));
         settle(
           callbackReject,
           serviceError(
-            "GOOGLE_OAUTH_DENIED",
-            "Google 登录未获授权或已被取消",
+            testUserRequired ? "GOOGLE_TEST_USER_REQUIRED" : "GOOGLE_PERMISSION_DENIED",
+            testUserRequired
+              ? "当前账号不在 OAuth 测试用户中"
+              : "Google 登录未获授权或已被取消",
+            { reason: oauthError },
           ),
         );
         return;
@@ -729,6 +907,9 @@ class GoogleDriveSyncService {
       prompt: "consent",
       include_granted_scopes: "true",
     }).toString();
+    if (String(expectedEmail || "").trim()) {
+      authUrl.searchParams.set("login_hint", String(expectedEmail).trim());
+    }
 
     let timeout;
     try {
@@ -771,12 +952,13 @@ class GoogleDriveSyncService {
     if (config.clientSecret) body.set("client_secret", config.clientSecret);
     let response;
     try {
-      response = await this.fetchFn(config.tokenUri, {
+      response = await this._fetchWithTimeout(config.tokenUri, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: body.toString(),
       });
     } catch (error) {
+      if (isServiceError(error)) throw error;
       throw serviceError(
         "GOOGLE_TOKEN_EXCHANGE_FAILED",
         "无法连接 Google 完成登录凭据交换",
@@ -799,19 +981,20 @@ class GoogleDriveSyncService {
       accessToken: String(value.access_token),
       refreshToken: value.refresh_token ? String(value.refresh_token) : null,
       tokenType: String(value.token_type || "Bearer"),
-      scope: String(value.scope || GOOGLE_SCOPES.join(" ")),
+      scope: normalizeScopes(value.scope).join(" "),
       expiresAt: expiresIn ? this.now() + expiresIn * 1_000 : this.now(),
     };
   }
 
-  async _fetchUserEmail(accessToken) {
+  async _fetchUserProfile(accessToken) {
     let response;
     try {
-      response = await this.fetchFn(USERINFO_URL, {
+      response = await this._fetchWithTimeout(USERINFO_URL, {
         method: "GET",
         headers: { authorization: `Bearer ${accessToken}` },
       });
     } catch (error) {
+      if (isServiceError(error)) throw error;
       throw serviceError(
         "GOOGLE_PROFILE_FAILED",
         "无法读取 Google 账号信息",
@@ -830,7 +1013,14 @@ class GoogleDriveSyncService {
         "Google 账号没有返回可识别的邮箱地址",
       );
     }
-    return email;
+    return {
+      accountId: String(value.sub || "").trim() || null,
+      email,
+      displayName: String(value.name || "").trim().slice(0, 160) || null,
+      avatarUrl: /^https:\/\//i.test(String(value.picture || ""))
+        ? String(value.picture).slice(0, 1000)
+        : null,
+    };
   }
 
   async _refreshToken(token) {
@@ -849,15 +1039,16 @@ class GoogleDriveSyncService {
     if (config.clientSecret) body.set("client_secret", config.clientSecret);
     let response;
     try {
-      response = await this.fetchFn(config.tokenUri, {
+      response = await this._fetchWithTimeout(config.tokenUri, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: body.toString(),
       });
     } catch (error) {
+      if (isServiceError(error)) throw error;
       throw serviceError(
-        "GOOGLE_TOKEN_REFRESH_FAILED",
-        "无法连接 Google 刷新登录状态",
+        "GOOGLE_NETWORK_ERROR",
+        "暂时无法连接 Google Drive",
         { cause: error },
       );
     }
@@ -880,7 +1071,7 @@ class GoogleDriveSyncService {
         ? String(value.refresh_token)
         : token.refreshToken,
       tokenType: String(value.token_type || token.tokenType || "Bearer"),
-      scope: String(value.scope || token.scope || GOOGLE_SCOPES.join(" ")),
+      scope: normalizeScopes(value.scope || token.scope).join(" "),
       expiresAt: expiresIn ? this.now() + expiresIn * 1_000 : this.now(),
     };
     await this._saveToken(refreshed);
@@ -896,6 +1087,12 @@ class GoogleDriveSyncService {
         "尚未登录 Google 账号",
       );
     }
+    if (!hasDriveScope(token.scope)) {
+      throw serviceError(
+        "DRIVE_SCOPE_MISSING",
+        "当前 Google 登录仅包含基础账号权限，需要使用同一个账号重新授权云同步。",
+      );
+    }
     const remains = Number(token.expiresAt || 0) - this.now();
     if (!forceRefresh && token.accessToken && remains > 60_000) {
       return token.accessToken;
@@ -908,15 +1105,16 @@ class GoogleDriveSyncService {
     const accessToken = await this._accessToken(false);
     let response;
     try {
-      response = await this.fetchFn(url, {
+      response = await this._fetchWithTimeout(url, {
         ...options,
         headers: mergeHeaders(options.headers, {
           authorization: `Bearer ${accessToken}`,
         }),
       });
     } catch (error) {
+      if (isServiceError(error)) throw error;
       throw serviceError(
-        "GOOGLE_NETWORK_FAILED",
+        "GOOGLE_NETWORK_ERROR",
         "无法连接 Google Drive，请检查网络后重试",
         { cause: error },
       );
@@ -924,15 +1122,16 @@ class GoogleDriveSyncService {
     if (response.status === 401 && allowRetry) {
       const refreshed = await this._accessToken(true);
       try {
-        return await this.fetchFn(url, {
+        return await this._fetchWithTimeout(url, {
           ...options,
           headers: mergeHeaders(options.headers, {
             authorization: `Bearer ${refreshed}`,
           }),
         });
       } catch (error) {
-        throw serviceError(
-          "GOOGLE_NETWORK_FAILED",
+        if (isServiceError(error)) throw error;
+          throw serviceError(
+          "GOOGLE_NETWORK_ERROR",
           "无法连接 Google Drive，请检查网络后重试",
           { cause: error },
         );
@@ -959,6 +1158,49 @@ class GoogleDriveSyncService {
     const files = Array.isArray(value.files) ? value.files : [];
     return files.find((file) => file?.id && file?.name === DRIVE_FILE_NAME) || null;
   }
+
+  async _writeHealthProbe() {
+    const name = `qiye-health-${randomUUID()}.json`;
+    const boundary = `qiye_${base64Url(randomBytes(18))}`;
+    const body = [
+      `--${boundary}`,
+      "Content-Type: application/json; charset=UTF-8",
+      "",
+      JSON.stringify({ name, parents: ["appDataFolder"], mimeType: "application/json" }),
+      `--${boundary}`,
+      "Content-Type: application/json; charset=UTF-8",
+      "",
+      JSON.stringify({ probe: true, createdAt: new Date(this.now()).toISOString() }),
+      `--${boundary}--`,
+      "",
+    ].join("\r\n");
+    const createResponse = await this._authorizedFetch(
+      `${DRIVE_UPLOAD_URL}?${new URLSearchParams({ uploadType: "multipart", fields: "id,name" })}`,
+      { method: "POST", headers: { "content-type": `multipart/related; boundary=${boundary}` }, body },
+    );
+    const created = await parseResponseJson(
+      createResponse,
+      "DRIVE_APPDATA_WRITE_FAILED",
+      "无法写入 Google Drive appDataFolder 测试文件",
+    );
+    if (!created?.id) {
+      throw serviceError("GOOGLE_INVALID_RESPONSE", "Google Drive 未返回测试文件编号");
+    }
+    const deleteResponse = await this._authorizedFetch(
+      `${DRIVE_FILES_URL}/${encodeURIComponent(created.id)}`,
+      { method: "DELETE" },
+    );
+    if (!deleteResponse.ok) {
+      let value = {};
+      try { value = await deleteResponse.json(); } catch { value = {}; }
+      throw mapGoogleResponseError(
+        deleteResponse,
+        value,
+        "DRIVE_APPDATA_WRITE_FAILED",
+        "无法删除 Google Drive appDataFolder 测试文件",
+      );
+    }
+  }
 }
 
 module.exports = {
@@ -969,6 +1211,9 @@ module.exports = {
   GoogleDriveSyncError,
   GoogleDriveSyncService,
   OPENID_SCOPE,
+  PROFILE_SCOPE,
   createPkcePair,
+  hasDriveScope,
+  normalizeScopes,
   validateInstalledClientConfig,
 };

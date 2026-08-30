@@ -63,6 +63,32 @@ test("top tab context menu is native so WebContentsView cannot cover it", () => 
   assert.match(nativeMenu, /menu\.popup\(/);
 });
 
+test("search IPC stays narrow and reuses the current workspace tab model and browser profile", () => {
+  const contracts = [
+    ["getSearchState", "search:get-state"],
+    ["resolveSearchInput", "search:resolve-input"],
+    ["updateSearchSettings", "search:update-settings"],
+    ["removeSearchHistory", "search:remove-history"],
+    ["clearSearchHistory", "search:clear-history"],
+    ["openSearchInput", "browser:open-input"],
+  ];
+  for (const [method, channel] of contracts) {
+    assert.match(preloadSource, new RegExp(`${method}\\s*:`));
+    assert.match(preloadSource, new RegExp(`ipcRenderer\\.invoke\\(["']${channel}["']`));
+    assert.match(mainSource, new RegExp(`ipcMain\\.handle\\(["']${channel}["']`));
+  }
+
+  const searchOpen = sourceBetween(
+    "async function openSearchInput",
+    "function safeZohoTicketNavigationUrl",
+  );
+  assert.match(searchOpen, /openTransientBrowserTab\(workspaceId, target\.url/);
+  assert.match(searchOpen, /activeTab\?\.browserProfileId/);
+  assert.match(searchOpen, /allowDuplicate:\s*disposition === ["']new["']/);
+  assert.match(searchOpen, /navigateBrowserContextToTarget\(activeTab, target\)/);
+  assert.doesNotMatch(searchOpen, /addSiteToState|sites:add|browserPartitionForProfile\([^)]*workspaceId/);
+});
+
 test("connector IPC stays narrow, cancellable and never exposes token getters", () => {
   const contracts = [
     ["getConnectorStatus", "connectors:get-status"],
@@ -313,4 +339,22 @@ test("Google OAuth and Drive requests use Electron networking so Windows proxy s
     mainSource,
     /fetchFn:\s*\(\.\.\.args\)\s*=>\s*fetch\(\.\.\.args\)/,
   );
+});
+
+test("Google Drive renderer bridge exposes stateful operations but never tokens or arbitrary API calls", () => {
+  const contracts = [
+    ["googleSyncStatus", "google:sync-status"],
+    ["googleSignIn", "google:sign-in"],
+    ["googleSyncNow", "google:sync-now"],
+    ["googleRestoreFromCloud", "google:restore"],
+    ["googleTestConnection", "google:test-connection"],
+    ["googleResolveConflict", "google:resolve-conflict"],
+  ];
+  for (const [method, channel] of contracts) {
+    assert.match(preloadSource, new RegExp(`${method}\\s*:`));
+    assert.match(preloadSource, new RegExp(`ipcRenderer\\.invoke\\(["']${channel}["']`));
+    assert.match(mainSource, new RegExp(`ipcMain\\.handle\\(["']${channel}["']`));
+  }
+  assert.doesNotMatch(preloadSource, /google(?:Get)?(?:Access|Refresh)?Token|driveRequest|authorizationHeader/i);
+  assert.match(mainSource, /grantedScopes:\s*publicGrantedScopes/);
 });

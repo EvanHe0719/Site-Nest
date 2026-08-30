@@ -79,6 +79,10 @@ const dom = {
   browserEmptyWorkspaceName: document.getElementById("browserEmptyWorkspaceName"),
   browserEmptyOpenSites: document.getElementById("browserEmptyOpenSites"),
   browserEmptyAddSite: document.getElementById("browserEmptyAddSite"),
+  browserEmptySearchForm: document.getElementById("browserEmptySearchForm"),
+  browserEmptySearchInput: document.getElementById("browserEmptySearchInput"),
+  browserEmptyEngineIcon: document.getElementById("browserEmptyEngineIcon"),
+  browserEmptyRecent: document.getElementById("browserEmptyRecent"),
   workspaceSwitcher: document.getElementById("workspaceSwitcher"),
   activeWorkspaceName: document.getElementById("activeWorkspaceName"),
   currentSessionList: document.getElementById("currentSessionList"),
@@ -113,6 +117,12 @@ const dom = {
   recentTicketList: document.getElementById("recentTicketList"),
   dueSoonTicketList: document.getElementById("dueSoonTicketList"),
   researchSiteGrid: document.getElementById("researchSiteGrid"),
+  globalSearchTrigger: document.getElementById("globalSearchTrigger"),
+  globalSearchPalette: document.getElementById("globalSearchPalette"),
+  globalSearchInput: document.getElementById("globalSearchInput"),
+  globalSearchEngine: document.getElementById("globalSearchEngine"),
+  globalSearchResults: document.getElementById("globalSearchResults"),
+  closeGlobalSearch: document.getElementById("closeGlobalSearch"),
   googleSyncArea: document.getElementById("googleSyncArea"),
   googleSyncCard: document.getElementById("googleSyncCard"),
   googleSyncCardTitle: document.getElementById("googleSyncCardTitle"),
@@ -121,13 +131,19 @@ const dom = {
   googleSyncPopover: document.getElementById("googleSyncPopover"),
   closeGoogleSyncPopover: document.getElementById("closeGoogleSyncPopover"),
   googleSyncAccount: document.getElementById("googleSyncAccount"),
+  googleIdentityStatus: document.getElementById("googleIdentityStatus"),
+  googleDriveStatus: document.getElementById("googleDriveStatus"),
   googleSyncLastSync: document.getElementById("googleSyncLastSync"),
+  googleSyncErrorTitle: document.getElementById("googleSyncErrorTitle"),
   googleSyncError: document.getElementById("googleSyncError"),
   googleSignInButton: document.getElementById("googleSignInButton"),
   googleSignInButtonLabel: document.getElementById("googleSignInButtonLabel"),
   googleSyncNowButton: document.getElementById("googleSyncNowButton"),
   googleRestoreButton: document.getElementById("googleRestoreButton"),
+  googleTestConnectionButton: document.getElementById("googleTestConnectionButton"),
   googleSignOutButton: document.getElementById("googleSignOutButton"),
+  googleSyncConflict: document.getElementById("googleSyncConflict"),
+  googleSyncModuleSettings: document.getElementById("googleSyncModuleSettings"),
   bookmarkFeatureCopy: document.getElementById("bookmarkFeatureCopy"),
   bookmarkSearch: document.getElementById("bookmarkSearch"),
   bookmarkFolder: document.getElementById("bookmarkFolder"),
@@ -183,7 +199,25 @@ const dom = {
   chromeProfileList: document.getElementById("chromeProfileList"),
   confirmImportButton: document.getElementById("confirmImportButton"),
   importProfileHint: document.getElementById("importProfileHint"),
+  pageImportButton: document.getElementById("pageImportButton"),
+  settingsImportButton: document.getElementById("settingsImportButton"),
   dataPathDisplay: document.getElementById("dataPathDisplay"),
+  openDataFolderButton: document.getElementById("openDataFolderButton"),
+  settingsNavigation: document.getElementById("settingsNavigation"),
+  settingsSectionSelect: document.getElementById("settingsSectionSelect"),
+  settingsPanelHost: document.getElementById("settingsPanelHost"),
+  settingsSectionKicker: document.getElementById("settingsSectionKicker"),
+  settingsSectionTitle: document.getElementById("settingsSectionTitle"),
+  settingsSectionDescription: document.getElementById("settingsSectionDescription"),
+  settingsSearchInput: document.getElementById("settingsSearchInput"),
+  settingsSearchResults: document.getElementById("settingsSearchResults"),
+  defaultSearchEngineSelect: document.getElementById("defaultSearchEngineSelect"),
+  defaultSearchEngineStatus: document.getElementById("defaultSearchEngineStatus"),
+  saveSearchHistorySetting: document.getElementById("saveSearchHistorySetting"),
+  clearSearchHistoryButton: document.getElementById("clearSearchHistoryButton"),
+  searchHistoryList: document.getElementById("searchHistoryList"),
+  googleSettingsStatus: document.getElementById("googleSettingsStatus"),
+  openGoogleSyncSettings: document.getElementById("openGoogleSyncSettings"),
   sessionVisibilitySetting: document.getElementById("sessionVisibilitySetting"),
   popupPolicyCount: document.getElementById("popupPolicyCount"),
   popupPolicyForm: document.getElementById("popupPolicyForm"),
@@ -247,18 +281,23 @@ const dom = {
   translationSelectionButton: document.getElementById("translationSelectionButton"),
   testTranslationButton: document.getElementById("testTranslationButton"),
   clearTranslationKeyButton: document.getElementById("clearTranslationKeyButton"),
-  zohoConfigForm: document.getElementById("zohoConfigForm"),
-  zohoDisplayName: document.getElementById("zohoDisplayName"),
-  zohoOrgId: document.getElementById("zohoOrgId"),
-  zohoApiBase: document.getElementById("zohoApiBase"),
-  zohoWebBase: document.getElementById("zohoWebBase"),
-  zohoLookbackDays: document.getElementById("zohoLookbackDays"),
-  zohoSlaWarningHours: document.getElementById("zohoSlaWarningHours"),
-  zohoOAuthConfigState: document.getElementById("zohoOAuthConfigState"),
-  zohoOAuthConfigPath: document.getElementById("zohoOAuthConfigPath"),
+  zohoConfigForm: null,
+  zohoDisplayName: null,
+  zohoOrgId: null,
+  zohoApiBase: null,
+  zohoWebBase: null,
+  zohoLookbackDays: null,
+  zohoSlaWarningHours: null,
+  zohoOAuthConfigState: null,
+  zohoOAuthConfigPath: null,
   zohoSettingsStatus: document.getElementById("zohoSettingsStatus"),
-  connectZohoButton: document.getElementById("connectZohoButton"),
-  disconnectZohoButton: document.getElementById("disconnectZohoButton"),
+  connectZohoButton: null,
+  disconnectZohoButton: null,
+  zohoConnectorCard: document.getElementById("zohoConnectorCard"),
+  zohoConnectorSummary: document.getElementById("zohoConnectorSummary"),
+  zohoConfigMount: document.getElementById("zohoConfigMount"),
+  zohoConfigTemplate: document.getElementById("zohoConfigTemplate"),
+  toggleZohoConfig: document.getElementById("toggleZohoConfig"),
   automationHeaderStatus: document.getElementById("automationHeaderStatus"),
   activeAutomationCount: document.getElementById("activeAutomationCount"),
   automationSummaryText: document.getElementById("automationSummaryText"),
@@ -348,7 +387,14 @@ let appState = {
       siteRules: [],
     },
     browserMemory: { mode: "standard", inactiveMinutes: 15 },
+    search: {
+      defaultSearchEngineId: "google",
+      saveSearchHistory: true,
+      searchHistoryLimit: 100,
+      settingsLastSection: "general",
+    },
   },
+  searchHistory: [],
   connectorConnections: [],
   externalObjectLinks: [],
   localTasks: [],
@@ -412,6 +458,8 @@ let googleSyncState = {
   configured: false,
   signedIn: false,
   email: "",
+  identity: { status: "signedOut", email: "" },
+  drive: { status: "notConfigured", grantedScopes: [], requiredScopes: [] },
   lastSyncAt: null,
   status: "unavailable",
   error: "",
@@ -424,9 +472,666 @@ let zohoDashboardLoading = false;
 let zohoDashboardCancelRequested = false;
 let zohoTicketContext = null;
 let activeTicketFilter = "";
+let searchState = {
+  engines: [],
+  settings: {
+    defaultSearchEngineId: "google",
+    saveSearchHistory: true,
+    searchHistoryLimit: 100,
+    settingsLastSection: "general",
+  },
+  history: [],
+};
+let globalSearchOpen = false;
+let globalSearchItems = [];
+let globalSearchSelectedIndex = 0;
+let globalSearchDebounceTimer = 0;
+let globalSearchPreviousFocus = null;
+let settingsCardRegistry = new Map();
+let activeSettingsSection = "general";
+let expandedSettingsPanel = null;
+let zohoFormEventsBound = false;
+const dirtySettingsPanels = new Set();
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "site-nest.sidebar-collapsed";
 const TAB_DETACH_DRAG_THRESHOLD = 44;
+const SETTINGS_SECTIONS = Object.freeze([
+  { id: "general", title: "常规", kicker: "GENERAL", icon: "settings", description: "空间、会话和界面行为。" },
+  { id: "search", title: "搜索与新标签页", kicker: "SEARCH", icon: "search", description: "默认搜索引擎、搜索历史和全局搜索入口。" },
+  { id: "browsing", title: "浏览与性能", kicker: "BROWSING", icon: "window", description: "网页内存、新窗口、登录弹窗与浏览身份。" },
+  { id: "translation", title: "翻译", kicker: "TRANSLATION", icon: "language", description: "划词与整页翻译 Provider 和隐私边界。" },
+  { id: "notifications", title: "计划与通知", kicker: "NOTIFICATIONS", icon: "calendar", description: "桌面提醒、托盘和随系统启动。" },
+  { id: "connections", title: "连接与集成", kicker: "CONNECTIONS", icon: "workflow", description: "Zoho Desk 与预留的只读连接器。" },
+  { id: "accounts", title: "账号与同步", kicker: "ACCOUNTS", icon: "cloud", description: "Google 数据同步和 Chrome 本地书签。" },
+  { id: "data", title: "数据与备份", kicker: "LOCAL DATA", icon: "database", description: "本地数据目录和浏览会话边界。" },
+  { id: "about", title: "关于", kicker: "ABOUT", icon: "info", description: "当前版本、数据说明和后续方向。" },
+]);
+
+const SETTINGS_SEARCH_INDEX = Object.freeze([
+  { section: "general", panel: "sessions", title: "当前会话", description: "切换空间和会话显示方式" },
+  { section: "search", panel: "search-engine", title: "默认搜索引擎", description: "Google、Bing、百度、DuckDuckGo 与搜索历史" },
+  { section: "browsing", panel: "memory", title: "网页视图内存", description: "内存模式、后台自动休眠和保持运行" },
+  { section: "browsing", panel: "popup-policy", title: "新窗口与登录弹窗", description: "OAuth、SSO、POST 和站点弹窗策略" },
+  { section: "translation", panel: "translation", title: "划词与整页翻译", description: "翻译 Provider、目标语言与敏感网站确认" },
+  { section: "notifications", panel: "notifications", title: "通知与后台", description: "桌面提醒、托盘、系统启动和勿扰时间" },
+  { section: "connections", panel: "zoho", title: "Zoho Desk", description: "只读工单、组织 ID、SLA 与 OAuth" },
+  { section: "connections", panel: "connections", title: "Emma、Customer Ops、Gitee、B1 运维台", description: "连接器状态和接口说明" },
+  { section: "accounts", panel: "google", title: "Google 数据同步", description: "连接 Google、同步和云端恢复" },
+  { section: "accounts", panel: "chrome-bookmarks", title: "Chrome 书签", description: "读取本机 Chrome Profile 和导入书签" },
+  { section: "data", panel: "local-data", title: "本地数据", description: "数据目录、JSON 和本地存储" },
+  { section: "data", panel: "browser-identity", title: "站点登录会话", description: "Cookie、BrowserProfile 和持久分区" },
+  { section: "about", panel: "about", title: "关于栖页", description: "版本和更新信息" },
+]);
+
+function searchEngineById(engineId = searchState.settings.defaultSearchEngineId) {
+  return searchState.engines.find((engine) => engine.id === engineId) || searchState.engines[0] || {
+    id: "google",
+    name: "Google",
+    icon: "G",
+  };
+}
+
+function applySearchSnapshot(snapshot = {}) {
+  searchState = {
+    engines: Array.isArray(snapshot.engines) ? snapshot.engines : searchState.engines,
+    settings: { ...searchState.settings, ...(snapshot.settings || {}) },
+    history: Array.isArray(snapshot.history) ? snapshot.history : searchState.history,
+  };
+  appState.uiSettings = appState.uiSettings || {};
+  appState.uiSettings.search = { ...searchState.settings };
+  appState.searchHistory = [...searchState.history];
+  renderSearchEngineControls();
+  renderSearchHistory();
+  renderBrowserEmptyRecent();
+}
+
+async function loadSearchState() {
+  if (typeof window.siteNest?.getSearchState !== "function") return;
+  applySearchSnapshot(await window.siteNest.getSearchState());
+}
+
+function presentTransientBrowserResult(result) {
+  applyReturnedState(result);
+  const snapshot = browserStateFromResult(result);
+  if (!snapshot) return null;
+  currentSite = siteForWorkspaceBrowserState(snapshot);
+  currentRoute = "browser-tabs";
+  document.querySelectorAll(".local-page").forEach((page) => page.classList.remove("is-visible"));
+  dom.browserPage.classList.add("is-visible");
+  handleBrowserState(snapshot);
+  updateActiveNavigation();
+  requestAnimationFrame(() => requestAnimationFrame(syncBrowserBounds));
+  return snapshot;
+}
+
+async function openGeneralInput(input, options = {}) {
+  const value = String(input || "").trim();
+  if (!value || typeof window.siteNest?.openSearchInput !== "function") return null;
+  const previousRoute = currentRoute;
+  const previousSite = currentSite;
+  const previousBrowserVisible = dom.browserPage.classList.contains("is-visible");
+  if (globalSearchOpen) closeGlobalSearchPalette({ resume: false });
+  document.querySelectorAll(".local-page").forEach((page) => page.classList.remove("is-visible"));
+  dom.browserPage.classList.add("is-visible");
+  currentRoute = "browser-tabs";
+  currentSite = {
+    id: "transient-search",
+    workspaceId: activeWorkspaceId(),
+    name: "正在打开",
+    shortName: "搜",
+    url: "",
+    color: "#267d67",
+    transient: true,
+  };
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  try {
+    const result = await window.siteNest.openSearchInput({
+      input: value,
+      engineId: options.engineId || searchState.settings.defaultSearchEngineId,
+      forceSearch: options.forceSearch === true,
+      disposition: options.disposition || (previousRoute === "browser-empty" ? "current" : "new"),
+      workspaceId: activeWorkspaceId(),
+      browserProfileId: activeBrowserTab(browserSnapshot)?.browserProfileId,
+      bounds: browserBounds(),
+    });
+    applySearchSnapshot({
+      engines: searchState.engines,
+      settings: result?.state?.uiSettings?.search || searchState.settings,
+      history: result?.state?.searchHistory || searchState.history,
+    });
+    if (result?.target?.kind === "external") {
+      currentRoute = previousRoute;
+      currentSite = previousSite;
+      dom.browserPage.classList.toggle("is-visible", previousBrowserVisible);
+      if (previousBrowserVisible) {
+        void resumeBrowserAfterModal();
+      } else {
+        setVisibleLocalPage(previousRoute === "browser-empty" ? "browser-empty" : previousRoute);
+      }
+      showToast(
+        result.externalResult?.opened ? "已打开外部应用" : "已取消外部打开",
+        result.externalResult?.opened
+          ? `${result.target.protocol} 已交给系统处理`
+          : "标签和当前页面未发生变化",
+      );
+      return null;
+    }
+    return presentTransientBrowserResult(result);
+  } catch (error) {
+    currentRoute = previousRoute;
+    currentSite = previousSite;
+    dom.browserPage.classList.toggle("is-visible", previousBrowserVisible);
+    if (previousBrowserVisible) {
+      void resumeBrowserAfterModal();
+    } else {
+      setVisibleLocalPage(previousRoute === "browser-empty" ? "browser-empty" : previousRoute);
+    }
+    showToast("无法打开", error?.message || "请检查网址或搜索内容", "error");
+    return null;
+  }
+}
+
+function renderSearchEngineControls() {
+  const engine = searchEngineById();
+  dom.browserEmptyEngineIcon.textContent = engine.icon || engine.name[0];
+  for (const select of [dom.globalSearchEngine, dom.defaultSearchEngineSelect]) {
+    if (!select) continue;
+    const current = select === dom.globalSearchEngine
+      ? select.value || engine.id
+      : searchState.settings.defaultSearchEngineId;
+    select.replaceChildren();
+    searchState.engines.forEach((item) => {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = item.name;
+      select.appendChild(option);
+    });
+    select.value = searchEngineById(current).id;
+  }
+  if (dom.defaultSearchEngineStatus) dom.defaultSearchEngineStatus.textContent = engine.name;
+  if (dom.saveSearchHistorySetting) dom.saveSearchHistorySetting.checked = searchState.settings.saveSearchHistory !== false;
+}
+
+function renderSearchHistory() {
+  if (!dom.searchHistoryList) return;
+  dom.searchHistoryList.replaceChildren();
+  const history = searchState.history.slice(0, 12);
+  if (!history.length) {
+    const empty = document.createElement("p");
+    empty.className = "settings-inline-note";
+    empty.textContent = "尚无本机搜索历史";
+    dom.searchHistoryList.appendChild(empty);
+  }
+  history.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "search-history-row";
+    const text = document.createElement("span");
+    text.textContent = item.text;
+    text.title = item.text;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "删除";
+    remove.addEventListener("click", async () => {
+      applySearchSnapshot(await window.siteNest.removeSearchHistory(item.id));
+    });
+    row.append(text, remove);
+    dom.searchHistoryList.appendChild(row);
+  });
+}
+
+function renderBrowserEmptyRecent() {
+  if (!dom.browserEmptyRecent) return;
+  dom.browserEmptyRecent.replaceChildren();
+  const history = searchState.history.slice(0, 5);
+  dom.browserEmptyRecent.hidden = history.length === 0;
+  history.forEach((item) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = item.text;
+    button.title = item.text;
+    button.addEventListener("click", () => void openGeneralInput(item.text, {
+      engineId: item.engineId,
+      forceSearch: item.type === "webSearch",
+      disposition: "current",
+    }));
+    dom.browserEmptyRecent.appendChild(button);
+  });
+}
+
+function globalResult(group, id, title, detail, source, execute) {
+  return { group, id, title, detail, source, execute };
+}
+
+function localSearchMatches(query) {
+  const normalized = query.toLocaleLowerCase("zh-CN");
+  const matches = [];
+  allCurrentSessions()
+    .filter((session) => `${sessionTitle(session)} ${session.url || ""}`.toLocaleLowerCase("zh-CN").includes(normalized))
+    .slice(0, 5)
+    .forEach((session) => matches.push(globalResult("当前会话", `session:${session.tabId}`, sessionTitle(session), `${workspaceName(session.workspaceId)} · ${hostFromUrl(session.url)}`, "会话", () => showSession(session))));
+  appState.sites
+    .filter((site) => `${site.name} ${site.url} ${site.description || ""}`.toLocaleLowerCase("zh-CN").includes(normalized))
+    .slice(0, 5)
+    .forEach((site) => matches.push(globalResult("我的站点", `site:${site.id}`, site.name, `${workspaceName(siteWorkspaceId(site))} · ${hostFromUrl(site.url)}`, "站点", () => openSite(site))));
+  appState.bookmarks
+    .filter((bookmark) => `${bookmark.name} ${bookmark.url} ${bookmark.folder || ""}`.toLocaleLowerCase("zh-CN").includes(normalized))
+    .slice(0, 5)
+    .forEach((bookmark) => matches.push(globalResult("Chrome 书签", `bookmark:${bookmark.id}`, bookmark.name, `${bookmark.folder || "未分类"} · ${hostFromUrl(bookmark.url)}`, "书签", () => openGeneralInput(bookmark.url))));
+  taskState.tasks
+    .filter((task) => `${task.title} ${task.notes || ""} ${(task.tags || []).join(" ")}`.toLocaleLowerCase("zh-CN").includes(normalized))
+    .slice(0, 5)
+    .forEach((task) => matches.push(globalResult("计划任务", `task:${task.id}`, task.title, `${workspaceName(task.workspaceId)} · ${taskDueLabel(task)}`, "任务", () => {
+      currentTaskView = "all";
+      navigateTo("plan");
+      openTaskModal(task);
+    })));
+  return matches;
+}
+
+async function buildGlobalSearchItems() {
+  const query = dom.globalSearchInput.value.trim();
+  if (!query) {
+    return searchState.history.slice(0, 8).map((item) => globalResult(
+      "最近搜索",
+      `history:${item.id}`,
+      item.text,
+      item.type === "webSearch" ? `${searchEngineById(item.engineId).name} 搜索` : "直接打开网址",
+      "本机",
+      () => openGeneralInput(item.text, { engineId: item.engineId, forceSearch: item.type === "webSearch" }),
+    ));
+  }
+  const items = localSearchMatches(query);
+  let target = null;
+  try {
+    target = await window.siteNest.resolveSearchInput(query, dom.globalSearchEngine.value);
+  } catch {
+    // The open action will surface the validated error when the user confirms it.
+  }
+  if (target?.kind === "url") {
+    items.push(globalResult("直接打开网址", "direct-url", `打开 ${target.url}`, "临时网页，不会自动收藏", "网址", () => openGeneralInput(query, { disposition: "new" })));
+  } else if (target?.kind === "external") {
+    items.push(globalResult(
+      "外部应用",
+      "external-protocol",
+      `请求打开 ${target.protocol} 外部应用`,
+      "执行前将显示系统确认，不会创建页签",
+      "确认",
+      () => openGeneralInput(query, { disposition: "new" }),
+    ));
+  }
+  const engine = searchEngineById(dom.globalSearchEngine.value);
+  items.push(globalResult("互联网搜索", "internet-search", `使用 ${engine.name} 搜索：${query}`, "仅在点击或按 Enter 后联网", engine.name, () => openGeneralInput(query, { engineId: engine.id, forceSearch: true, disposition: "new" })));
+  return items;
+}
+
+function renderGlobalSearchItems(items) {
+  globalSearchItems = items;
+  globalSearchSelectedIndex = Math.min(globalSearchSelectedIndex, Math.max(0, items.length - 1));
+  dom.globalSearchResults.replaceChildren();
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "global-search-empty";
+    empty.textContent = "输入关键词或网址开始搜索";
+    dom.globalSearchResults.appendChild(empty);
+    return;
+  }
+  let group = "";
+  items.forEach((item, index) => {
+    if (item.group !== group) {
+      group = item.group;
+      const heading = document.createElement("div");
+      heading.className = "global-search-group-title";
+      heading.textContent = group;
+      dom.globalSearchResults.appendChild(heading);
+    }
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `global-search-result${index === globalSearchSelectedIndex ? " is-selected" : ""}`;
+    button.dataset.searchResultIndex = String(index);
+    button.setAttribute("role", "option");
+    button.setAttribute("aria-selected", String(index === globalSearchSelectedIndex));
+    const icon = document.createElement("span");
+    icon.className = "global-search-result-icon";
+    icon.textContent = item.source.slice(0, 2);
+    const copy = document.createElement("span");
+    copy.className = "global-search-result-copy";
+    const title = document.createElement("strong");
+    title.textContent = item.title;
+    const detail = document.createElement("small");
+    detail.textContent = item.detail;
+    copy.append(title, detail);
+    const source = document.createElement("span");
+    source.className = "global-search-result-source";
+    source.textContent = item.source;
+    button.append(icon, copy, source);
+    button.addEventListener("mousemove", () => {
+      if (globalSearchSelectedIndex !== index) {
+        globalSearchSelectedIndex = index;
+        renderGlobalSearchItems(globalSearchItems);
+      }
+    });
+    button.addEventListener("click", () => void executeGlobalSearchItem(index));
+    dom.globalSearchResults.appendChild(button);
+  });
+}
+
+async function refreshGlobalSearch() {
+  const items = await buildGlobalSearchItems();
+  if (globalSearchOpen) renderGlobalSearchItems(items);
+}
+
+async function executeGlobalSearchItem(index = globalSearchSelectedIndex) {
+  const item = globalSearchItems[index];
+  if (!item) return;
+  closeGlobalSearchPalette({ resume: false, restoreFocus: false });
+  await item.execute();
+}
+
+function openGlobalSearchPalette(prefill = "") {
+  if (globalSearchOpen) return;
+  globalSearchOpen = true;
+  globalSearchPreviousFocus = document.activeElement;
+  window.siteNest?.hideBrowser();
+  dom.globalSearchPalette.hidden = false;
+  dom.globalSearchInput.value = String(prefill || "");
+  dom.globalSearchEngine.value = searchState.settings.defaultSearchEngineId;
+  globalSearchSelectedIndex = 0;
+  void refreshGlobalSearch();
+  window.setTimeout(() => {
+    dom.globalSearchInput.focus();
+    dom.globalSearchInput.select();
+  }, 20);
+}
+
+function closeGlobalSearchPalette(options = {}) {
+  if (!globalSearchOpen) return;
+  globalSearchOpen = false;
+  window.clearTimeout(globalSearchDebounceTimer);
+  dom.globalSearchPalette.hidden = true;
+  globalSearchItems = [];
+  dom.globalSearchResults.replaceChildren();
+  if (options.resume !== false) void resumeBrowserAfterModal();
+  if (options.restoreFocus !== false) globalSearchPreviousFocus?.focus?.();
+  globalSearchPreviousFocus = null;
+}
+
+function settingsSectionDefinition(sectionId) {
+  return SETTINGS_SECTIONS.find((section) => section.id === sectionId) || SETTINGS_SECTIONS[0];
+}
+
+function settingsPanelCard(panelId) {
+  for (const cards of settingsCardRegistry.values()) {
+    const card = cards.find((item) => item.dataset.settingsPanel === panelId);
+    if (card) return card;
+  }
+  return null;
+}
+
+function setSettingsCardExpanded(card, expanded) {
+  if (!card) return;
+  card.classList.toggle("is-collapsed", !expanded);
+  const toggle = card.querySelector(":scope > .settings-card-copy .settings-card-toggle");
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", String(expanded));
+    toggle.title = expanded ? "收起设置" : "展开设置";
+  }
+}
+
+function expandSettingsPanel(panelId) {
+  let card = settingsPanelCard(panelId);
+  if (panelId === "zoho") card = settingsPanelCard("connections");
+  if (!card) return;
+  settingsCardRegistry.get(activeSettingsSection)?.forEach((item) => setSettingsCardExpanded(item, item === card));
+  expandedSettingsPanel = panelId;
+  if (panelId === "zoho") mountZohoConfigForm();
+  requestAnimationFrame(() => card.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+}
+
+function dirtyPanelsForSection(sectionId) {
+  return SETTINGS_SEARCH_INDEX
+    .filter((item) => item.section === sectionId && dirtySettingsPanels.has(item.panel))
+    .map((item) => item.title);
+}
+
+function canLeaveSettingsSection(nextSection) {
+  if (nextSection === activeSettingsSection) return true;
+  const dirty = dirtyPanelsForSection(activeSettingsSection);
+  if (!dirty.length) return true;
+  return window.confirm(`${dirty.join("、")}存在尚未保存的修改，确定离开当前分类吗？`);
+}
+
+async function persistSettingsSection(sectionId) {
+  if (searchState.settings.settingsLastSection === sectionId) return;
+  try {
+    applySearchSnapshot(await window.siteNest.updateSearchSettings({ settingsLastSection: sectionId }));
+  } catch {
+    // The visible section remains usable even if persistence temporarily fails.
+  }
+}
+
+function settingsLocationHash(sectionId, panelId = "") {
+  const params = new URLSearchParams({ section: sectionId });
+  if (panelId) params.set("panel", panelId);
+  return `#settings?${params.toString()}`;
+}
+
+function showSettingsSection(sectionId, panelId = "", options = {}) {
+  const definition = settingsSectionDefinition(sectionId);
+  if (!settingsCardRegistry.has(definition.id)) return;
+  if (!options.force && !canLeaveSettingsSection(definition.id)) return;
+  activeSettingsSection = definition.id;
+  dom.settingsSectionKicker.textContent = definition.kicker;
+  dom.settingsSectionTitle.textContent = definition.title;
+  dom.settingsSectionDescription.textContent = definition.description;
+  dom.settingsPanelHost.replaceChildren(...settingsCardRegistry.get(definition.id));
+  dom.settingsNavigation.querySelectorAll("button[data-settings-section]").forEach((button) => {
+    const active = button.dataset.settingsSection === definition.id;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-current", active ? "page" : "false");
+  });
+  dom.settingsSectionSelect.value = definition.id;
+  const requestedPanel = panelId || settingsCardRegistry.get(definition.id)[0]?.dataset.settingsPanel || "";
+  settingsCardRegistry.get(definition.id).forEach((card) => setSettingsCardExpanded(card, false));
+  if (requestedPanel) expandSettingsPanel(requestedPanel);
+  if (options.persist !== false) void persistSettingsSection(definition.id);
+  if (options.pushHistory !== false && window.location.hash !== settingsLocationHash(definition.id, panelId)) {
+    window.history.pushState({ route: "settings", section: definition.id, panel: panelId }, "", settingsLocationHash(definition.id, panelId));
+  }
+  if (definition.id === "connections") void loadZohoConnectorStatus({ preserveForm: true });
+  if (definition.id === "accounts") renderGoogleSettingsStatus();
+}
+
+function initializeSettingsArchitecture() {
+  const cards = Array.from(dom.settingsPanelHost.children).filter((element) => element.matches(".settings-card[data-settings-section]"));
+  settingsCardRegistry = new Map();
+  cards.forEach((card) => {
+    const sectionId = card.dataset.settingsSection;
+    if (!settingsCardRegistry.has(sectionId)) settingsCardRegistry.set(sectionId, []);
+    settingsCardRegistry.get(sectionId).push(card);
+    const titleRow = card.querySelector(":scope > .settings-card-copy > .settings-title-row");
+    if (titleRow && !titleRow.querySelector(".settings-card-toggle")) {
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "settings-card-toggle";
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.title = "展开设置";
+      toggle.appendChild(createIconElement("chevron-down"));
+      toggle.addEventListener("click", () => {
+        const collapsed = card.classList.contains("is-collapsed");
+        settingsCardRegistry.get(activeSettingsSection)?.forEach((item) => setSettingsCardExpanded(item, item === card && collapsed));
+        expandedSettingsPanel = collapsed ? card.dataset.settingsPanel : null;
+      });
+      titleRow.appendChild(toggle);
+    }
+    setSettingsCardExpanded(card, false);
+  });
+  dom.settingsPanelHost.replaceChildren();
+  SETTINGS_SECTIONS.filter((section) => settingsCardRegistry.has(section.id)).forEach((section) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.settingsSection = section.id;
+    button.append(createIconElement(section.icon), document.createTextNode(section.title));
+    button.addEventListener("click", () => showSettingsSection(section.id));
+    dom.settingsNavigation.appendChild(button);
+    const option = document.createElement("option");
+    option.value = section.id;
+    option.textContent = section.title;
+    dom.settingsSectionSelect.appendChild(option);
+  });
+  showSettingsSection("general", "", { persist: false, pushHistory: false, force: true });
+}
+
+function renderSettingsSearchResults() {
+  const query = dom.settingsSearchInput.value.trim().toLocaleLowerCase("zh-CN");
+  dom.settingsSearchResults.replaceChildren();
+  if (!query) {
+    dom.settingsSearchResults.hidden = true;
+    return;
+  }
+  const matches = SETTINGS_SEARCH_INDEX.filter((item) =>
+    `${item.title} ${item.description}`.toLocaleLowerCase("zh-CN").includes(query) &&
+    settingsCardRegistry.has(item.section));
+  dom.settingsSearchResults.hidden = false;
+  if (!matches.length) {
+    const empty = document.createElement("div");
+    empty.className = "global-search-empty";
+    empty.textContent = "没有匹配的已实现设置";
+    dom.settingsSearchResults.appendChild(empty);
+    return;
+  }
+  matches.slice(0, 10).forEach((item) => {
+    const section = settingsSectionDefinition(item.section);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "settings-search-result";
+    const copy = document.createElement("span");
+    const title = document.createElement("strong");
+    title.textContent = item.title;
+    const detail = document.createElement("small");
+    detail.textContent = item.description;
+    copy.append(title, detail);
+    const path = document.createElement("span");
+    path.textContent = `${section.title} →`;
+    button.append(copy, path);
+    button.addEventListener("click", () => {
+      dom.settingsSearchInput.value = "";
+      dom.settingsSearchResults.hidden = true;
+      showSettingsSection(item.section, item.panel);
+    });
+    dom.settingsSearchResults.appendChild(button);
+  });
+}
+
+function renderGoogleSettingsStatus() {
+  if (!dom.googleSettingsStatus) return;
+  const driveStatus = googleSyncState.drive?.status || googleSyncState.status;
+  const ready = ["ready", "synced"].includes(driveStatus);
+  const failed = ["permissionDenied", "apiDisabled", "testUserRequired", "networkError", "error"].includes(driveStatus);
+  dom.googleSettingsStatus.textContent = ready ? "同步就绪" : googleSyncState.signedIn ? "仅账号已登录" : failed ? "同步失败" : "未连接";
+  dom.googleSettingsStatus.className = `status-pill${ready ? " status-pill--ready" : failed ? " status-pill--error" : ""}`;
+  dom.googleSyncModuleSettings?.querySelectorAll("[data-google-sync-module]").forEach((input) => {
+    input.checked = appState.uiSettings?.googleSync?.[input.dataset.googleSyncModule] === true ||
+      (input.dataset.googleSyncModule !== "notifications" && appState.uiSettings?.googleSync?.[input.dataset.googleSyncModule] !== false);
+  });
+}
+
+function bindZohoConfigEvents() {
+  if (!dom.zohoConfigForm || zohoFormEventsBound) return;
+  zohoFormEventsBound = true;
+  dom.zohoConfigForm.addEventListener("input", () => dirtySettingsPanels.add("zoho"));
+  dom.zohoConfigForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = document.getElementById("saveZohoConfig");
+    submit.disabled = true;
+    try {
+      const result = await window.siteNest.configureConnector("zoho-desk", {
+        displayName: dom.zohoDisplayName.value,
+        orgId: dom.zohoOrgId.value,
+        apiBase: dom.zohoApiBase.value,
+        webBaseUrl: dom.zohoWebBase.value,
+        lookbackDays: Number(dom.zohoLookbackDays.value),
+        slaWarningHours: Number(dom.zohoSlaWarningHours.value),
+      });
+      if (!result?.ok) throw new Error(result?.error?.message || "无法保存 Zoho 配置");
+      if (result.state) appState = result.state;
+      dirtySettingsPanels.delete("zoho");
+      await loadZohoConnectorStatus();
+      showToast("Zoho 配置已保存", "OAuth Client Secret 仍只保存在桌面端安全存储中");
+    } catch (error) {
+      showToast("无法保存 Zoho 配置", error?.message || "请检查组织 ID 与地址", "error");
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  dom.connectZohoButton.addEventListener("click", async () => {
+    dom.connectZohoButton.disabled = true;
+    dom.connectZohoButton.textContent = "等待授权…";
+    try {
+      const result = await window.siteNest.connectConnector("zoho-desk");
+      if (!result?.ok) throw new Error(result?.error?.message || "Zoho 授权未完成");
+      dirtySettingsPanels.delete("zoho");
+      await loadZohoConnectorStatus();
+      await loadZohoDashboard({ refresh: true });
+      showToast("Zoho Desk 已连接", "只读工单数据已开始同步");
+    } catch (error) {
+      showToast("Zoho Desk 连接失败", error?.message || "请检查 OAuth 配置", "error");
+      await loadZohoConnectorStatus({ preserveForm: true });
+    } finally {
+      dom.connectZohoButton.disabled = false;
+      dom.connectZohoButton.textContent = zohoConnectorStatus?.connected ? "重新授权" : "连接 Zoho Desk";
+    }
+  });
+  dom.disconnectZohoButton.addEventListener("click", async () => {
+    if (!window.confirm("确定断开 Zoho Desk 吗？\n\n本地安全凭据和工单缓存会被清理，现有网页登录会话不会被清空。")) return;
+    try {
+      const result = await window.siteNest.disconnectConnector("zoho-desk");
+      if (!result?.ok) throw new Error(result?.error?.message || "无法断开 Zoho Desk");
+      zohoDashboard = null;
+      dirtySettingsPanels.delete("zoho");
+      await loadZohoConnectorStatus();
+      renderAll();
+      showToast("Zoho Desk 已断开", "网页 Cookie 与已打开会话未被清理");
+    } catch (error) {
+      showToast("无法断开 Zoho Desk", error?.message || "请稍后重试", "error");
+    }
+  });
+}
+
+function mountZohoConfigForm() {
+  let created = false;
+  if (!dom.zohoConfigForm) {
+    created = true;
+    dom.zohoConfigMount.appendChild(dom.zohoConfigTemplate.content.cloneNode(true));
+    dom.zohoConfigForm = document.getElementById("zohoConfigForm");
+    dom.zohoDisplayName = document.getElementById("zohoDisplayName");
+    dom.zohoOrgId = document.getElementById("zohoOrgId");
+    dom.zohoApiBase = document.getElementById("zohoApiBase");
+    dom.zohoWebBase = document.getElementById("zohoWebBase");
+    dom.zohoLookbackDays = document.getElementById("zohoLookbackDays");
+    dom.zohoSlaWarningHours = document.getElementById("zohoSlaWarningHours");
+    dom.zohoOAuthConfigState = document.getElementById("zohoOAuthConfigState");
+    dom.zohoOAuthConfigPath = document.getElementById("zohoOAuthConfigPath");
+    dom.connectZohoButton = document.getElementById("connectZohoButton");
+    dom.disconnectZohoButton = document.getElementById("disconnectZohoButton");
+    bindZohoConfigEvents();
+    mountIcons(dom.zohoConfigMount);
+  }
+  dom.zohoConfigMount.hidden = false;
+  dom.toggleZohoConfig.setAttribute("aria-expanded", "true");
+  dom.toggleZohoConfig.textContent = "收起";
+  void loadZohoConnectorStatus({ preserveForm: !created || dirtySettingsPanels.has("zoho") });
+}
+
+function toggleZohoConfigForm(forceOpen = null) {
+  const shouldOpen = forceOpen === null ? dom.zohoConfigMount.hidden : Boolean(forceOpen);
+  if (shouldOpen) {
+    mountZohoConfigForm();
+  } else {
+    dom.zohoConfigMount.hidden = true;
+    dom.toggleZohoConfig.setAttribute("aria-expanded", "false");
+    dom.toggleZohoConfig.textContent = "配置";
+  }
+}
 
 function hostFromUrl(url) {
   try {
@@ -1055,9 +1760,11 @@ function mergeGoogleSyncState(value) {
   const source = value && typeof value === "object" ? value : {};
   const sourceHasStatus = Object.prototype.hasOwnProperty.call(source, "status");
   const next = { ...googleSyncState };
-  for (const key of ["configured", "signedIn", "email", "lastSyncAt", "status", "error"]) {
+  for (const key of ["configured", "signedIn", "email", "lastSyncAt", "lastRestoreAt", "remoteRevision", "localRevision", "deviceName", "oauthConfigPath", "status", "error", "errorCode", "conflict"]) {
     if (Object.prototype.hasOwnProperty.call(source, key)) next[key] = source[key];
   }
+  if (source.identity && typeof source.identity === "object") next.identity = { ...(next.identity || {}), ...source.identity };
+  if (source.drive && typeof source.drive === "object") next.drive = { ...(next.drive || {}), ...source.drive };
   next.configured = Boolean(next.configured);
   next.signedIn = Boolean(next.signedIn);
   next.email = String(next.email || "");
@@ -1086,18 +1793,21 @@ function googleSyncBusyCopy() {
     "sign-in": "正在连接 Google…",
     sync: "正在同步栖页数据…",
     restore: "正在从云端恢复…",
+    test: "正在测试 Drive 连接…",
+    conflict: "正在处理同步冲突…",
     "sign-out": "正在退出 Google…",
   }[googleSyncBusyAction] || "";
 }
 
 function renderGoogleSync() {
   const configured = Boolean(googleSyncState.configured);
-  const signedIn = Boolean(googleSyncState.signedIn);
+  const signedIn = googleSyncState.identity?.status === "signedIn" || Boolean(googleSyncState.signedIn);
+  const driveStatus = googleSyncState.drive?.status || googleSyncState.status;
+  const driveReady = ["ready", "synced"].includes(driveStatus);
   const busyCopy = googleSyncBusyCopy();
   // A missing desktop OAuth client is an ordinary unconfigured state. Keep the
   // indicator neutral; red is reserved for a configured connection/sync error.
-  const hasError = configured &&
-    (Boolean(googleSyncState.error) || googleSyncState.status === "error");
+  const hasError = configured && ["permissionDenied", "apiDisabled", "testUserRequired", "networkError", "error"].includes(driveStatus);
   const lastSyncCopy = formatGoogleSyncTime(googleSyncState.lastSyncAt);
 
   if (!configured) {
@@ -1105,42 +1815,75 @@ function renderGoogleSync() {
     dom.googleSyncCardSubtitle.textContent = "点击查看说明";
   } else if (signedIn) {
     dom.googleSyncCardTitle.textContent = `${googleSyncState.email || "Google 已连接"} · Beta`;
-    dom.googleSyncCardSubtitle.textContent = busyCopy || (hasError ? "同步异常 · 点击查看" : lastSyncCopy);
+    dom.googleSyncCardSubtitle.textContent = busyCopy || (driveReady ? lastSyncCopy : driveStatus === "authorizationRequired" ? "Drive 未授权" : hasError ? "同步异常 · 点击查看" : "需要处理 Drive 授权");
   } else {
     dom.googleSyncCardTitle.textContent = "连接 Google · Beta";
     dom.googleSyncCardSubtitle.textContent = busyCopy || "同步栖页数据";
   }
 
   dom.googleSyncStateDot.className = "google-sync-state-dot";
-  dom.googleSyncStateDot.classList.toggle("is-connected", configured && signedIn && !hasError && !busyCopy);
+  dom.googleSyncStateDot.classList.toggle("is-connected", configured && driveReady && !busyCopy);
   dom.googleSyncStateDot.classList.toggle("is-error", hasError && !busyCopy);
-  dom.googleSyncStateDot.classList.toggle("is-busy", Boolean(busyCopy));
+  dom.googleSyncStateDot.classList.toggle("is-busy", Boolean(busyCopy) || ["authorizing", "syncing", "restoring", "tokenExpired"].includes(driveStatus));
 
   if (!configured) {
     dom.googleSyncAccount.textContent = "尚未配置 Google 同步";
     dom.googleSyncLastSync.textContent = "完成桌面 OAuth 配置后即可连接";
   } else if (signedIn) {
     dom.googleSyncAccount.textContent = googleSyncState.email || "Google 账号已连接";
-    dom.googleSyncLastSync.textContent = busyCopy || lastSyncCopy;
+    dom.googleIdentityStatus.textContent = "已登录";
   } else {
     dom.googleSyncAccount.textContent = "尚未连接 Google";
-    dom.googleSyncLastSync.textContent = busyCopy || "连接后可同步空间、站点和收藏书签";
+    dom.googleIdentityStatus.textContent = "未登录";
   }
 
-  dom.googleSyncError.textContent = googleSyncState.error;
+  const driveLabels = {
+    notConfigured: "未配置", authorizationRequired: "未授权", authorizing: "正在授权",
+    ready: "已就绪", syncing: "正在同步", synced: "已同步", restoring: "正在恢复",
+    tokenExpired: "授权已过期", permissionDenied: "权限不足", apiDisabled: "API 未启用",
+    testUserRequired: "需要测试用户", conflict: "存在同步冲突", networkError: "网络错误", error: "同步失败",
+  };
+  dom.googleDriveStatus.textContent = driveLabels[driveStatus] || "未授权";
+  dom.googleSyncLastSync.textContent = busyCopy || (googleSyncState.deviceName && googleSyncState.lastSyncAt
+    ? `${lastSyncCopy} · ${googleSyncState.deviceName}` : lastSyncCopy);
+
+  const errorTitles = {
+    DRIVE_API_DISABLED: "Google Drive API 未启用",
+    DRIVE_SCOPE_MISSING: "尚未授权 Drive 数据同步",
+    GOOGLE_TEST_USER_REQUIRED: "当前账号不在 OAuth 测试用户中",
+    GOOGLE_AUTH_EXPIRED: "Google Drive 授权已失效",
+    GOOGLE_TOKEN_REFRESH_FAILED: "Google Drive 授权已失效",
+    GOOGLE_CONFIG_NOT_FOUND: "未找到 Google 桌面 OAuth 配置",
+    GOOGLE_CLIENT_CONFIG_MISSING: "未找到 Google 桌面 OAuth 配置",
+    GOOGLE_NETWORK_FAILED: "暂时无法连接 Google Drive",
+    GOOGLE_NETWORK_ERROR: "暂时无法连接 Google Drive",
+    GOOGLE_REQUEST_TIMEOUT: "Google Drive 请求超时",
+  };
+  dom.googleSyncErrorTitle.textContent = errorTitles[googleSyncState.errorCode] || (googleSyncState.error ? "Drive 数据同步需要处理" : "");
+  dom.googleSyncErrorTitle.classList.toggle("is-hidden", !dom.googleSyncErrorTitle.textContent);
+
+  const configMissing = ["GOOGLE_CONFIG_NOT_FOUND", "GOOGLE_CLIENT_CONFIG_MISSING"].includes(googleSyncState.errorCode);
+  dom.googleSyncError.textContent = configMissing && googleSyncState.oauthConfigPath
+    ? `${googleSyncState.error}\n预期位置：${googleSyncState.oauthConfigPath}`
+    : googleSyncState.error;
   dom.googleSyncError.classList.toggle("is-hidden", !googleSyncState.error);
-  dom.googleSignInButton.classList.toggle("is-hidden", signedIn);
-  dom.googleSyncNowButton.classList.toggle("is-hidden", !signedIn);
-  dom.googleRestoreButton.classList.toggle("is-hidden", !signedIn);
+  const needsAuthorization = !signedIn || ["authorizationRequired", "tokenExpired", "permissionDenied", "testUserRequired"].includes(driveStatus);
+  dom.googleSignInButton.classList.toggle("is-hidden", !needsAuthorization);
+  dom.googleSyncNowButton.classList.toggle("is-hidden", !driveReady);
+  dom.googleRestoreButton.classList.toggle("is-hidden", !driveReady);
+  dom.googleTestConnectionButton.classList.toggle("is-hidden", !driveReady);
   dom.googleSignOutButton.classList.toggle("is-hidden", !signedIn);
-  dom.googleSignInButtonLabel.textContent = configured ? "连接 Google" : "当前未配置";
+  dom.googleSignInButtonLabel.textContent = !configured ? "当前未配置" : signedIn ? "重新授权 Drive" : "授权云同步";
+  dom.googleSyncConflict.classList.toggle("is-hidden", driveStatus !== "conflict");
 
   const busy = Boolean(googleSyncBusyAction);
   dom.googleSignInButton.disabled = busy || !configured;
-  dom.googleSyncNowButton.disabled = busy || !signedIn;
-  dom.googleRestoreButton.disabled = busy || !signedIn;
+  dom.googleSyncNowButton.disabled = busy || !driveReady;
+  dom.googleRestoreButton.disabled = busy || !driveReady;
+  dom.googleTestConnectionButton.disabled = busy || !driveReady;
   dom.googleSignOutButton.disabled = busy || !signedIn;
   dom.googleSyncPopover.setAttribute("aria-busy", String(busy));
+  renderGoogleSettingsStatus();
 }
 
 function setGoogleSyncPopoverOpen(open, options = {}) {
@@ -1208,6 +1951,11 @@ async function runGoogleSyncAction(action) {
       successTitle: "已从云端恢复",
       successDetail: (result) => result?.syncResult?.message || "空间、站点和收藏书签已按云端数据更新",
     },
+    test: {
+      method: "googleTestConnection",
+      successTitle: "Google Drive 连接正常",
+      successDetail: (result) => result?.health?.empty ? "appDataFolder 可访问，云端暂无栖页同步数据" : "appDataFolder 读写测试通过",
+    },
     "sign-out": {
       method: "googleSignOut",
       successTitle: "已退出 Google",
@@ -1233,7 +1981,11 @@ async function runGoogleSyncAction(action) {
     } else {
       renderGoogleSync();
     }
-    if (googleSyncState.status === "error" && googleSyncState.error) {
+    if (googleSyncState.status === "conflict") {
+      showToast("发现同步冲突", "请选择智能合并、使用本地或使用云端", "info", { key: "google-sync", durationMs: 3600 });
+      return;
+    }
+    if (googleSyncState.errorCode && googleSyncState.error) {
       throw new Error(googleSyncState.error);
     }
     showToast(actionConfig.successTitle, actionConfig.successDetail(result), "success", {
@@ -1250,6 +2002,35 @@ async function runGoogleSyncAction(action) {
       key: "google-sync",
       durationMs: 3600,
     });
+  } finally {
+    googleSyncBusyAction = "";
+    renderGoogleSync();
+  }
+}
+
+async function resolveGoogleConflict(strategy) {
+  if (googleSyncBusyAction || typeof window.siteNest?.googleResolveConflict !== "function") return;
+  if (["local", "cloud"].includes(strategy)) {
+    const label = strategy === "local" ? "使用本地数据覆盖云端" : "使用云端数据覆盖本地";
+    if (!window.confirm(`${label}？\n\n操作前会在本机创建快照。`)) return;
+  }
+  googleSyncBusyAction = "conflict";
+  renderGoogleSync();
+  try {
+    const result = await window.siteNest.googleResolveConflict(strategy);
+    mergeGoogleSyncState(result);
+    if (result?.state) {
+      applyReturnedState(result);
+      renderAll();
+    }
+    if (strategy === "details") {
+      const diff = result?.diff || {};
+      window.alert(`本地版本：${diff.localRevision || "未知"}\n云端版本：${diff.remoteRevision || "未知"}\n\n本地模块：${(diff.localModules || []).join("、")}\n云端模块：${(diff.remoteModules || []).join("、")}`);
+    } else if (strategy !== "cancel") {
+      showToast("同步冲突已处理", result?.syncResult?.message || "已完成", "success");
+    }
+  } catch (error) {
+    showToast("无法处理同步冲突", googleSyncErrorMessage(error), "error");
   } finally {
     googleSyncBusyAction = "";
     renderGoogleSync();
@@ -1502,11 +2283,35 @@ function updateActiveNavigation() {
   });
 }
 
-function navigateTo(route) {
+function parseSettingsRoute(rawRoute) {
+  const raw = String(rawRoute || "").replace(/^#/, "");
+  const legacy = {
+    bookmarks: { section: "accounts", panel: "chrome-bookmarks" },
+    chromeBookmarks: { section: "accounts", panel: "chrome-bookmarks" },
+    "chrome-bookmarks": { section: "accounts", panel: "chrome-bookmarks" },
+    "settings/chrome-bookmarks": { section: "accounts", panel: "chrome-bookmarks" },
+    "settings#zoho": { section: "connections", panel: "zoho" },
+    "settings-translation": { section: "translation", panel: "translation" },
+    "settings-tasks": { section: "notifications", panel: "notifications" },
+    "settings-memory": { section: "browsing", panel: "memory" },
+    "settings-popup": { section: "browsing", panel: "popup-policy" },
+  };
+  if (legacy[raw]) return legacy[raw];
+  if (raw === "settings") return { section: "", panel: "" };
+  if (!raw.startsWith("settings?")) return null;
+  const params = new URLSearchParams(raw.slice(raw.indexOf("?") + 1));
+  return {
+    section: params.get("section") || "",
+    panel: params.get("panel") || "",
+  };
+}
+
+function navigateTo(route, options = {}) {
   workspacePresentationSequence += 1;
   const requestedRoute = String(route || "home");
-  const chromeBookmarksTarget = ["bookmarks", "chromeBookmarks", "chrome-bookmarks", "settings/chrome-bookmarks"].includes(requestedRoute);
-  if (chromeBookmarksTarget) route = "settings";
+  const settingsTarget = parseSettingsRoute(requestedRoute);
+  const chromeBookmarksTarget = settingsTarget?.panel === "chrome-bookmarks";
+  if (settingsTarget) route = "settings";
   if (["checkins", "signin", "signins"].includes(route)) {
     currentAutomationTab = "checkins";
     route = "automations";
@@ -1531,12 +2336,13 @@ function navigateTo(route) {
     void loadSystemInfo();
     void loadZohoConnectorStatus();
     renderBookmarks();
-    if (chromeBookmarksTarget) {
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        dom.chromeBookmarksSettingsSection.scrollIntoView({ block: "start" });
-        dom.chromeBookmarksSettingsSection.focus({ preventScroll: true });
-      }));
-    }
+    const section = options.section || settingsTarget?.section || searchState.settings.settingsLastSection || "general";
+    const panel = options.panel || settingsTarget?.panel || "";
+    showSettingsSection(section, panel, {
+      pushHistory: options.pushHistory !== false,
+      force: options.force === true,
+    });
+    if (chromeBookmarksTarget) requestAnimationFrame(() => dom.chromeBookmarksSettingsSection.focus({ preventScroll: true }));
   }
   if (route === "automations") {
     selectAutomationTab(currentAutomationTab, { load: false });
@@ -1681,8 +2487,15 @@ async function openSite(site) {
 
 async function resumeBrowserAfterModal() {
   if (!currentSite || !dom.browserPage.classList.contains("is-visible")) return;
+  const activeTab = activeBrowserTab(browserSnapshot);
   const resumeUrl = browserSnapshot.url || currentSite.url;
   try {
+    if (currentSite.transient && activeTab?.tabId && typeof window.siteNest?.selectBrowserTab === "function") {
+      const result = await window.siteNest.selectBrowserTab(activeTab.tabId, browserBounds());
+      const snapshot = browserStateFromResult(result);
+      if (snapshot) handleBrowserState(snapshot);
+      return;
+    }
     await window.siteNest?.showBrowser({
       url: resumeUrl,
       siteId: currentSite.id,
@@ -2651,9 +3464,8 @@ function renderWorkSearchResults() {
   if (!matches.length) {
     const empty = document.createElement("div");
     empty.className = "work-search-empty";
-    empty.textContent = "没有匹配的本地站点或 Chrome 书签";
+    empty.textContent = "没有匹配的本地结果，仍可搜索互联网";
     dom.workSearchResults.appendChild(empty);
-    return;
   }
 
   for (const match of matches) {
@@ -2692,6 +3504,22 @@ function renderWorkSearchResults() {
     if (match.type === "site") bindSiteContextMenu(button, item);
     dom.workSearchResults.appendChild(button);
   }
+  const internet = document.createElement("button");
+  internet.type = "button";
+  internet.className = "work-search-result";
+  const engine = searchEngineById();
+  const logo = document.createElement("span");
+  logo.textContent = engine.icon || "搜";
+  logo.style.setProperty("--site-color", "#267d67");
+  const copy = document.createElement("span");
+  const strong = document.createElement("strong");
+  strong.textContent = `使用 ${engine.name} 搜索：${dom.workGlobalSearch.value.trim()}`;
+  const small = document.createElement("small");
+  small.textContent = "确认后才会联网搜索";
+  copy.append(strong, small);
+  internet.append(logo, copy, createIconElement("arrow-right"));
+  internet.addEventListener("click", () => openGlobalSearchPalette(dom.workGlobalSearch.value.trim()));
+  dom.workSearchResults.appendChild(internet);
 }
 
 function renderWorkHomeLegacy() {
@@ -2908,7 +3736,7 @@ async function loadZohoConnectorStatus(options = {}) {
     if (!result?.ok) throw new Error(result?.error?.message || "无法读取 Zoho 连接状态");
     zohoConnectorStatus = result.value;
     const config = result.value.publicConfig || {};
-    if (!options.preserveForm) {
+    if (dom.zohoConfigForm && !options.preserveForm) {
       dom.zohoDisplayName.value = result.value.displayName || "Zoho Desk";
       dom.zohoOrgId.value = config.orgId || "";
       dom.zohoApiBase.value = config.apiBase || "https://desk.zoho.com/api/v1";
@@ -2916,19 +3744,28 @@ async function loadZohoConnectorStatus(options = {}) {
       dom.zohoLookbackDays.value = String(config.lookbackDays || 30);
       dom.zohoSlaWarningHours.value = String(config.slaWarningHours || 4);
     }
-    dom.zohoOAuthConfigPath.textContent = result.value.oauthConfigPath || "";
-    dom.zohoOAuthConfigState.textContent = result.value.clientConfigAvailable
-      ? "桌面 OAuth 配置已就绪"
-      : "尚未找到 Zoho 桌面 OAuth 配置";
+    if (dom.zohoOAuthConfigPath) dom.zohoOAuthConfigPath.textContent = result.value.oauthConfigPath || "";
+    if (dom.zohoOAuthConfigState) {
+      dom.zohoOAuthConfigState.textContent = result.value.clientConfigAvailable
+        ? "桌面 OAuth 配置已就绪"
+        : "尚未找到 Zoho 桌面 OAuth 配置";
+    }
     dom.zohoSettingsStatus.textContent = result.value.connected
       ? "Zoho 已连接"
       : result.value.status === "error"
         ? "Zoho 连接失败"
         : "Zoho 未连接";
     dom.zohoSettingsStatus.className = `status-pill${result.value.connected ? " status-pill--ready" : result.value.status === "error" ? " status-pill--error" : ""}`;
-    dom.connectZohoButton.disabled = !result.value.clientConfigAvailable || !config.orgId;
-    dom.connectZohoButton.textContent = result.value.connected ? "重新授权" : "连接 Zoho Desk";
-    dom.disconnectZohoButton.disabled = !result.value.connected;
+    dom.zohoConnectorSummary.textContent = result.value.connected
+      ? `${result.value.currentUser?.name || result.value.currentUser?.email || "已连接"} · ${formatConnectorTime(result.value.lastSyncAt)}`
+      : result.value.status === "error"
+        ? `连接失败 · ${result.value.lastErrorMessage || "请检查配置"}`
+        : config.orgId ? "配置已保存 · 尚未授权" : "只读工单分诊 · 尚未配置";
+    if (dom.connectZohoButton) {
+      dom.connectZohoButton.disabled = !result.value.clientConfigAvailable || !config.orgId;
+      dom.connectZohoButton.textContent = result.value.connected ? "重新授权" : "连接 Zoho Desk";
+      dom.disconnectZohoButton.disabled = !result.value.connected;
+    }
     renderZohoDashboard();
   } catch (error) {
     zohoConnectorStatus = { status: "error", connected: false, lastErrorMessage: error.message };
@@ -3418,6 +4255,10 @@ function renderAll() {
   renderAssistants(assistantCache);
   renderExecutionLogs(executionLogCache);
   renderGoogleSync();
+  renderGoogleSettingsStatus();
+  renderSearchEngineControls();
+  renderSearchHistory();
+  renderBrowserEmptyRecent();
   if (currentRoute === "home") setVisibleLocalPage("home");
   if (currentRoute === "settings") renderBookmarks();
 }
@@ -4688,6 +5529,83 @@ function handleBrowserState(next = {}) {
 }
 
 function bindEvents() {
+  dom.globalSearchTrigger.addEventListener("click", () => openGlobalSearchPalette());
+  dom.closeGlobalSearch.addEventListener("click", () => closeGlobalSearchPalette());
+  dom.globalSearchPalette.addEventListener("mousedown", (event) => {
+    if (event.target === dom.globalSearchPalette) closeGlobalSearchPalette();
+  });
+  dom.globalSearchInput.addEventListener("input", () => {
+    window.clearTimeout(globalSearchDebounceTimer);
+    globalSearchSelectedIndex = 0;
+    globalSearchDebounceTimer = window.setTimeout(() => void refreshGlobalSearch(), 120);
+  });
+  dom.globalSearchInput.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!globalSearchItems.length) return;
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      globalSearchSelectedIndex = (globalSearchSelectedIndex + delta + globalSearchItems.length) % globalSearchItems.length;
+      renderGlobalSearchItems(globalSearchItems);
+      dom.globalSearchResults.querySelector(`[data-search-result-index="${globalSearchSelectedIndex}"]`)?.scrollIntoView({ block: "nearest" });
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      void executeGlobalSearchItem();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closeGlobalSearchPalette();
+    }
+  });
+  dom.globalSearchEngine.addEventListener("change", () => {
+    globalSearchSelectedIndex = 0;
+    void refreshGlobalSearch();
+  });
+  document.querySelectorAll(".workspace-search-form").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const input = form.querySelector("input");
+      if (input?.value.trim()) openGlobalSearchPalette(input.value.trim());
+    });
+  });
+  dom.browserEmptySearchForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void openGeneralInput(dom.browserEmptySearchInput.value, { disposition: "current" });
+  });
+  dom.settingsSectionSelect.addEventListener("change", () => showSettingsSection(dom.settingsSectionSelect.value));
+  dom.settingsSearchInput.addEventListener("input", renderSettingsSearchResults);
+  dom.defaultSearchEngineSelect.addEventListener("change", async () => {
+    try {
+      applySearchSnapshot(await window.siteNest.updateSearchSettings({ defaultSearchEngineId: dom.defaultSearchEngineSelect.value }));
+      showToast("默认搜索引擎已更新", searchEngineById().name);
+    } catch (error) {
+      renderSearchEngineControls();
+      showToast("无法保存搜索引擎", error?.message || "请稍后重试", "error");
+    }
+  });
+  dom.saveSearchHistorySetting.addEventListener("change", async () => {
+    try {
+      applySearchSnapshot(await window.siteNest.updateSearchSettings({ saveSearchHistory: dom.saveSearchHistorySetting.checked }));
+    } catch (error) {
+      renderSearchEngineControls();
+      showToast("无法保存历史设置", error?.message || "请稍后重试", "error");
+    }
+  });
+  dom.clearSearchHistoryButton.addEventListener("click", async () => {
+    if (!searchState.history.length || !window.confirm("清除全部本机搜索历史？\n\n不会删除浏览会话、站点或 Chrome 书签。")) return;
+    applySearchSnapshot(await window.siteNest.clearSearchHistory());
+    showToast("搜索历史已清除", "站点、书签与浏览会话未受影响");
+  });
+  dom.openGoogleSyncSettings.addEventListener("click", () => {
+    setGoogleSyncPopoverOpen(true);
+  });
+  dom.toggleZohoConfig.addEventListener("click", () => toggleZohoConfigForm());
+  dom.translationConfigForm.addEventListener("input", () => dirtySettingsPanels.add("translation"));
+  window.addEventListener("popstate", () => {
+    const parsed = parseSettingsRoute(window.location.hash.slice(1));
+    if (parsed) {
+      navigateTo("settings", { pushHistory: false, section: parsed.section, panel: parsed.panel });
+    }
+  });
+
   dom.appWorkspace.addEventListener("transitionend", (event) => {
     if (event.target === dom.appWorkspace && event.propertyName === "grid-template-columns") {
       syncBrowserBounds();
@@ -4882,6 +5800,7 @@ function bindEvents() {
         appState.uiSettings.translation = translationStatusCache.settings;
       }
       dom.translationApiKey.value = "";
+      dirtySettingsPanels.delete("translation");
       renderTranslationSettings();
       showToast("翻译配置已安全保存", translationStatusCache.configured ? "Provider 已可用" : "仍需填写 API Key");
     } catch (error) {
@@ -4911,6 +5830,7 @@ function bindEvents() {
         clearApiKey: true,
       });
       dom.translationApiKey.value = "";
+      dirtySettingsPanels.delete("translation");
       renderTranslationSettings();
       showToast("翻译密钥已清除", "安全存储中的 API Key 已删除");
     } catch (error) {
@@ -4926,8 +5846,29 @@ function bindEvents() {
   dom.googleSignInButton.addEventListener("click", () => void runGoogleSyncAction("sign-in"));
   dom.googleSyncNowButton.addEventListener("click", () => void runGoogleSyncAction("sync"));
   dom.googleRestoreButton.addEventListener("click", () => void runGoogleSyncAction("restore"));
+  dom.googleTestConnectionButton.addEventListener("click", () => void runGoogleSyncAction("test"));
   dom.googleSignOutButton.addEventListener("click", () => void runGoogleSyncAction("sign-out"));
-  dom.workConnectorSettings.addEventListener("click", () => navigateTo("settings"));
+  dom.googleSyncConflict.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-google-conflict]");
+    if (button) void resolveGoogleConflict(button.dataset.googleConflict);
+  });
+  dom.googleSyncModuleSettings?.addEventListener("change", async (event) => {
+    const input = event.target.closest("[data-google-sync-module]");
+    if (!input) return;
+    const googleSync = {
+      ...(appState.uiSettings?.googleSync || {}),
+      [input.dataset.googleSyncModule]: input.checked,
+    };
+    try {
+      const result = await window.siteNest.updateUiSettings({ googleSync });
+      if (result?.state) applyReturnedState(result);
+      renderGoogleSettingsStatus();
+    } catch (error) {
+      input.checked = !input.checked;
+      showToast("无法保存同步设置", error?.message || "请稍后重试", "error");
+    }
+  });
+  dom.workConnectorSettings.addEventListener("click", () => navigateTo("settings?section=connections&panel=zoho"));
   dom.workRefreshTickets.addEventListener("click", () => {
     if (zohoDashboardLoading) void cancelZohoDashboardRefresh();
     else void loadZohoDashboard({ refresh: true });
@@ -4938,60 +5879,6 @@ function bindEvents() {
     const requested = card.dataset.ticketFilter;
     activeTicketFilter = activeTicketFilter === requested ? "" : requested;
     renderZohoDashboard();
-  });
-  dom.zohoConfigForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const submit = document.getElementById("saveZohoConfig");
-    submit.disabled = true;
-    try {
-      const result = await window.siteNest.configureConnector("zoho-desk", {
-        displayName: dom.zohoDisplayName.value,
-        orgId: dom.zohoOrgId.value,
-        apiBase: dom.zohoApiBase.value,
-        webBaseUrl: dom.zohoWebBase.value,
-        lookbackDays: Number(dom.zohoLookbackDays.value),
-        slaWarningHours: Number(dom.zohoSlaWarningHours.value),
-      });
-      if (!result?.ok) throw new Error(result?.error?.message || "无法保存 Zoho 配置");
-      if (result.state) appState = result.state;
-      await loadZohoConnectorStatus();
-      renderAll();
-      showToast("Zoho 配置已保存", "OAuth Client Secret 仍只保存在桌面端安全存储中");
-    } catch (error) {
-      showToast("无法保存 Zoho 配置", error?.message || "请检查组织 ID 与地址", "error");
-    } finally {
-      submit.disabled = false;
-    }
-  });
-  dom.connectZohoButton.addEventListener("click", async () => {
-    dom.connectZohoButton.disabled = true;
-    dom.connectZohoButton.textContent = "等待授权…";
-    try {
-      const result = await window.siteNest.connectConnector("zoho-desk");
-      if (!result?.ok) throw new Error(result?.error?.message || "Zoho 授权未完成");
-      await loadZohoConnectorStatus();
-      await loadZohoDashboard({ refresh: true });
-      showToast("Zoho Desk 已连接", "只读工单数据已开始同步");
-    } catch (error) {
-      showToast("Zoho Desk 连接失败", error?.message || "请检查 OAuth 配置", "error");
-      await loadZohoConnectorStatus({ preserveForm: true });
-    } finally {
-      dom.connectZohoButton.disabled = false;
-      dom.connectZohoButton.textContent = zohoConnectorStatus?.connected ? "重新授权" : "连接 Zoho Desk";
-    }
-  });
-  dom.disconnectZohoButton.addEventListener("click", async () => {
-    if (!window.confirm("确定断开 Zoho Desk 吗？\n\n本地安全凭据和工单缓存会被清理，现有网页登录会话不会被清空。")) return;
-    try {
-      const result = await window.siteNest.disconnectConnector("zoho-desk");
-      if (!result?.ok) throw new Error(result?.error?.message || "无法断开 Zoho Desk");
-      zohoDashboard = null;
-      await loadZohoConnectorStatus();
-      renderAll();
-      showToast("Zoho Desk 已断开", "网页 Cookie 与已打开会话未被清理");
-    } catch (error) {
-      showToast("无法断开 Zoho Desk", error?.message || "请稍后重试", "error");
-    }
   });
   dom.browserEmptyOpenSites.addEventListener("click", () => navigateTo("sites"));
   dom.browserEmptyAddSite.addEventListener("click", () => openAddSiteModal({
@@ -5042,6 +5929,11 @@ function bindEvents() {
     navigateTo("automations");
   });
   dom.workGlobalSearch.addEventListener("input", renderWorkSearchResults);
+  dom.workGlobalSearch.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || !dom.workGlobalSearch.value.trim()) return;
+    event.preventDefault();
+    openGlobalSearchPalette(dom.workGlobalSearch.value.trim());
+  });
   dom.automationTabs.addEventListener("click", (event) => {
     const button = event.target.closest("[data-automation-tab]");
     if (button) selectAutomationTab(button.dataset.automationTab);
@@ -5106,11 +5998,8 @@ function bindEvents() {
     finally { dom.detectNetworkResources.disabled = false; }
   });
   dom.refreshExecutionLogs.addEventListener("click", () => void loadExecutionLogs());
-  [
-    "pageImportButton",
-    "settingsImportButton",
-  ].forEach((id) =>
-    document.getElementById(id).addEventListener("click", () => void openImportModal()),
+  [dom.pageImportButton, dom.settingsImportButton].forEach((button) =>
+    button.addEventListener("click", () => void openImportModal()),
   );
   dom.clearImportedBookmarks.addEventListener("click", async () => {
     if (!window.confirm("确定清理栖页中的 Chrome 书签导入记录吗？\n\n不会修改 Chrome 或 Google 云端书签。")) return;
@@ -5408,7 +6297,7 @@ function bindEvents() {
     }
   });
 
-  document.getElementById("openDataFolderButton").addEventListener("click", async () => {
+  dom.openDataFolderButton.addEventListener("click", async () => {
     try {
       const result = await window.siteNest.openDataFolder();
       if (!result.ok) throw new Error(result.error);
@@ -5418,7 +6307,17 @@ function bindEvents() {
   });
 
   window.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      openGlobalSearchPalette();
+      return;
+    }
     if (event.key === "Escape") {
+      if (globalSearchOpen) {
+        event.preventDefault();
+        closeGlobalSearchPalette();
+        return;
+      }
       if (!dom.appContextMenu.hidden) {
         closeSiteContextMenu();
         return;
@@ -5490,11 +6389,7 @@ function bindEvents() {
     setPageActionPanelOpen(true);
   });
   window.siteNest?.onOpenTranslationSettings?.(() => {
-    navigateTo("settings");
-    window.setTimeout(() => {
-      dom.translationSettings?.scrollIntoView({ block: "center", behavior: "smooth" });
-      dom.translationSettings?.focus({ preventScroll: true });
-    }, 80);
+    navigateTo("settings?section=translation&panel=translation");
   });
   window.siteNest?.onTasksChanged?.((snapshot) => applyTaskSnapshot(snapshot));
   window.siteNest?.onOpenTask?.(({ taskId, view }) => {
@@ -5518,12 +6413,16 @@ function bindEvents() {
 
 async function initialize() {
   mountIcons();
+  initializeSettingsArchitecture();
   renderBrowserTabs(browserSnapshot);
   renderGoogleSync();
   applySidebarCollapsed(readSidebarCollapsedPreference(), { persist: false });
   bindEvents();
   try {
     appState = await window.siteNest.getState();
+    await loadSearchState();
+    activeSettingsSection = searchState.settings.settingsLastSection || "general";
+    showSettingsSection(activeSettingsSection, "", { persist: false, pushHistory: false, force: true });
     desiredWorkspaceId = activeWorkspaceId();
     renderAll();
     await loadGoogleSyncStatus();
@@ -5549,6 +6448,15 @@ async function initialize() {
     await loadSystemInfo();
     await loadAssistants();
     if (currentAutomationTab === "logs") await loadExecutionLogs();
+    const startupSettingsTarget = parseSettingsRoute(window.location.hash.slice(1));
+    if (startupSettingsTarget) {
+      navigateTo("settings", {
+        section: startupSettingsTarget.section || activeSettingsSection,
+        panel: startupSettingsTarget.panel,
+        pushHistory: false,
+        force: true,
+      });
+    }
   } catch (error) {
     showToast("应用数据初始化失败", error?.message || "请重新启动栖页", "error");
   }

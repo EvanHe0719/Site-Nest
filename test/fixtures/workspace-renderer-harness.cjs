@@ -1,6 +1,12 @@
 const path = require("node:path");
 const fsp = require("node:fs/promises");
 const { app, BrowserWindow, ipcMain } = require("electron");
+const {
+  GlobalSearchService,
+  normalizeSearchHistory,
+  normalizeSearchSettings,
+  recordSearchHistory,
+} = require("../../electron/browser/search-service.cjs");
 
 const scenario = process.env.QIYE_WORKSPACE_HARNESS_SCENARIO || "isolation";
 const width = Number(process.env.QIYE_WORKSPACE_HARNESS_WIDTH) || 1480;
@@ -114,12 +120,28 @@ const state = {
     work: emptyPersistedBrowserState(),
     research: emptyPersistedBrowserState(),
   },
-  uiSettings: { sessionVisibility: "all", contextAssistantCollapsed: false },
+  uiSettings: {
+    sessionVisibility: "all",
+    contextAssistantCollapsed: false,
+    search: normalizeSearchSettings(),
+  },
+  searchHistory: [],
   connectorConnections: [],
   connectorExecutions: [],
   externalObjectLinks: [],
   assistantSettings: {},
   assistantExecutionLogs: [],
+  localTasks: [{
+    id: "task-work-report",
+    workspaceId: "work",
+    title: "工作周报",
+    notes: "整理客户进展",
+    tags: ["周报"],
+    status: "todo",
+    priority: "medium",
+    createdAt: "2026-08-30T01:00:00.000Z",
+    updatedAt: "2026-08-30T01:00:00.000Z",
+  }],
   automations: {
     naixi: {
       enabled: false,
@@ -134,13 +156,18 @@ const state = {
 };
 
 const googleSyncScenario =
-  scenario === "google-sync-ui" || scenario === "google-sync-visual";
+  scenario === "google-sync-ui" || scenario === "google-sync-visual" || scenario === "google-sync-conflict-ui";
+const googleConflictScenario = scenario === "google-sync-conflict-ui";
 const googleSyncState = {
   configured: googleSyncScenario,
-  signedIn: false,
-  email: "",
+  signedIn: googleSyncScenario,
+  email: googleSyncScenario ? "evanhe0719@gmail.com" : "",
+  identity: googleSyncScenario
+    ? { status: "signedIn", email: "evanhe0719@gmail.com", displayName: "Evan" }
+    : { status: "signedOut", email: "" },
+  drive: { status: googleSyncScenario ? "authorizationRequired" : "notConfigured", grantedScopes: { identity: googleSyncScenario, driveAppData: false } },
   lastSyncAt: null,
-  status: googleSyncScenario ? "idle" : "unavailable",
+  status: googleSyncScenario ? "authorizationRequired" : "unavailable",
   error: "",
 };
 
@@ -156,6 +183,7 @@ const trace = {
   externalTabUrls: [],
   nativeTabContextMenus: [],
   chromeActions: [],
+  searchActions: [],
   mounted: {
     attached: false,
     workspaceId: null,
@@ -163,6 +191,28 @@ const trace = {
     siteId: null,
     url: null,
     webContentsId: null,
+  },
+};
+
+const globalSearchService = new GlobalSearchService();
+const connectorStatus = {
+  ok: true,
+  value: {
+    id: "zoho-desk-default",
+    connectorType: "zoho-desk",
+    displayName: "Zoho Desk 测试配置",
+    status: "not-configured",
+    connected: false,
+    publicConfig: {
+      orgId: "123456789",
+      apiBase: "https://desk.zoho.com/api/v1",
+      webBaseUrl: "https://desk.zoho.com",
+      lookbackDays: 30,
+      slaWarningHours: 4,
+    },
+    clientConfigAvailable: false,
+    oauthConfigPath: "<harness>",
+    lastSyncAt: null,
   },
 };
 
@@ -311,6 +361,83 @@ function delayForWorkspace(workspaceId) {
 
 function registerHarnessIpc() {
   ipcMain.handle("workspace-harness:get-state", () => clone(state));
+  ipcMain.handle("workspace-harness:get-search-state", () =>
+    globalSearchService.snapshot(state.uiSettings.search, state.searchHistory));
+  ipcMain.handle("workspace-harness:resolve-search-input", (_event, payload = {}) =>
+    globalSearchService.resolve(payload.input, {
+      engineId: payload.engineId || state.uiSettings.search.defaultSearchEngineId,
+    }));
+  ipcMain.handle("workspace-harness:update-search-settings", (_event, patch = {}) => {
+    state.uiSettings.search = normalizeSearchSettings({
+      ...state.uiSettings.search,
+      ...patch,
+    });
+    state.searchHistory = normalizeSearchHistory(state.searchHistory, state.uiSettings.search);
+    return globalSearchService.snapshot(state.uiSettings.search, state.searchHistory);
+  });
+  ipcMain.handle("workspace-harness:remove-search-history", (_event, payload = {}) => {
+    state.searchHistory = state.searchHistory.filter((item) => item.id !== String(payload.historyId || ""));
+    return globalSearchService.snapshot(state.uiSettings.search, state.searchHistory);
+  });
+  ipcMain.handle("workspace-harness:clear-search-history", () => {
+    state.searchHistory = [];
+    return globalSearchService.snapshot(state.uiSettings.search, state.searchHistory);
+  });
+  ipcMain.handle("workspace-harness:get-tasks", () => ({
+    tasks: clone(state.localTasks),
+    reminders: [],
+    settings: {},
+    timeZone: "Asia/Shanghai",
+  }));
+  ipcMain.handle("workspace-harness:get-connector-status", () => clone(connectorStatus));
+  ipcMain.handle("workspace-harness:configure-connector", (_event, payload = {}) => {
+    Object.assign(connectorStatus.value, {
+      displayName: String(payload.config?.displayName || connectorStatus.value.displayName),
+      publicConfig: { ...connectorStatus.value.publicConfig, ...(payload.config || {}) },
+    });
+    return { ok: true, value: clone(connectorStatus.value), state: clone(state) };
+  });
+  ipcMain.handle("workspace-harness:open-search-input", (_event, payload = {}) => {
+    const workspaceId = String(payload.workspaceId || state.activeWorkspaceId);
+    const settings = state.uiSettings.search;
+    const target = payload.forceSearch
+      ? globalSearchService.search(payload.input, { engineId: payload.engineId || settings.defaultSearchEngineId })
+      : globalSearchService.resolve(payload.input, { engineId: payload.engineId || settings.defaultSearchEngineId });
+    if (target.kind === "external") {
+      return { state: clone(state), browserState: null, target, externalResult: { opened: false, prompted: true, protocol: target.protocol } };
+    }
+    const persisted = updatePersistedAliases(workspaceId);
+    let active = persisted.tabs.find((tab) => tab.tabId === persisted.activeTabId) || null;
+    const disposition = payload.disposition === "current" ? "current" : "new";
+    if (disposition === "current" && active) {
+      active.url = target.url;
+      active.normalizedUrl = target.url;
+      active.homeURL = target.url;
+      active.siteId = null;
+      active.title = target.kind === "search" ? `${target.engineName} 搜索` : new URL(target.url).hostname;
+      active.updatedAt = new Date().toISOString();
+    } else {
+      active = createPersistedTab(workspaceId, null, target.url, {
+        allowDuplicate: disposition === "new",
+        browserProfileId: payload.browserProfileId || active?.browserProfileId || "default",
+      });
+      active.title = target.kind === "search" ? `${target.engineName} 搜索` : new URL(target.url).hostname;
+      persisted.tabs.push(active);
+      persisted.activeTabId = active.tabId;
+    }
+    updatePersistedAliases(workspaceId);
+    state.searchHistory = recordSearchHistory(state.searchHistory, target, settings);
+    trace.searchActions.push({
+      input: String(payload.input || ""),
+      disposition,
+      workspaceId,
+      browserProfileId: active.browserProfileId,
+      tabId: active.tabId,
+      target: clone(target),
+    });
+    const browserState = setMountedFromWorkspace(workspaceId);
+    return { state: clone(state), browserState: clone(browserState), target: clone(target) };
+  });
   ipcMain.handle("workspace-harness:chrome-profiles", () => [{
     id: "Default",
     name: "Evan",
@@ -354,6 +481,9 @@ function registerHarnessIpc() {
     if (typeof patch.contextAssistantCollapsed === "boolean") {
       state.uiSettings.contextAssistantCollapsed = patch.contextAssistantCollapsed;
     }
+    if (patch.googleSync && typeof patch.googleSync === "object") {
+      state.uiSettings.googleSync = { ...(state.uiSettings.googleSync || {}), ...patch.googleSync };
+    }
     return { state: clone(state), uiSettings: clone(state.uiSettings) };
   });
   ipcMain.handle("workspace-harness:google-sync-status", () => clone(googleSyncState));
@@ -364,7 +494,9 @@ function registerHarnessIpc() {
       configured: true,
       signedIn: true,
       email: "evan@example.com",
-      status: "idle",
+      identity: { status: "signedIn", email: "evan@example.com", displayName: "Evan" },
+      drive: { status: "ready", grantedScopes: { identity: true, driveAppData: true } },
+      status: "ready",
       error: "",
     });
     return clone(googleSyncState);
@@ -372,9 +504,19 @@ function registerHarnessIpc() {
   ipcMain.handle("workspace-harness:google-sync-now", async () => {
     trace.googleActions.push("sync");
     await new Promise((resolve) => setTimeout(resolve, 20));
+    if (googleConflictScenario) {
+      Object.assign(googleSyncState, {
+        status: "conflict",
+        drive: { status: "conflict", grantedScopes: { identity: true, driveAppData: true } },
+        conflict: { localRevision: "local-revision", remoteRevision: "remote-revision" },
+        error: "",
+      });
+      return { ...clone(googleSyncState), syncResult: { action: "conflict", message: "本地数据和云端数据都发生了变化。" } };
+    }
     Object.assign(googleSyncState, {
       lastSyncAt: "2026-08-29T12:34:56.000Z",
-      status: "idle",
+      drive: { status: "synced", grantedScopes: { identity: true, driveAppData: true } },
+      status: "synced",
       error: "",
     });
     return { ...clone(googleSyncState), state: clone(state) };
@@ -397,7 +539,7 @@ function registerHarnessIpc() {
         order: 10,
       });
     }
-    Object.assign(googleSyncState, { status: "idle", error: "" });
+    Object.assign(googleSyncState, { status: "synced", drive: { status: "synced", grantedScopes: { identity: true, driveAppData: true } }, error: "" });
     return { ...clone(googleSyncState), state: clone(state) };
   });
   ipcMain.handle("workspace-harness:google-sign-out", async () => {
@@ -406,10 +548,27 @@ function registerHarnessIpc() {
     Object.assign(googleSyncState, {
       signedIn: false,
       email: "",
-      status: "idle",
+      identity: { status: "signedOut", email: "" },
+      drive: { status: "authorizationRequired", grantedScopes: { identity: false, driveAppData: false } },
+      status: "authorizationRequired",
       error: "",
     });
     return clone(googleSyncState);
+  });
+  ipcMain.handle("workspace-harness:google-test-connection", async () => ({
+    ...clone(googleSyncState),
+    health: { ok: true, empty: false },
+  }));
+  ipcMain.handle("workspace-harness:google-resolve-conflict", (_event, payload) => {
+    trace.googleActions.push(`conflict:${payload?.strategy || "cancel"}`);
+    Object.assign(googleSyncState, {
+      status: "synced",
+      drive: { status: "synced", grantedScopes: { identity: true, driveAppData: true } },
+      conflict: null,
+      lastSyncAt: "2026-08-29T12:45:00.000Z",
+      error: "",
+    });
+    return { ...clone(googleSyncState), state: clone(state), syncResult: { action: payload?.strategy || "cancel", message: "测试冲突已处理" } };
   });
   ipcMain.handle("workspace-harness:set-active", async (_event, rawWorkspaceId) => {
     const workspaceId = String(rawWorkspaceId || "");
@@ -710,6 +869,8 @@ function googleSyncUiSnapshotScript(label) {
       };
     })(),
     account: dom.googleSyncAccount.textContent.trim(),
+    identityStatus: dom.googleIdentityStatus.textContent.trim(),
+    driveStatus: dom.googleDriveStatus.textContent.trim(),
     lastSync: dom.googleSyncLastSync.textContent.trim(),
     notice: document.querySelector('.google-sync-notice')?.textContent.trim() || '',
     error: dom.googleSyncError.textContent.trim(),
@@ -717,6 +878,7 @@ function googleSyncUiSnapshotScript(label) {
       signInVisible: !dom.googleSignInButton.classList.contains('is-hidden'),
       syncVisible: !dom.googleSyncNowButton.classList.contains('is-hidden'),
       restoreVisible: !dom.googleRestoreButton.classList.contains('is-hidden'),
+      testVisible: !dom.googleTestConnectionButton.classList.contains('is-hidden'),
       signOutVisible: !dom.googleSignOutButton.classList.contains('is-hidden'),
       signInDisabled: dom.googleSignInButton.disabled,
       syncDisabled: dom.googleSyncNowButton.disabled,
@@ -1288,7 +1450,7 @@ async function runGoogleSyncUiScenario(window) {
   await window.webContents.executeJavaScript("dom.googleSignInButton.click()");
   await waitForRendererCondition(
     window,
-    "googleSyncState.signedIn === true && !googleSyncBusyAction",
+    "googleSyncState.drive?.status === 'ready' && !googleSyncBusyAction",
     "Google sign-in did not settle",
   );
   const connected = await window.webContents.executeJavaScript(
@@ -1355,7 +1517,7 @@ async function runGoogleSyncVisualScenario(window) {
   await window.webContents.executeJavaScript("dom.googleSignInButton.click()");
   await waitForRendererCondition(
     window,
-    "googleSyncState.signedIn === true && !googleSyncBusyAction",
+    "googleSyncState.drive?.status === 'ready' && !googleSyncBusyAction",
     "Google sign-in did not settle",
   );
   await window.webContents.executeJavaScript(
@@ -1367,6 +1529,19 @@ async function runGoogleSyncVisualScenario(window) {
     ),
     trace: clone(trace),
   };
+}
+
+async function runGoogleSyncConflictScenario(window) {
+  await waitForRendererCondition(window, "googleSyncState.configured === true && !googleSyncBusyAction", "Google status missing");
+  await window.webContents.executeJavaScript("dom.googleSyncCard.click(); dom.googleSignInButton.click()");
+  await waitForRendererCondition(window, "googleSyncState.drive?.status === 'ready' && !googleSyncBusyAction", "Google authorization did not settle");
+  await window.webContents.executeJavaScript("dom.googleSyncNowButton.click()");
+  await waitForRendererCondition(window, "googleSyncState.drive?.status === 'conflict' && !dom.googleSyncConflict.classList.contains('is-hidden')", "Google conflict did not render");
+  const conflict = await window.webContents.executeJavaScript(googleSyncUiSnapshotScript("google-conflict"));
+  await window.webContents.executeJavaScript("dom.googleSyncConflict.querySelector('[data-google-conflict=merge]').click()");
+  await waitForRendererCondition(window, "googleSyncState.drive?.status === 'synced' && dom.googleSyncConflict.classList.contains('is-hidden')", "Google conflict did not resolve");
+  const resolved = await window.webContents.executeJavaScript(googleSyncUiSnapshotScript("google-conflict-resolved"));
+  return { conflict, resolved, trace: clone(trace) };
 }
 
 function sessionSidebarSnapshotScript(label) {
@@ -1497,6 +1672,246 @@ async function runSettingsVisualScenario(window) {
   }))()`);
 }
 
+async function runSearch055Scenario(window) {
+  const initialSiteCount = state.sites.length;
+  await window.webContents.executeJavaScript(`(() => {
+    dom.browserEmptySearchInput.value = 'temporary.example.test/path?q=1';
+    dom.browserEmptySearchForm.requestSubmit();
+  })()`);
+  await waitForRendererCondition(
+    window,
+    "browserSnapshot.tabs.length === 1 && document.querySelectorAll('#browserTabList .browser-tab').length === 1",
+    "empty search did not open one tab",
+  );
+  const afterEmptySearch = await window.webContents.executeJavaScript(`(() => ({
+    route: currentRoute,
+    siteCount: appState.sites.length,
+    tabCount: browserSnapshot.tabs.length,
+    activeTab: activeBrowserTab(browserSnapshot),
+    emptyVisible: dom.workspaceBrowserEmptyPage.classList.contains('is-visible'),
+  }))()`);
+
+  await window.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keydown', {
+    key: 'k', ctrlKey: true, bubbles: true
+  }))`);
+  await waitForRendererCondition(window, "globalSearchOpen === true && document.activeElement === dom.globalSearchInput", "Ctrl+K did not focus search");
+  await window.webContents.executeJavaScript(`(() => {
+    dom.globalSearchInput.value = 'temporary';
+    dom.globalSearchInput.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await waitForRendererCondition(window, "globalSearchItems.some((item) => item.group === '当前会话')", "session search result missing");
+  const localGroups = await window.webContents.executeJavaScript(
+    "Array.from(new Set(globalSearchItems.map((item) => item.group)))",
+  );
+
+  await window.webContents.executeJavaScript(`(() => {
+    dom.globalSearchInput.value = '工作';
+    dom.globalSearchInput.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await waitForRendererCondition(window, "globalSearchItems.some((item) => item.group === '计划任务')", "task result missing");
+  const sourceGroups = await window.webContents.executeJavaScript(
+    "Array.from(new Set(globalSearchItems.map((item) => item.group)))",
+  );
+
+  await window.webContents.executeJavaScript(`(() => {
+    dom.globalSearchInput.value = 'no-local-result-qiye';
+    dom.globalSearchInput.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await waitForRendererCondition(window, "globalSearchItems.length === 1 && globalSearchItems[0].group === '互联网搜索'", "internet fallback missing");
+  const noLocal = await window.webContents.executeJavaScript(
+    "globalSearchItems.map((item) => ({ group: item.group, title: item.title }))",
+  );
+
+  await window.webContents.executeJavaScript(`(() => {
+    dom.globalSearchInput.value = 'example.net/docs';
+    dom.globalSearchInput.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await waitForRendererCondition(window, "globalSearchItems.some((item) => item.group === '直接打开网址')", "direct URL result missing");
+  const directGroups = await window.webContents.executeJavaScript(
+    "globalSearchItems.map((item) => item.group)",
+  );
+
+  await window.webContents.executeJavaScript(`(() => {
+    dom.globalSearchEngine.value = 'bing';
+    dom.globalSearchEngine.dispatchEvent(new Event('change', { bubbles: true }));
+    dom.globalSearchInput.value = 'quarterly forecast';
+    dom.globalSearchInput.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await waitForRendererCondition(window, "globalSearchItems.some((item) => item.group === '互联网搜索' && item.source === 'Bing' && item.title.includes('quarterly forecast'))", "temporary engine did not apply");
+  await window.webContents.executeJavaScript(`(() => {
+    const item = Array.from(dom.globalSearchResults.querySelectorAll('.global-search-result'))
+      .find((button) => button.querySelector('.global-search-result-source')?.textContent === 'Bing');
+    item.click();
+  })()`);
+  await waitForRendererCondition(window, "browserSnapshot.tabs.length === 2 && globalSearchOpen === false", "global search did not create a new tab");
+  const afterGlobalSearch = await window.webContents.executeJavaScript(`(() => ({
+    paletteHidden: dom.globalSearchPalette.hidden,
+    tabCount: browserSnapshot.tabs.length,
+    activeTab: activeBrowserTab(browserSnapshot),
+    defaultEngineId: searchState.settings.defaultSearchEngineId,
+    history: searchState.history.map((item) => ({ type: item.type, text: item.text, engineId: item.engineId })),
+    siteCount: appState.sites.length,
+  }))()`);
+
+  const historyMaintenance = await window.webContents.executeJavaScript(`(async () => {
+    const removed = await window.siteNest.removeSearchHistory(searchState.history[0].id);
+    applySearchSnapshot(removed);
+    const afterRemove = searchState.history.length;
+    applySearchSnapshot(await window.siteNest.clearSearchHistory());
+    const afterClear = searchState.history.length;
+    applySearchSnapshot(await window.siteNest.updateSearchSettings({ saveSearchHistory: false }));
+    await openGeneralInput('history disabled query', { forceSearch: true, disposition: 'new' });
+    const afterDisabledSearch = searchState.history.length;
+    applySearchSnapshot(await window.siteNest.updateSearchSettings({ saveSearchHistory: true }));
+    return {
+      afterRemove,
+      afterClear,
+      afterDisabledSearch,
+      siteCount: appState.sites.length,
+      bookmarkCount: appState.bookmarks.length,
+    };
+  })()`);
+  await waitForRendererCondition(window, "browserSnapshot.tabs.length === 3", "history-disabled search did not settle");
+
+  await window.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keydown', {
+    key: 'k', ctrlKey: true, bubbles: true
+  }))`);
+  await waitForRendererCondition(window, "globalSearchOpen === true", "palette did not reopen");
+  await window.webContents.executeJavaScript("dom.globalSearchInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+  const escapeClosed = await window.webContents.executeJavaScript("globalSearchOpen === false && dom.globalSearchPalette.hidden");
+
+  return {
+    initialSiteCount,
+    afterEmptySearch,
+    localGroups,
+    sourceGroups,
+    noLocal,
+    directGroups,
+    afterGlobalSearch,
+    historyMaintenance,
+    escapeClosed,
+    trace: clone(trace),
+    persisted: clone(state),
+  };
+}
+
+async function runSearch055VisualScenario(window) {
+  await window.webContents.executeJavaScript(`(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
+    dom.globalSearchInput.value = '工作';
+    dom.globalSearchInput.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await waitForRendererCondition(window, "globalSearchItems.some((item) => item.group === '计划任务')", "visual search results missing");
+  return window.webContents.executeJavaScript(`(() => ({
+    open: globalSearchOpen,
+    groups: Array.from(new Set(globalSearchItems.map((item) => item.group))),
+    selected: document.querySelector('.global-search-result.is-selected')?.textContent.trim(),
+  }))()`);
+}
+
+async function runSettings055Scenario(window) {
+  await window.webContents.executeJavaScript("navigateTo('settings')");
+  await window.webContents.executeJavaScript(
+    "new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+  );
+  const initial = await window.webContents.executeJavaScript(`(() => ({
+    route: currentRoute,
+    section: activeSettingsSection,
+    mountedSections: Array.from(dom.settingsPanelHost.children).map((card) => card.dataset.settingsSection),
+    navigation: Array.from(dom.settingsNavigation.querySelectorAll('button')).map((button) => button.textContent.trim()),
+    zohoMounted: Boolean(document.getElementById('zohoConfigForm')),
+    contentOverflowY: getComputedStyle(document.querySelector('.settings-content-panel')).overflowY,
+    mobileSelectDisplay: getComputedStyle(document.querySelector('.settings-mobile-section')).display,
+  }))()`);
+
+  await window.webContents.executeJavaScript("showSettingsSection('connections')");
+  const connectionsCollapsed = await window.webContents.executeJavaScript(`(() => ({
+    section: activeSettingsSection,
+    mountedSections: Array.from(dom.settingsPanelHost.children).map((card) => card.dataset.settingsSection),
+    zohoMounted: Boolean(document.getElementById('zohoConfigForm')),
+    summary: dom.zohoConnectorSummary.textContent.trim(),
+  }))()`);
+  await window.webContents.executeJavaScript("dom.toggleZohoConfig.click()");
+  await waitForRendererCondition(window, "Boolean(document.getElementById('zohoConfigForm'))", "Zoho form was not lazy mounted");
+  const zohoExpanded = await window.webContents.executeJavaScript(`(() => ({
+    mounted: Boolean(dom.zohoConfigForm),
+    orgId: dom.zohoOrgId.value,
+    displayName: dom.zohoDisplayName.value,
+    hidden: dom.zohoConfigMount.hidden,
+    expanded: dom.toggleZohoConfig.getAttribute('aria-expanded'),
+  }))()`);
+
+  await window.webContents.executeJavaScript(`(() => {
+    dom.zohoOrgId.value = 'unsaved-org';
+    dom.zohoOrgId.dispatchEvent(new Event('input', { bubbles: true }));
+    window.confirm = () => false;
+    showSettingsSection('search');
+  })()`);
+  const blockedDirtySwitch = await window.webContents.executeJavaScript("activeSettingsSection");
+  await window.webContents.executeJavaScript(`(() => {
+    window.confirm = () => true;
+    showSettingsSection('search');
+  })()`);
+  await waitForRendererCondition(window, "activeSettingsSection === 'search'", "confirmed settings switch failed");
+  const persistedSection = state.uiSettings.search.settingsLastSection;
+
+  await window.webContents.executeJavaScript(`(() => {
+    dom.settingsSearchInput.value = 'Zoho';
+    dom.settingsSearchInput.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  const settingsSearch = await window.webContents.executeJavaScript(`(() => ({
+    hidden: dom.settingsSearchResults.hidden,
+    labels: Array.from(dom.settingsSearchResults.querySelectorAll('button')).map((button) => button.textContent.trim()),
+  }))()`);
+  await window.webContents.executeJavaScript("dom.settingsSearchResults.querySelector('button').click()");
+  await waitForRendererCondition(window, "activeSettingsSection === 'connections' && Boolean(dom.zohoConfigForm)", "settings search did not locate Zoho");
+  const searchLocated = await window.webContents.executeJavaScript(`(() => ({
+    section: activeSettingsSection,
+    zohoMounted: Boolean(dom.zohoConfigForm),
+    expanded: dom.toggleZohoConfig.getAttribute('aria-expanded'),
+    orgId: dom.zohoOrgId.value,
+  }))()`);
+  await window.webContents.executeJavaScript(`(() => {
+    dom.settingsSearchInput.value = 'not-an-existing-setting';
+    dom.settingsSearchInput.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  const emptySearchText = await window.webContents.executeJavaScript("dom.settingsSearchResults.textContent.trim()");
+
+  await window.webContents.executeJavaScript(`(() => {
+    dom.settingsSearchInput.value = '';
+    dom.settingsSearchInput.dispatchEvent(new Event('input', { bubbles: true }));
+    navigateTo('settings#zoho', { force: true });
+  })()`);
+  await waitForRendererCondition(window, "activeSettingsSection === 'connections' && Boolean(dom.zohoConfigForm)", "legacy Zoho route failed");
+  const legacyRoute = await window.webContents.executeJavaScript(`(() => ({
+    route: currentRoute,
+    section: activeSettingsSection,
+    hash: location.hash,
+    zohoMounted: Boolean(dom.zohoConfigForm),
+  }))()`);
+
+  await window.webContents.executeJavaScript(`(() => {
+    showSettingsSection('search', '', { force: true });
+    showSettingsSection('connections', '', { force: true });
+    history.back();
+  })()`);
+  await waitForRendererCondition(window, "activeSettingsSection === 'search'", "settings history back did not restore section");
+  const historyBackSection = await window.webContents.executeJavaScript("activeSettingsSection");
+
+  return {
+    initial,
+    connectionsCollapsed,
+    zohoExpanded,
+    blockedDirtySwitch,
+    persistedSection,
+    settingsSearch,
+    searchLocated,
+    emptySearchText,
+    legacyRoute,
+    historyBackSection,
+  };
+}
+
 async function runChromeBookmarksSettingsScenario(window) {
   const initial = await window.webContents.executeJavaScript(`(() => ({
     bookmarkCount: appState.bookmarks.length,
@@ -1615,9 +2030,13 @@ async function runScenario(window) {
   if (scenario === "page-actions-visual") return runPageActionsVisualScenario(window);
   if (scenario === "google-sync-ui") return runGoogleSyncUiScenario(window);
   if (scenario === "google-sync-visual") return runGoogleSyncVisualScenario(window);
+  if (scenario === "google-sync-conflict-ui") return runGoogleSyncConflictScenario(window);
   if (scenario === "sessions-sidebar") return runSessionSidebarScenario(window);
   if (scenario === "work-dashboard-visual") return runWorkDashboardVisualScenario(window);
   if (scenario === "settings-visual") return runSettingsVisualScenario(window);
+  if (scenario === "search-055") return runSearch055Scenario(window);
+  if (scenario === "search-055-visual") return runSearch055VisualScenario(window);
+  if (scenario === "settings-055") return runSettings055Scenario(window);
   if (scenario === "chrome-bookmarks-settings") return runChromeBookmarksSettingsScenario(window);
   if (scenario === "sessions-visual") return runSessionsVisualScenario(window);
   throw new Error(`unknown scenario: ${scenario}`);

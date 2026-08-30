@@ -2,6 +2,16 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("siteNest", {
   getState: () => ipcRenderer.invoke("workspace-harness:get-state"),
+  getSearchState: () => ipcRenderer.invoke("workspace-harness:get-search-state"),
+  resolveSearchInput: (input, engineId) =>
+    ipcRenderer.invoke("workspace-harness:resolve-search-input", { input, engineId }),
+  updateSearchSettings: (patch) =>
+    ipcRenderer.invoke("workspace-harness:update-search-settings", patch),
+  removeSearchHistory: (historyId) =>
+    ipcRenderer.invoke("workspace-harness:remove-search-history", { historyId }),
+  clearSearchHistory: () => ipcRenderer.invoke("workspace-harness:clear-search-history"),
+  openSearchInput: (payload) =>
+    ipcRenderer.invoke("workspace-harness:open-search-input", payload),
   setActiveWorkspace: (workspaceId) =>
     ipcRenderer.invoke("workspace-harness:set-active", workspaceId),
   updateUiSettings: (patch) =>
@@ -11,6 +21,11 @@ contextBridge.exposeInMainWorld("siteNest", {
   importChromeBookmarks: (profileId) =>
     ipcRenderer.invoke("workspace-harness:chrome-import", { profileId }),
   clearChromeBookmarks: () => ipcRenderer.invoke("workspace-harness:chrome-clear"),
+  getTasks: () => ipcRenderer.invoke("workspace-harness:get-tasks"),
+  getConnectorStatus: (connectorType) =>
+    ipcRenderer.invoke("workspace-harness:get-connector-status", { connectorType }),
+  configureConnector: (connectorType, config) =>
+    ipcRenderer.invoke("workspace-harness:configure-connector", { connectorType, config }),
   getAssistants: () => Promise.resolve({ assistants: [] }),
   getExecutionLogs: () => Promise.resolve({ logs: [] }),
   googleSyncStatus: () => ipcRenderer.invoke("workspace-harness:google-sync-status"),
@@ -19,6 +34,9 @@ contextBridge.exposeInMainWorld("siteNest", {
   googleSyncNow: () => ipcRenderer.invoke("workspace-harness:google-sync-now"),
   googleRestoreFromCloud: () =>
     ipcRenderer.invoke("workspace-harness:google-restore-from-cloud"),
+  googleTestConnection: () => ipcRenderer.invoke("workspace-harness:google-test-connection"),
+  googleResolveConflict: (strategy) =>
+    ipcRenderer.invoke("workspace-harness:google-resolve-conflict", { strategy }),
   getAutomationStatus: () =>
     Promise.resolve({
       naixi: {

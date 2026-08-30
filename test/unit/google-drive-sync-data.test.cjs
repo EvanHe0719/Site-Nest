@@ -108,7 +108,14 @@ test("safe snapshot is an allowlist and excludes sessions, OAuth material, cooki
     "automationSettings",
     "bookmarks",
     "browserProfiles",
+    "browsingHistory",
+    "plans",
+    "searchHistory",
+    "settings",
     "sites",
+    "syncOptions",
+    "tombstones",
+    "userScriptMetadata",
     "version",
     "workspaces",
   ]);
@@ -219,6 +226,24 @@ test("remote envelope normalization accepts JSON, removes unknown sensitive fiel
   assert.equal(validateRemoteEnvelope(remote).ok, true);
 });
 
+test("search and browsing history are stable-id modules and sensitive OAuth URLs never enter cloud data", () => {
+  const state = sampleState();
+  state.searchHistory = [
+    { id: "search-safe", type: "webSearch", text: "SAP B1", engineId: "google", lastUsedAt: NOW, createdAt: NOW, useCount: 1 },
+    { id: "search-secret", type: "directUrl", text: "https://example.test/callback?code=oauth-private", engineId: "google", lastUsedAt: NOW, createdAt: NOW, useCount: 1 },
+  ];
+  state.browsingHistory = [
+    { id: "visit-safe", type: "page", url: "https://example.test/docs?page=1", title: "Docs", workspaceId: "work", lastVisitedAt: NOW, updatedAt: NOW, useCount: 2 },
+    { id: "visit-secret", type: "page", url: "https://example.test/callback?access_token=drive-private", title: "Callback", workspaceId: "work", lastVisitedAt: NOW, updatedAt: NOW, useCount: 1 },
+  ];
+  const envelope = createSyncEnvelope(state, { deviceId: "device-1", deviceName: "Test PC", appVersion: "0.5.5" });
+  assert.deepEqual(envelope.snapshot.searchHistory.map((item) => item.id), ["search-safe"]);
+  assert.deepEqual(envelope.snapshot.browsingHistory.map((item) => item.id), ["visit-safe"]);
+  assert.equal(envelope.manifest.deviceId, "device-1");
+  assert.equal(envelope.manifest.checksums.snapshot, envelope.manifest.revision);
+  assert.doesNotMatch(JSON.stringify(envelope), /oauth-private|drive-private/);
+});
+
 test("damaged and malicious remote envelopes are rejected without producing a download candidate", () => {
   const valid = createSyncEnvelope(sampleState());
   const cases = [
@@ -279,15 +304,20 @@ test("newer snapshot wins while first upload, first download, same and noop are 
   const local = createSyncEnvelope(sampleState(), {
     updatedAt: "2026-08-29T10:00:00.000Z",
   });
-  const remoteOlder = clone(local);
-  remoteOlder.updatedAt = "2026-08-29T09:00:00.000Z";
-  remoteOlder.snapshot.sites[0].name = "Older remote name";
-  const remoteNewer = clone(remoteOlder);
-  remoteNewer.updatedAt = "2026-08-29T11:00:00.000Z";
-  const equalTimestampConflict = clone(remoteOlder);
-  equalTimestampConflict.updatedAt = local.updatedAt;
-  const sameSnapshotNewerTimestamp = clone(local);
-  sameSnapshotNewerTimestamp.updatedAt = "2026-08-29T12:00:00.000Z";
+  const remoteState = sampleState();
+  remoteState.sites[0].name = "Older remote name";
+  const remoteOlder = createSyncEnvelope(remoteState, {
+    updatedAt: "2026-08-29T09:00:00.000Z",
+  });
+  const remoteNewer = createSyncEnvelope(remoteState, {
+    updatedAt: "2026-08-29T11:00:00.000Z",
+  });
+  const equalTimestampConflict = createSyncEnvelope(remoteState, {
+    updatedAt: local.updatedAt,
+  });
+  const sameSnapshotNewerTimestamp = createSyncEnvelope(sampleState(), {
+    updatedAt: "2026-08-29T12:00:00.000Z",
+  });
 
   assert.deepEqual(decideSyncAction({}), {
     action: "noop",

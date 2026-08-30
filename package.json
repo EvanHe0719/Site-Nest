@@ -1,20 +1,25 @@
 {
   "name": "site-nest-desktop",
   "productName": "栖页",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "多空间、本地优先的网页工作台",
   "private": true,
   "main": "electron/main.cjs",
   "scripts": {
     "lint": "node scripts/lint.cjs",
     "typecheck": "tsc -p tsconfig.json",
-    "check": "node scripts/check-syntax.cjs",
+    "check:syntax": "node scripts/check-syntax.cjs",
+    "check": "npm run lint && npm run typecheck && npm test",
     "test:unit": "node --test test/unit/*.test.cjs",
     "test:integration": "node --test test/integration/*.test.cjs",
     "test": "npm run test:unit && npm run test:integration",
-    "start": "electron .",
-    "dist:win": "electron-builder --win portable --x64",
-    "build": "npm run dist:win"
+    "dev": "electron .",
+    "start": "npm run dev",
+    "build:code": "node scripts/check-syntax.cjs",
+    "build": "npm run build:code",
+    "package:portable": "electron-builder --win portable --x64",
+    "package:win": "electron-builder --win nsis --x64",
+    "release": "npm run check && npm run package:portable"
   },
   "devDependencies": {
     "electron": "44.0.0",
