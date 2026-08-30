@@ -64,6 +64,8 @@ const {
   DownloadManager,
   ExternalProtocolService,
   ManagedPopupService,
+  NavigationPerformanceTracer,
+  PageCapabilityOrchestrator,
   PageResourceService,
   SessionRuntimeState,
   WebViewLifecycleManager,
@@ -76,6 +78,7 @@ const {
   hasSapLoginRejection,
   isSapSearchTarget,
   isSapSessionUrl,
+  isAuthenticationUrl,
   sapRetryUrl,
 } = require("./browser/index.cjs");
 const {
@@ -229,6 +232,21 @@ let userScriptSourceService;
 let pageResourceService;
 let webViewLifecycleManager;
 const globalSearchService = new GlobalSearchService();
+const navigationPerformanceTracer = new NavigationPerformanceTracer();
+const pageCapabilityOrchestrator = new PageCapabilityOrchestrator({
+  idleDelayMs: 350,
+  onError: ({ capabilityId, error }) => {
+    console.warn(`Deferred page capability failed (${capabilityId}):`, error?.message || error);
+  },
+});
+
+const IMMEDIATE_CAPABILITY_IDS = Object.freeze([
+  "navigation-state",
+  "popup-policy",
+  "permission-bridge",
+  "context-menu",
+  "error-recovery",
+]);
 
 function dataFilePath() {
   return path.join(app.getPath("userData"), "site-nest-data.json");
@@ -427,6 +445,9 @@ function createRuntimeTab(workspaceId, persisted = {}) {
     nodeSeekAutoRetryUsed: false,
     lastSapNavigationUrl,
     sapSessionOrigins,
+    navigationTraceId: null,
+    navigationDidStopTraceId: null,
+    lastNavigationTrace: null,
   };
 }
 
@@ -1957,8 +1978,32 @@ function attachSiteView(context = activeBrowserContext()) {
   context.attached = true;
   context.viewOwner = "main";
   context.runtimeState?.transition("active", "selected");
+  if (context.navigationTraceId) {
+    navigationPerformanceTracer.update(context.navigationTraceId, {
+      workspaceId: context.workspaceId,
+      tabId: context.tabId,
+      webContentsId: context.view.webContents.id,
+      partition: browserPartitionForProfile(context.browserProfileId),
+      activeCapabilityIds: IMMEDIATE_CAPABILITY_IDS,
+    });
+    navigationPerformanceTracer.mark(context.navigationTraceId, "viewAttachedAt");
+    navigationPerformanceTracer.mark(context.navigationTraceId, "overlayHiddenAt");
+    if (context.navigationDidStopTraceId === context.navigationTraceId) {
+      completeNavigationPerformanceTrace(context);
+    }
+  }
   if (context.workspaceId === activeBrowserWorkspaceId) syncActiveBrowserAliases(context);
   applySiteViewBounds(siteViewBounds, context);
+}
+
+function completeNavigationPerformanceTrace(context) {
+  const traceId = context?.navigationTraceId;
+  if (!traceId) return null;
+  const result = navigationPerformanceTracer.finish(traceId, null);
+  context.lastNavigationTrace = result;
+  context.navigationTraceId = null;
+  context.navigationDidStopTraceId = null;
+  return result;
 }
 
 function detachSiteView(context = activeBrowserContext()) {
@@ -2026,6 +2071,7 @@ async function runtimeTabProtection(tab) {
   if (tab.keepRunning) return { protected: true, reason: "用户标记保持运行" };
   if (tab.detached || tab.viewOwner === "detached") return { protected: true, reason: "独立窗口正在显示" };
   if (contents.isLoading()) return { protected: true, reason: "页面正在加载" };
+  if (isAuthenticationUrl(contents.getURL())) return { protected: true, reason: "登录流程正在进行" };
   if (contents.isCurrentlyAudible?.()) return { protected: true, reason: "页面正在播放媒体" };
   if (downloadManager?.hasActiveDownload(contents.id)) return { protected: true, reason: "页面正在下载" };
   try {
@@ -2357,6 +2403,16 @@ function ensureSiteView(context = activeBrowserContext()) {
   });
   context.view = view;
   view.setBackgroundColor("#ffffff");
+  if (context.navigationTraceId) {
+    navigationPerformanceTracer.update(context.navigationTraceId, {
+      workspaceId: context.workspaceId,
+      tabId: context.tabId,
+      webContentsId: view.webContents.id,
+      partition: browserPartitionForProfile(context.browserProfileId),
+      activeCapabilityIds: IMMEDIATE_CAPABILITY_IDS,
+    });
+    navigationPerformanceTracer.mark(context.navigationTraceId, "viewCreatedAt");
+  }
   if (context.workspaceId === activeBrowserWorkspaceId) syncActiveBrowserAliases(context);
 
   const browserServices = getBrowserServices();
@@ -2384,6 +2440,7 @@ function ensureSiteView(context = activeBrowserContext()) {
     void browserServices.externalProtocol.open(url, browserOwnerWindow(context));
   });
   view.webContents.on("did-start-loading", () => {
+    pageCapabilityOrchestrator.cancel(context.tabId);
     userScriptEngine?.cleanup(view.webContents);
     pageResourceService?.clear(view.webContents);
     if (pageTranslationController) pageTranslationController.clear(context);
@@ -2394,9 +2451,40 @@ function ensureSiteView(context = activeBrowserContext()) {
     );
   });
   view.webContents.on("dom-ready", () => {
-    void runUserScriptsForContext(context, "document-start");
+    if (context.navigationTraceId) {
+      navigationPerformanceTracer.mark(context.navigationTraceId, "domReadyAt");
+      navigationPerformanceTracer.update(context.navigationTraceId, {
+        activeCapabilityIds: [
+          ...IMMEDIATE_CAPABILITY_IDS,
+          "site-identification",
+          "selection-translation-trigger",
+          "document-start-userscripts",
+        ],
+      });
+    }
+    pageCapabilityOrchestrator.run(context.tabId, "dom-ready", [
+      {
+        id: "selection-translation-trigger",
+        run: async () => {
+          const settings = await currentTranslationSettings();
+          return getTranslationServices().selection.installTrigger(
+            view.webContents,
+            settings.selectionButtonEnabled !== false,
+          );
+        },
+      },
+      {
+        id: "document-start-userscripts",
+        run: () => runUserScriptsForContext(context, "document-start"),
+      },
+    ]);
   });
   view.webContents.on("did-stop-loading", () => {
+    if (context.navigationTraceId) {
+      navigationPerformanceTracer.mark(context.navigationTraceId, "didStopLoadingAt");
+      context.navigationDidStopTraceId = context.navigationTraceId;
+      if (context.viewOwner !== "none") completeNavigationPerformanceTrace(context);
+    }
     compactBrowserState({
       loading: false,
       title: view.webContents.getTitle(),
@@ -2414,28 +2502,47 @@ function ensureSiteView(context = activeBrowserContext()) {
     setTimeout(() => void inspectKnownSiteIssue(context), 350);
   });
   view.webContents.on("did-finish-load", () => {
+    if (context.navigationTraceId) {
+      navigationPerformanceTracer.mark(context.navigationTraceId, "didFinishLoadAt");
+    }
     context.runtimeState?.transition(context.viewOwner === "none" ? "warm" : "active", "page-loaded");
-    void currentTranslationSettings().then((settings) =>
-      getTranslationServices().selection.installTrigger(
-        view.webContents,
-        settings.selectionButtonEnabled !== false,
-      ),
-    );
-    setTimeout(() => void maybeAutoTranslate(context), 150);
-    void runUserScriptsForContext(context, "document-end");
-    setTimeout(() => {
-      if (context.view === view && !view.webContents.isDestroyed()) {
-        void runUserScriptsForContext(context, "document-idle");
-      }
-    }, 350);
+    pageCapabilityOrchestrator.run(context.tabId, "dom-ready", [
+      {
+        id: "document-end-userscripts",
+        run: () => runUserScriptsForContext(context, "document-end"),
+      },
+    ]);
+    pageCapabilityOrchestrator.run(context.tabId, "idle", [
+      {
+        id: "configured-auto-translation",
+        run: () => maybeAutoTranslate(context),
+      },
+      {
+        id: "document-idle-userscripts",
+        run: () => {
+          if (context.view === view && !view.webContents.isDestroyed()) {
+            return runUserScriptsForContext(context, "document-idle");
+          }
+          return null;
+        },
+      },
+    ]);
   });
   view.webContents.on("did-navigate", (_event, url) => {
     rememberSapNavigation(context, url);
     compactBrowserState({ url, securityState: securityStateForUrl(url), error: "" }, context);
     persistWorkspaceBrowserContext(context, { currentURL: url });
   });
+  view.webContents.on("did-start-navigation", (_event, _url, _isInPlace, isMainFrame) => {
+    if (isMainFrame && context.navigationTraceId) {
+      navigationPerformanceTracer.mark(context.navigationTraceId, "didStartNavigationAt");
+    }
+  });
   view.webContents.on("did-redirect-navigation", (_event, url, isInPlace, isMainFrame) => {
-    if (isMainFrame && !isInPlace) rememberSapNavigation(context, url);
+    if (isMainFrame && !isInPlace) {
+      rememberSapNavigation(context, url);
+      if (context.navigationTraceId) navigationPerformanceTracer.redirect(context.navigationTraceId);
+    }
   });
   view.webContents.on(
     "did-navigate-in-page",
@@ -2446,7 +2553,10 @@ function ensureSiteView(context = activeBrowserContext()) {
         if (selectionActionService) selectionActionService.clear(view.webContents);
         compactBrowserState({ url, securityState: securityStateForUrl(url), error: "" }, context);
         persistWorkspaceBrowserContext(context, { currentURL: url });
-        setTimeout(() => void maybeAutoTranslate(context), 150);
+        pageCapabilityOrchestrator.run(context.tabId, "idle", [{
+          id: "configured-auto-translation",
+          run: () => maybeAutoTranslate(context),
+        }]);
       }
     },
   );
@@ -2470,6 +2580,7 @@ function ensureSiteView(context = activeBrowserContext()) {
         url: validatedURL,
         error: `${errorDescription} (${errorCode})`,
       }, context);
+      if (context.navigationTraceId) completeNavigationPerformanceTrace(context);
     },
   );
   view.webContents.on("render-process-gone", () => {
@@ -2483,6 +2594,7 @@ function ensureSiteView(context = activeBrowserContext()) {
     context.runtimeState?.transition("crashed", "render-process-gone");
   });
   view.webContents.once("destroyed", () => {
+    pageCapabilityOrchestrator.cancel(context.tabId);
     userScriptEngine?.cleanup(view.webContents);
     pageResourceService?.clear(view.webContents);
   });
@@ -2530,13 +2642,14 @@ async function activateWorkspaceBrowserContext(workspaceId, options = {}) {
   }
 
   if (!context.view) {
-    await waitForBrowserSession(context.browserProfileId);
-    if (
-      activationSequence !== workspaceBrowserActivationSequence ||
-      activeBrowserWorkspaceId !== id
-    ) {
-      return workspace.browserState;
-    }
+    context.navigationTraceId = navigationPerformanceTracer.start({
+      workspaceId: context.workspaceId,
+      tabId: context.tabId,
+      restoredFromSuspended: true,
+      partition: browserPartitionForProfile(context.browserProfileId),
+      activeCapabilityIds: IMMEDIATE_CAPABILITY_IDS,
+    });
+    navigationPerformanceTracer.mark(context.navigationTraceId, "sessionResolvedAt");
     ensureSiteView(context);
     compactBrowserState(
       {
@@ -2562,19 +2675,7 @@ async function activateWorkspaceBrowserContext(workspaceId, options = {}) {
 
   const liveURL = context.view.webContents.getURL();
   if (!liveURL && options.restore !== false) {
-    void loadUrlAllowingRedirectAbort(
-      context.view.webContents,
-      context.browserState.currentURL,
-    ).catch((error) => {
-      compactBrowserState(
-        {
-          loading: false,
-          error: error?.message || "页面加载失败",
-          url: context.browserState.currentURL,
-        },
-        context,
-      );
-    });
+    ensureRuntimeTabView(context, { url: context.browserState.currentURL });
   } else {
     compactBrowserState(
       {
@@ -2584,6 +2685,9 @@ async function activateWorkspaceBrowserContext(workspaceId, options = {}) {
       },
       context,
     );
+    if (context.navigationTraceId && !context.view.webContents.isLoading()) {
+      completeNavigationPerformanceTrace(context);
+    }
   }
   emitWorkspaceBrowserState(workspace);
   return workspace.browserState;
@@ -2627,28 +2731,40 @@ function destroyAllWorkspaceBrowserViews() {
   syncActiveBrowserAliases(null);
 }
 
-async function ensureRuntimeTabView(tab, options = {}) {
-  await waitForBrowserSession(tab.browserProfileId);
-  ensureSiteView(tab);
+function ensureRuntimeTabView(tab, options = {}) {
+  const view = ensureSiteView(tab);
   const targetURL = normalizeUrl(options.url || tab.browserState.currentURL);
-  const liveURL = tab.view.webContents.getURL();
+  const liveURL = view.webContents.getURL();
   if (!liveURL || options.forceURL) {
     compactBrowserState(
       { loading: true, error: "", siteIssue: "", url: targetURL },
       tab,
     );
-    try {
-      await loadUrlAllowingRedirectAbort(tab.view.webContents, targetURL);
-    } catch (error) {
-      compactBrowserState(
-        {
-          loading: false,
-          error: error?.message || "页面加载失败",
-          url: targetURL,
-        },
-        tab,
-      );
-    }
+    const navigationView = view;
+    const navigationPromise = waitForBrowserSession(tab.browserProfileId)
+      .then(() => {
+        if (tab.view !== navigationView || navigationView.webContents.isDestroyed()) return null;
+        if (tab.navigationTraceId) {
+          navigationPerformanceTracer.mark(tab.navigationTraceId, "loadUrlCalledAt");
+        }
+        return loadUrlAllowingRedirectAbort(navigationView.webContents, targetURL);
+      })
+      .catch((error) => {
+        if (tab.view !== navigationView || navigationView.webContents.isDestroyed()) return;
+        compactBrowserState(
+          {
+            loading: false,
+            error: error?.message || "页面加载失败",
+            url: targetURL,
+          },
+          tab,
+        );
+        if (tab.navigationTraceId) completeNavigationPerformanceTrace(tab);
+      })
+      .finally(() => {
+        if (tab.pendingNavigation === navigationPromise) tab.pendingNavigation = null;
+      });
+    tab.pendingNavigation = navigationPromise;
   } else {
     compactBrowserState(
       {
@@ -2662,14 +2778,31 @@ async function ensureRuntimeTabView(tab, options = {}) {
   return tab;
 }
 
-async function switchStoredActiveWorkspace(workspaceId) {
+async function waitForRuntimeTabNavigation(tab, timeoutMs = 10_000) {
+  if (!tab?.view || tab.view.webContents.isDestroyed()) return;
+  const pending = tab.pendingNavigation;
+  if (!pending) return;
+  let timer;
+  await Promise.race([
+    pending,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("等待测试页加载超时")), Math.max(100, timeoutMs));
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+async function switchStoredActiveWorkspace(workspaceId, options = {}) {
   const state = await getState();
   if (state.activeWorkspaceId === workspaceId) return state;
   const switched = setActiveWorkspaceInState(state, workspaceId, {
     defaultSites: DEFAULT_SITES,
   });
   cachedState = switched.state;
-  await persistState();
+  if (options.deferPersist === true) {
+    void persistState().catch((error) => console.error("Unable to persist active workspace:", error?.message || error));
+  } else {
+    await persistState();
+  }
   return cachedState;
 }
 
@@ -2677,7 +2810,26 @@ async function selectBrowserTab(payload) {
   const found = findRuntimeTab(payload?.tabId || payload);
   if (!found) throw new Error("找不到要选择的网页标签");
   const { workspace, tab } = found;
-  await switchStoredActiveWorkspace(workspace.workspaceId);
+  const hadView = Boolean(tab.view && !tab.view.webContents.isDestroyed());
+  const traceId = payload?.performanceTraceId || navigationPerformanceTracer.start({
+    workspaceId: workspace.workspaceId,
+    tabId: tab.tabId,
+    viewReused: hadView,
+    restoredFromSuspended: !hadView && tab.runtimeState?.state === "suspended",
+    partition: browserPartitionForProfile(tab.browserProfileId),
+    activeCapabilityIds: IMMEDIATE_CAPABILITY_IDS,
+  });
+  tab.navigationTraceId = traceId;
+  tab.navigationDidStopTraceId = null;
+  navigationPerformanceTracer.update(traceId, {
+    workspaceId: workspace.workspaceId,
+    tabId: tab.tabId,
+    viewReused: hadView,
+    restoredFromSuspended: !hadView && tab.runtimeState?.state === "suspended",
+    partition: browserPartitionForProfile(tab.browserProfileId),
+  });
+  navigationPerformanceTracer.mark(traceId, "sessionResolvedAt");
+  await switchStoredActiveWorkspace(workspace.workspaceId, { deferPersist: true });
   if (activeBrowserWorkspaceId !== workspace.workspaceId) {
     await activateWorkspaceBrowserContext(workspace.workspaceId, {
       attach: false,
@@ -2695,7 +2847,7 @@ async function selectBrowserTab(payload) {
     return emitWorkspaceBrowserState(workspace);
   }
   tab.attachRequested = true;
-  await ensureRuntimeTabView(tab);
+  ensureSiteView(tab);
   if (
     activeBrowserWorkspaceId === workspace.workspaceId &&
     workspace.activeTabId === tab.tabId &&
@@ -2704,6 +2856,8 @@ async function selectBrowserTab(payload) {
     attachSiteView(tab);
     if (payload?.bounds) applySiteViewBounds(payload.bounds, tab);
   }
+  ensureRuntimeTabView(tab);
+  if (hadView && !tab.view.webContents.isLoading()) completeNavigationPerformanceTrace(tab);
   persistWorkspaceBrowserWorkspace(workspace);
   scheduleLifecycleEnforcement("tab-selected");
   return emitWorkspaceBrowserState(workspace);
@@ -2838,7 +2992,7 @@ async function rememberSearchTarget(target) {
   state.searchHistory = recordSearchHistory(state.searchHistory, target, settings);
   state.updatedAt = new Date().toISOString();
   cachedState = state;
-  await persistState();
+  void persistState().catch((error) => console.error("Unable to persist search history:", error?.message || error));
   return state.searchHistory;
 }
 
@@ -2886,8 +3040,20 @@ async function navigateBrowserContextToTarget(context, target) {
     { loading: true, error: "", siteIssue: "", url: context.currentHomeUrl },
     context,
   );
-  await loadUrlAllowingRedirectAbort(context.view.webContents, context.currentHomeUrl);
-  await rememberSearchTarget(target);
+  context.navigationTraceId = navigationPerformanceTracer.start({
+    workspaceId: context.workspaceId,
+    tabId: context.tabId,
+    webContentsId: context.view.webContents.id,
+    partition: browserPartitionForProfile(context.browserProfileId),
+    viewReused: true,
+    activeCapabilityIds: IMMEDIATE_CAPABILITY_IDS,
+  });
+  context.navigationDidStopTraceId = null;
+  navigationPerformanceTracer.mark(context.navigationTraceId, "sessionResolvedAt");
+  navigationPerformanceTracer.mark(context.navigationTraceId, "viewAttachedAt");
+  navigationPerformanceTracer.mark(context.navigationTraceId, "overlayHiddenAt");
+  ensureRuntimeTabView(context, { url: context.currentHomeUrl, forceURL: true });
+  void rememberSearchTarget(target);
   return context.browserState;
 }
 
@@ -2930,7 +3096,7 @@ async function openSearchInput(payload = {}) {
       allowDuplicate: disposition === "new",
       bounds: payload.bounds,
     });
-    await rememberSearchTarget(target);
+    void rememberSearchTarget(target);
   }
   return { state: cachedState, browserState: nextBrowserState, target };
 }
@@ -2972,12 +3138,17 @@ async function refreshZohoDashboard() {
 }
 
 async function showBrowser(payload) {
+  const performanceTraceId = navigationPerformanceTracer.start({
+    clickAt: performance.now(),
+    activeCapabilityIds: IMMEDIATE_CAPABILITY_IDS,
+  });
   const state = await getState();
   const requestedSiteId = String(payload?.siteId || "");
   const storedSite = state.sites.find((site) => site.id === requestedSiteId) || null;
   const workspaceId = String(
     storedSite?.workspaceId || payload?.workspaceId || state.activeWorkspaceId,
   );
+  navigationPerformanceTracer.update(performanceTraceId, { workspaceId });
   const url = normalizeUrl(
     payload?.url || storedSite?.url || activeBrowserContext()?.currentHomeUrl,
   );
@@ -2987,7 +3158,7 @@ async function showBrowser(payload) {
       defaultSites: DEFAULT_SITES,
     });
     cachedState = switched.state;
-    await persistState();
+    void persistState().catch((error) => console.error("Unable to persist workspace switch:", error?.message || error));
   }
   if (activeBrowserWorkspaceId !== workspaceId) {
     await activateWorkspaceBrowserContext(workspaceId, {
@@ -3011,9 +3182,9 @@ async function showBrowser(payload) {
     });
   }
   if (tab.detached) {
-    return selectBrowserTab({ tabId: tab.tabId, bounds: payload?.bounds });
+    return selectBrowserTab({ tabId: tab.tabId, bounds: payload?.bounds, performanceTraceId });
   }
-  return selectBrowserTab({ tabId: tab.tabId, bounds: payload?.bounds });
+  return selectBrowserTab({ tabId: tab.tabId, bounds: payload?.bounds, performanceTraceId });
 }
 
 async function workspaceForExplicitDuplicate(workspaceId) {
@@ -3171,7 +3342,7 @@ async function openSiteById(siteId, bounds) {
       defaultSites: DEFAULT_SITES,
     });
     cachedState = switched.state;
-    await persistState();
+    void persistState().catch((error) => console.error("Unable to persist workspace switch:", error?.message || error));
     if (site.openMode === "external") {
       await activateWorkspaceBrowserContext(site.workspaceId, { bounds });
     }
@@ -3179,7 +3350,7 @@ async function openSiteById(siteId, bounds) {
     site = state.sites.find((item) => item.id === String(siteId || ""));
   }
   site.lastOpenedAt = new Date().toISOString();
-  await persistState();
+  void persistState().catch((error) => console.error("Unable to persist site activity:", error?.message || error));
   if (site.openMode === "external") {
     await shell.openExternal(site.url);
     return {
@@ -3768,7 +3939,7 @@ async function markSiteOpened(siteId) {
   const site = state.sites.find((item) => item.id === String(siteId || ""));
   if (!site) return;
   site.lastOpenedAt = new Date().toISOString();
-  await persistState();
+  void persistState().catch((error) => console.error("Unable to persist site activity:", error?.message || error));
 }
 
 function currentStoredSite(state) {
@@ -4429,6 +4600,8 @@ function registerIpc() {
     chromeDetected: Boolean(chromeUserDataPath() && fs.existsSync(chromeUserDataPath())),
     platform: process.platform,
     version: app.getVersion(),
+    development: !app.isPackaged,
+    prodLocal: process.argv.includes("--prod-local"),
   }));
   ipcMain.handle("system:open-data-folder", async () => {
     await fsp.mkdir(app.getPath("userData"), { recursive: true });
@@ -4487,6 +4660,7 @@ function registerIpc() {
     focusDetachedBrowserTab(payload),
   );
   ipcMain.handle("browser:get-lifecycle", () => lifecycleSnapshot());
+  ipcMain.handle("browser:get-navigation-performance", () => navigationPerformanceTracer.snapshot());
   ipcMain.handle("browser:set-keep-running", async (_event, payload) => {
     const found = findRuntimeTab(payload?.tabId);
     if (!found) throw new Error("找不到网页标签");
@@ -5018,6 +5192,36 @@ function createMainWindow() {
             workspaceId: 'personal'
           })`);
           await new Promise((resolve) => setTimeout(resolve, 900));
+        } else if (CAPTURE_ROUTE === "navigation-performance-probe") {
+          if (!isSafeWebUrl(TAB_PROBE_BASE_URL)) {
+            throw new Error("QIYE_TAB_PROBE_BASE_URL is required for navigation-performance-probe");
+          }
+          await activateWorkspaceBrowserContext("personal", { attach: false, restore: false });
+          const workspace = activeWorkspaceBrowserContext();
+          const samples = [];
+          for (let index = 0; index < 5; index += 1) {
+            const url = new URL(`/navigation-performance?run=${index}`, TAB_PROBE_BASE_URL).toString();
+            const tab = await createRuntimeBrowserTab(workspace, {
+              url,
+              homeURL: url,
+              title: `导航性能 ${index + 1}`,
+              activate: true,
+              allowDuplicate: true,
+            });
+            const startedAt = performance.now();
+            await selectBrowserTab({ tabId: tab.tabId, bounds: siteViewBounds });
+            const returnedAt = performance.now();
+            const traceDeadline = Date.now() + 5_000;
+            while (!tab.lastNavigationTrace && Date.now() < traceDeadline) {
+              await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+            samples.push({
+              selectReturnMs: Math.max(0, returnedAt - startedAt),
+              trace: tab.lastNavigationTrace,
+            });
+            await closeBrowserTab({ tabId: tab.tabId, bounds: siteViewBounds });
+          }
+          console.log(`QIYE_NAVIGATION_PERFORMANCE=${JSON.stringify({ samples, summary: navigationPerformanceTracer.summary() })}`);
         } else if (CAPTURE_ROUTE === "resource-lifecycle-probe") {
           if (!isSafeWebUrl(TAB_PROBE_BASE_URL)) {
             throw new Error("QIYE_TAB_PROBE_BASE_URL is required for resource-lifecycle-probe");
@@ -5047,6 +5251,7 @@ function createMainWindow() {
             await ensureRuntimeTabView(tab, { url, forceURL: true });
             extraTabs.push(tab);
           }
+          await Promise.all(extraTabs.map((tab) => waitForRuntimeTabNavigation(tab)));
           const liveBefore = allRuntimeTabs().filter((tab) => tab.view && !tab.view.webContents.isDestroyed()).length;
           const memoryBefore = app.getAppMetrics().reduce((sum, metric) => sum + Number(metric.memory?.privateBytes || 0), 0);
           await selectBrowserTab({ tabId: extraTabs.at(-1).tabId, bounds: siteViewBounds });
@@ -5180,6 +5385,7 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
           });
           const workspace = activeWorkspaceBrowserContext();
           const originalTab = activeBrowserContext(workspace);
+          await waitForRuntimeTabNavigation(originalTab);
           // This capture route drives the browser below the renderer, so there is no visible
           // tab id for the pool to protect while the detach/reattach identity is inspected.
           originalTab.keepRunning = true;
@@ -5267,6 +5473,7 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
           });
           const workspace = activeWorkspaceBrowserContext();
           const openerTab = activeBrowserContext(workspace);
+          await waitForRuntimeTabNavigation(openerTab);
           const contents = openerTab.view.webContents;
           await contents.executeJavaScript(`(() => {
             document.cookie = 'shared_session=qiye; path=/; SameSite=Lax';
@@ -5371,6 +5578,7 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
           });
           const workspace = activeWorkspaceBrowserContext();
           const originalTab = activeBrowserContext(workspace);
+          await waitForRuntimeTabNavigation(originalTab);
           originalTab.keepRunning = true;
           const original = {
             tabId: originalTab.tabId,

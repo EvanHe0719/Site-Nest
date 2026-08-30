@@ -67,6 +67,7 @@ function mountIcons(root = document) {
 }
 
 const dom = {
+  brandVersion: document.getElementById("brandVersion"),
   appShell: document.querySelector(".app-shell"),
   appWorkspace: document.getElementById("appWorkspace"),
   appSidebar: document.getElementById("appSidebar"),
@@ -1340,10 +1341,10 @@ function updateBrowserTabContentState(value = browserSnapshot) {
   dom.webviewPlaceholderIcon.classList.toggle("is-hidden", !noAttachedTab);
   dom.webviewPlaceholderTitle.textContent = noAttachedTab && snapshot.tabs.length
     ? "当前标签已在独立窗口打开"
-    : "正在准备阅读视图";
+    : "正在连接网页";
   dom.webviewPlaceholderDetail.textContent = noAttachedTab && snapshot.tabs.length
     ? "点击独立标签可聚焦窗口，也可以使用“合回”按钮返回栖页主窗口。"
-    : "页面加载完成后会显示在这里";
+    : "浏览视图会立即显示，网页内容将渐进载入";
   dom.pageActionsButton.disabled = noAttachedTab;
   dom.duplicateCurrentTab.disabled = !activeTab;
   dom.duplicateCurrentTab.dataset.tabId = activeTab?.tabId || "";
@@ -4484,6 +4485,10 @@ async function openImportModal() {
 async function loadSystemInfo() {
   try {
     const info = await window.siteNest?.getSystemInfo();
+    if (dom.brandVersion && info?.version) {
+      dom.brandVersion.textContent = `${info.version}${info.development ? " DEV" : ""}`;
+      dom.brandVersion.title = info.prodLocal ? "本地生产配置" : info.development ? "开发运行" : "正式构建";
+    }
     if (info?.dataFile) {
       dom.dataPathDisplay.textContent = info.dataFile;
       dom.dataPathDisplay.title = info.dataFile;

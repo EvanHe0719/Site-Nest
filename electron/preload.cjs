@@ -103,6 +103,7 @@ contextBridge.exposeInMainWorld("siteNest", {
   focusDetachedBrowserTab: (tabId) =>
     ipcRenderer.invoke("browser:focus-detached-tab", { tabId }),
   getBrowserLifecycle: () => ipcRenderer.invoke("browser:get-lifecycle"),
+  getNavigationPerformance: () => ipcRenderer.invoke("browser:get-navigation-performance"),
   setBrowserTabKeepRunning: (tabId, keepRunning) =>
     ipcRenderer.invoke("browser:set-keep-running", { tabId, keepRunning }),
   suspendBrowserTab: (tabId) => ipcRenderer.invoke("browser:suspend-tab", { tabId }),

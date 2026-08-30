@@ -14,6 +14,15 @@ function hostnameMatches(hostname, pattern) {
   return host === candidate;
 }
 
+function isAuthenticationUrl(rawUrl) {
+  try {
+    const parsed = new URL(String(rawUrl || ""));
+    return AUTH_HOST_HINT.test(parsed.hostname) || AUTH_PATH_HINT.test(`${parsed.pathname}${parsed.search}`);
+  } catch {
+    return false;
+  }
+}
+
 function normalizeSitePopupPolicies(value) {
   if (!Array.isArray(value)) return [];
   const seen = new Set();
@@ -140,5 +149,6 @@ module.exports = {
   AUTH_HOST_HINT,
   WindowOpenPolicyService,
   hostnameMatches,
+  isAuthenticationUrl,
   normalizeSitePopupPolicies,
 };

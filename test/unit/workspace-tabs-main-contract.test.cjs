@@ -287,6 +287,25 @@ test("tab WebContentsViews use the selected persistent profile without workspace
   );
 });
 
+test("selected WebContentsView attaches before loadURL and navigation remains non-blocking", () => {
+  const select = sourceBetween(
+    "async function selectBrowserTab",
+    "function findDuplicateRuntimeTab",
+  );
+  const ensureRuntime = sourceBetween(
+    "function ensureRuntimeTabView",
+    "async function waitForRuntimeTabNavigation",
+  );
+  const createAt = select.indexOf("ensureSiteView(tab)");
+  const attachAt = select.indexOf("attachSiteView(tab)");
+  const navigateAt = select.indexOf("ensureRuntimeTabView(tab)");
+
+  assert.ok(createAt >= 0 && attachAt > createAt && navigateAt > attachAt);
+  assert.match(ensureRuntime, /return loadUrlAllowingRedirectAbort/);
+  assert.doesNotMatch(ensureRuntime, /await loadUrlAllowingRedirectAbort/);
+  assert.match(ensureRuntime, /tab\.pendingNavigation = navigationPromise/);
+});
+
 test("SAP repair suspends every SAP-profile runtime before resetting the partition and restores only the current tab", () => {
   const repair = sourceBetween(
     "async function repairSapSession",

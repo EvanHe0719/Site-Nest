@@ -12,6 +12,7 @@ const {
 const {
   WindowOpenPolicyService,
   hostnameMatches,
+  isAuthenticationUrl,
   normalizeSitePopupPolicies,
 } = require("../../electron/browser/window-open-policy-service.cjs");
 const {
@@ -95,6 +96,12 @@ test("popup policy recognizes login, POST, background tabs, ad popups and explic
   assert.equal(service.classify({ url: "https://example.com/item", disposition: "background-tab" }).kind, "background-tab");
   assert.equal(service.classify({ url: "https://adservice.google.com/page" }).kind, "block");
   assert.equal(service.classify({ url: "mailto:test@example.com" }).kind, "external-protocol");
+});
+
+test("authentication URLs are identified for lifecycle protection without fuzzy page content", () => {
+  assert.equal(isAuthenticationUrl("https://accounts.sap.com/saml2/idp/sso"), true);
+  assert.equal(isAuthenticationUrl("https://example.com/oauth/authorize"), true);
+  assert.equal(isAuthenticationUrl("https://example.com/articles/login-performance"), false);
 });
 
 test("a policy that disallows POST blocks the form window instead of dropping its body", () => {
