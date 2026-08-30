@@ -71,6 +71,11 @@ const {
   resolveNavigationTarget,
   securityStateForUrl,
   normalizeBrowserMemorySettings,
+  clearSapAuthenticationState,
+  hasSapLoginRejection,
+  isSapSearchTarget,
+  isSapSessionUrl,
+  sapRetryUrl,
 } = require("./browser/index.cjs");
 const {
   OpenAICompatibleTranslationProvider,
@@ -391,6 +396,7 @@ function createRuntimeTab(workspaceId, persisted = {}) {
     },
     nodeSeekAutoRetryUsed: false,
     lastSapNavigationUrl: "",
+    sapSessionOrigins: new Set(),
   };
 }
 
@@ -570,39 +576,18 @@ function hasExpectedHost(rawUrl, expectedHost) {
   }
 }
 
-function isSapSessionHost(rawHost) {
-  const host = String(rawHost || "")
-    .trim()
-    .replace(/^\./, "")
-    .toLowerCase();
-  return (
-    host === "support.sap.com" ||
-    host === "me.sap.com" ||
-    host === "accounts.sap.com" ||
-    (/(^|\.)authentication\.eu\d+\.hana\.ondemand\.com$/.test(host) &&
-      host.endsWith(".hana.ondemand.com"))
-  );
-}
-
-function isSapSessionUrl(rawUrl) {
+function rememberSapNavigation(context, rawUrl) {
+  if (!context || !isSapSessionUrl(rawUrl)) return;
+  if (isSapSearchTarget(rawUrl)) context.lastSapNavigationUrl = String(rawUrl || "").trim();
   try {
-    return isSapSessionHost(new URL(rawUrl).hostname);
+    context.sapSessionOrigins ||= new Set();
+    const origin = new URL(rawUrl).origin;
+    if (!context.sapSessionOrigins.has(origin) && context.sapSessionOrigins.size >= 20) {
+      context.sapSessionOrigins.delete(context.sapSessionOrigins.values().next().value);
+    }
+    context.sapSessionOrigins.add(origin);
   } catch {
-    return false;
-  }
-}
-
-function isSapSearchTarget(rawUrl) {
-  try {
-    const parsed = new URL(rawUrl);
-    return (
-      parsed.protocol === "https:" &&
-      parsed.hostname === "me.sap.com" &&
-      (parsed.pathname.startsWith("/notes/") ||
-        parsed.pathname.startsWith("/servicessupport/search/"))
-    );
-  } catch {
-    return false;
+    // Invalid URLs never enter the SAP recovery set.
   }
 }
 
@@ -1865,11 +1850,12 @@ async function inspectKnownSiteIssue(context = activeBrowserContext()) {
     .executeJavaScript("document.body?.innerText?.slice(0, 1400) || ''")
     .catch(() => "");
   if (isSapSession) {
-    const hasRejectedAuthState = /potentially malicious character/i.test(
-      `${title}\n${body}`,
-    );
+    const hasRejectedAuthState = hasSapLoginRejection(title, body);
     compactBrowserState({
       siteIssue: hasRejectedAuthState ? "sap-auth-state" : "",
+      error: hasRejectedAuthState
+        ? "SAP 登录会话状态异常；请点击“修复 SAP 登录”后重新进入原搜索结果"
+        : "",
     }, context);
     return;
   }
@@ -2004,53 +1990,17 @@ async function repairSapSession(context = activeBrowserContext()) {
     throw new Error("当前页面不是 SAP，未清理会话");
   }
   const siteSession = await waitForPersistentSiteSession();
-  const retryUrl = isSapSearchTarget(context.lastSapNavigationUrl)
-    ? context.lastSapNavigationUrl
-    : "https://me.sap.com/home";
-  const cookies = await siteSession.cookies.get({});
-  const sapCookies = cookies.filter((cookie) => isSapSessionHost(cookie.domain));
-  const storageOrigins = new Set([
-    "https://support.sap.com",
-    "https://me.sap.com",
-    "https://accounts.sap.com",
-  ]);
-  try {
-    storageOrigins.add(new URL(currentUrl).origin);
-  } catch {
-    // Keep the known SAP origins above.
-  }
+  const retryUrl = sapRetryUrl(
+    context.lastSapNavigationUrl,
+    context.currentHomeUrl,
+  );
 
   compactBrowserState({ loading: true, error: "", siteIssue: "" }, context);
-  await Promise.all(
-    sapCookies.map((cookie) => {
-      const cookieHost = String(cookie.domain || "").replace(/^\./, "");
-      const cookiePath = cookie.path || "/";
-      const protocol = cookie.secure ? "https" : "http";
-      return siteSession.cookies.remove(
-        `${protocol}://${cookieHost}${cookiePath}`,
-        cookie.name,
-      );
-    }),
-  );
-  await Promise.all(
-    Array.from(storageOrigins).map((origin) =>
-      siteSession.clearStorageData({
-        origin,
-        storages: [
-          "localstorage",
-          "indexdb",
-          "serviceworkers",
-          "cachestorage",
-        ],
-      }),
-    ),
-  );
-  await Promise.all([
-    siteSession.clearCache(),
-    siteSession.clearAuthCache(),
-  ]);
-  await siteSession.closeAllConnections();
-  await siteSession.clearHostResolverCache();
+  await clearSapAuthenticationState(siteSession, {
+    currentUrl,
+    visitedOrigins: Array.from(context.sapSessionOrigins || []),
+  });
+  context.sapSessionOrigins?.clear();
   destroySiteView(context);
   ensureSiteView(context);
   if (context.detached && context.detachedWindow) {
@@ -2107,6 +2057,7 @@ function ensureSiteView(context = activeBrowserContext()) {
     );
   });
   view.webContents.on("will-navigate", (event, url) => {
+    rememberSapNavigation(context, url);
     if (isSafeWebUrl(url)) return;
     event.preventDefault();
     void browserServices.externalProtocol.open(url, browserOwnerWindow(context));
@@ -2153,13 +2104,18 @@ function ensureSiteView(context = activeBrowserContext()) {
     }, 350);
   });
   view.webContents.on("did-navigate", (_event, url) => {
+    rememberSapNavigation(context, url);
     compactBrowserState({ url, securityState: securityStateForUrl(url), error: "" }, context);
     persistWorkspaceBrowserContext(context, { currentURL: url });
+  });
+  view.webContents.on("did-redirect-navigation", (_event, url, isInPlace, isMainFrame) => {
+    if (isMainFrame && !isInPlace) rememberSapNavigation(context, url);
   });
   view.webContents.on(
     "did-navigate-in-page",
     (_event, url, isMainFrame) => {
       if (isMainFrame) {
+        rememberSapNavigation(context, url);
         if (pageTranslationController) void pageTranslationController.restore(context);
         if (selectionActionService) selectionActionService.clear(view.webContents);
         compactBrowserState({ url, securityState: securityStateForUrl(url), error: "" }, context);
@@ -2473,7 +2429,7 @@ async function createRuntimeBrowserTab(workspace, input = {}) {
     lastActiveAt: input.lastActiveAt,
     favicon: input.favicon,
   });
-  if (isSapSearchTarget(url)) tab.lastSapNavigationUrl = url;
+  rememberSapNavigation(tab, url);
   if (input.insertAfterTabId && workspace.tabs.has(String(input.insertAfterTabId))) {
     const reordered = new Map();
     for (const [tabId, existing] of workspace.tabs) {
@@ -5291,7 +5247,7 @@ GM_addStyle('article { line-height: 1.7; }');`;
         await fsp.mkdir(path.dirname(path.resolve(CAPTURE_PATH)), { recursive: true });
         await fsp.writeFile(path.resolve(CAPTURE_PATH), image.toPNG());
         if (
-          ["site", "nodeseek-login", "nodeseek-reset", "assistant-generic"].includes(
+          ["site", "nodeseek-login", "nodeseek-reset"].includes(
             CAPTURE_ROUTE,
           ) &&
           siteView

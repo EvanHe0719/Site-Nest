@@ -5340,7 +5340,7 @@ function bindEvents() {
   });
   dom.repairSapSession.addEventListener("click", async () => {
     const confirmed = window.confirm(
-      "确定修复栖页内的 SAP 登录会话吗？\n\n这会清除栖页内 SAP 相关网站的 Cookie 与站点缓存，并退出栖页内的 SAP 账号；不会影响 Chrome、NodeSeek、奶昔或其他网站。",
+      "确定修复栖页内的 SAP 登录会话吗？\n\n这会清除栖页内 SAP 及 SAP 身份认证父域的 Cookie 与站点缓存，并退出栖页内的 SAP 账号；修复后会重新打开刚才的搜索结果。不会影响 Chrome、NodeSeek、奶昔或非 SAP 网站。",
     );
     if (!confirmed) return;
     dom.repairSapSession.disabled = true;

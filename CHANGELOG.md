@@ -1,5 +1,14 @@
 # 变更记录
 
+## 0.5.1 - 2026-08-30
+
+### SAP Support 登录修复
+
+- 修复 SAP Support 搜索进入 SAP for Me 时可能停在 “potentially malicious character” 页面的问题。
+- SAP 会话修复现在覆盖实际会影响 SSO 的 `.sap.com`、`.support.sap.com` 与 `.hana.ondemand.com` 父域 Cookie；仍只在用户点击并确认后执行，不影响 Chrome 或非 SAP 网站。
+- 记录并保留原始 `me.sap.com/servicessupport/search/` 或 `me.sap.com/notes/` 目标，修复后重新进入原搜索结果，不把认证回调地址错误当成返回页。
+- 增加真实 Electron Cookie 回归，验证 SAP 父域 Cookie 被移除而无关站点 Cookie 保留；线上空白分区只读探针确认 Electron 44 可正常到达 `accounts.sap.com/saml2/idp/sso`。
+
 ## 0.5.0 - 2026-08-30
 
 ### Phase 5：资源识别与内存治理

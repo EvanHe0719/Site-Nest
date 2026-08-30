@@ -15,6 +15,14 @@ const { ManagedPopupService } = require("./managed-popup-service.cjs");
 const { resolveNavigationTarget, securityStateForUrl } = require("./navigation-target.cjs");
 const { WebContextMenuService } = require("./web-context-menu-service.cjs");
 const { WindowOpenPolicyService, normalizeSitePopupPolicies } = require("./window-open-policy-service.cjs");
+const {
+  clearSapAuthenticationState,
+  hasSapLoginRejection,
+  isSapSearchTarget,
+  isSapSessionHost,
+  isSapSessionUrl,
+  sapRetryUrl,
+} = require("./sap-auth-recovery.cjs");
 
 module.exports = {
   ExternalProtocolService,
@@ -32,4 +40,10 @@ module.exports = {
   normalizeSitePopupPolicies,
   resolveNavigationTarget,
   securityStateForUrl,
+  clearSapAuthenticationState,
+  hasSapLoginRejection,
+  isSapSearchTarget,
+  isSapSessionHost,
+  isSapSessionUrl,
+  sapRetryUrl,
 };
