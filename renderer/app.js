@@ -37,6 +37,7 @@ const ICONS = {
   copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>',
   link: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.4 14.6 5.2-5.2"/><path d="M7.8 17.8 5.5 20a3.5 3.5 0 0 1-5-5l3.3-3.3a3.5 3.5 0 0 1 4.9 0"/><path d="m16.2 6.2 2.3-2.2a3.5 3.5 0 1 1 5 5l-3.3 3.3a3.5 3.5 0 0 1-4.9 0"/></svg>',
   cloud: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 18.5h10.4a4.1 4.1 0 0 0 .5-8.2A6.4 6.4 0 0 0 5.8 9a4.8 4.8 0 0 0 1.4 9.5Z"/></svg>',
+  language: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/><path d="m15.5 16.5 2 2 3.5-4"/></svg>',
 };
 
 const FALLBACK_WORKSPACES = [
@@ -158,6 +159,9 @@ const dom = {
   browserBack: document.getElementById("browserBack"),
   browserForward: document.getElementById("browserForward"),
   browserReload: document.getElementById("browserReload"),
+  browserSecurityNote: document.getElementById("browserSecurityNote"),
+  browserSecurityLabel: document.getElementById("browserSecurityLabel"),
+  translatePageButton: document.getElementById("translatePageButton"),
   addressField: document.getElementById("addressField"),
   addressInput: document.getElementById("addressInput"),
   zoomLabel: document.getElementById("zoomReset"),
@@ -179,6 +183,13 @@ const dom = {
   importProfileHint: document.getElementById("importProfileHint"),
   dataPathDisplay: document.getElementById("dataPathDisplay"),
   sessionVisibilitySetting: document.getElementById("sessionVisibilitySetting"),
+  popupPolicyCount: document.getElementById("popupPolicyCount"),
+  popupPolicyForm: document.getElementById("popupPolicyForm"),
+  popupPolicyHost: document.getElementById("popupPolicyHost"),
+  popupPolicyMode: document.getElementById("popupPolicyMode"),
+  popupPolicyPreserveOpener: document.getElementById("popupPolicyPreserveOpener"),
+  popupPolicyAllowPost: document.getElementById("popupPolicyAllowPost"),
+  popupPolicyList: document.getElementById("popupPolicyList"),
   zohoConfigForm: document.getElementById("zohoConfigForm"),
   zohoDisplayName: document.getElementById("zohoDisplayName"),
   zohoOrgId: document.getElementById("zohoOrgId"),
@@ -237,7 +248,11 @@ let appState = {
   bookmarks: [],
   importMeta: null,
   automations: null,
-  uiSettings: { sessionVisibility: "all", contextAssistantCollapsed: false },
+  uiSettings: {
+    sessionVisibility: "all",
+    contextAssistantCollapsed: false,
+    sitePopupPolicies: [],
+  },
   connectorConnections: [],
   externalObjectLinks: [],
 };
@@ -267,6 +282,7 @@ let browserSnapshot = {
   canGoBack: false,
   canGoForward: false,
   zoomFactor: 1,
+  securityState: "unknown",
   error: "",
 };
 let workspaceSwitchSequence = 0;
@@ -380,6 +396,7 @@ function emptyBrowserSnapshot(workspaceId = activeWorkspaceId()) {
     canGoBack: false,
     canGoForward: false,
     zoomFactor: 1,
+    securityState: "unknown",
     error: "",
     siteIssue: "",
   };
@@ -1870,6 +1887,77 @@ function renderCurrentSessions() {
   }
 }
 
+const POPUP_MODE_LABELS = {
+  popup: "受控弹窗",
+  tab: "栖页页签",
+  external: "外部浏览器",
+  ask: "每次询问",
+  block: "阻止",
+};
+
+function popupPolicies() {
+  return Array.isArray(appState.uiSettings?.sitePopupPolicies)
+    ? appState.uiSettings.sitePopupPolicies
+    : [];
+}
+
+function normalizePopupHostnameInput(rawValue) {
+  const value = String(rawValue || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "");
+  if (!/^(?:\*\.)?[a-z0-9.-]+$/i.test(value) || !value.includes(".")) {
+    throw new Error("请输入有效域名，例如 accounts.sap.com 或 *.example.com");
+  }
+  return value.slice(0, 253);
+}
+
+function renderPopupPolicies() {
+  if (!dom.popupPolicyList) return;
+  const policies = popupPolicies();
+  dom.popupPolicyCount.textContent = policies.length ? `${policies.length} 条规则` : "自动判断";
+  dom.popupPolicyList.replaceChildren();
+  if (!policies.length) {
+    const empty = document.createElement("div");
+    empty.className = "popup-policy-empty";
+    empty.textContent = "暂无自定义规则；OAuth、SSO、POST 登录窗口将由栖页自动识别。";
+    dom.popupPolicyList.appendChild(empty);
+    return;
+  }
+  policies.forEach((policy) => {
+    const row = document.createElement("div");
+    row.className = "popup-policy-row";
+    const copy = document.createElement("div");
+    const host = document.createElement("strong");
+    host.textContent = policy.hostnamePattern;
+    const details = document.createElement("small");
+    details.textContent = [
+      POPUP_MODE_LABELS[policy.mode] || "每次询问",
+      policy.preserveOpener !== false ? "保留 opener" : "隔离 opener",
+      policy.allowPost ? "允许 POST" : "阻止 POST",
+    ].join(" · ");
+    copy.append(host, details);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "text-button text-button--quiet";
+    remove.textContent = "删除";
+    remove.addEventListener("click", async () => {
+      const next = policies.filter((item) => item.hostnamePattern !== policy.hostnamePattern);
+      try {
+        const result = await window.siteNest.updateUiSettings({ sitePopupPolicies: next });
+        appState = result.state || { ...appState, uiSettings: result.uiSettings };
+        renderPopupPolicies();
+        showToast("弹窗规则已删除", policy.hostnamePattern);
+      } catch (error) {
+        showToast("无法删除弹窗规则", error?.message || "请稍后重试", "error");
+      }
+    });
+    row.append(copy, remove);
+    dom.popupPolicyList.appendChild(row);
+  });
+}
+
 function renderQuickSites() {
   dom.quickSiteGrid.replaceChildren();
   const quickSites = recentSites().slice(0, 3);
@@ -2755,6 +2843,7 @@ function renderBookmarks() {
 function renderAll() {
   renderWorkspaceSwitcher();
   renderCurrentSessions();
+  renderPopupPolicies();
   const workspaceSiteCount = sitesForWorkspace().length;
   dom.sidebarSiteCount.textContent = workspaceSiteCount > 99 ? "99+" : String(workspaceSiteCount);
   renderQuickSites();
@@ -3608,6 +3697,25 @@ function handleBrowserState(next = {}) {
     dom.addressInput.value = browserSnapshot.url;
   }
   dom.zoomLabel.textContent = `${Math.round((browserSnapshot.zoomFactor || 1) * 100)}%`;
+  const securityState = browserSnapshot.securityState || "unknown";
+  const securityLabel = securityState === "secure"
+    ? "HTTPS"
+    : securityState === "insecure"
+      ? "不安全"
+      : "安全状态";
+  dom.browserSecurityLabel.textContent = securityLabel;
+  dom.browserSecurityNote.title = securityState === "secure"
+    ? "当前页面使用 HTTPS；登录 Cookie 仍只保存在栖页浏览身份中"
+    : securityState === "insecure"
+      ? "当前页面未使用 HTTPS，请勿输入敏感信息"
+      : "暂时无法判断当前页面的连接安全状态";
+  dom.browserSecurityNote.classList.toggle("is-insecure", securityState === "insecure");
+  const securityIcon = dom.browserSecurityNote.querySelector("[data-icon]");
+  if (securityIcon) {
+    securityIcon.dataset.icon = securityState === "insecure" ? "alert" : "lock";
+    securityIcon.dataset.iconMounted = "true";
+    securityIcon.innerHTML = iconMarkup(securityIcon.dataset.icon);
+  }
   dom.browserSiteName.title = browserSnapshot.title || currentSite?.name || "";
   dom.browserSiteStatus.textContent = browserSnapshot.error
     ? "加载失败"
@@ -3698,6 +3806,38 @@ function bindEvents() {
     } catch (error) {
       dom.sessionVisibilitySetting.checked = !dom.sessionVisibilitySetting.checked;
       showToast("无法保存会话显示设置", error?.message || "请稍后重试", "error");
+    }
+  });
+  dom.popupPolicyForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    let hostnamePattern;
+    try {
+      hostnamePattern = normalizePopupHostnameInput(dom.popupPolicyHost.value);
+    } catch (error) {
+      showToast("域名规则无效", error?.message || "请检查域名", "error");
+      return;
+    }
+    const policy = {
+      hostnamePattern,
+      mode: dom.popupPolicyMode.value,
+      preserveOpener: dom.popupPolicyPreserveOpener.checked,
+      allowPost: dom.popupPolicyAllowPost.checked,
+      allowedRedirectOrigins: [],
+    };
+    const next = [
+      ...popupPolicies().filter((item) => item.hostnamePattern !== hostnamePattern),
+      policy,
+    ];
+    try {
+      const result = await window.siteNest.updateUiSettings({ sitePopupPolicies: next });
+      appState = result.state || { ...appState, uiSettings: result.uiSettings };
+      dom.popupPolicyForm.reset();
+      dom.popupPolicyMode.value = "popup";
+      dom.popupPolicyPreserveOpener.checked = true;
+      renderPopupPolicies();
+      showToast("弹窗规则已保存", hostnamePattern);
+    } catch (error) {
+      showToast("无法保存弹窗规则", error?.message || "请稍后重试", "error");
     }
   });
   dom.googleSyncCard.addEventListener("click", () => {
@@ -3970,6 +4110,9 @@ function bindEvents() {
   dom.browserReload.addEventListener("click", () =>
     void window.siteNest.browserAction(browserSnapshot.loading ? "stop" : "reload"),
   );
+  dom.translatePageButton.addEventListener("click", () => {
+    showToast("翻译服务尚未配置", "下一阶段将接入划词与整页翻译");
+  });
   document.getElementById("zoomOut").addEventListener("click", () =>
     void window.siteNest.browserAction("zoom-out"),
   );
@@ -4079,6 +4222,10 @@ function bindEvents() {
       showToast("网址无法打开", error?.message || "请检查网址格式", "error");
     }
   });
+  dom.addressInput.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    void window.siteNest.showAddressContextMenu();
+  });
 
   dom.runNaixiAutomation.addEventListener("click", async () => {
     dom.runNaixiAutomation.disabled = true;
@@ -4142,10 +4289,16 @@ function bindEvents() {
       const modal = document.querySelector(".modal-backdrop.is-open");
       if (modal) {
         closeModal(modal);
+        return;
       } else if (pageActionPanelOpen) {
         setPageActionPanelOpen(false);
         if (currentZohoTicketId()) void rememberContextAssistantCollapsed(true);
         dom.pageActionsButton.focus();
+        return;
+      }
+      if (currentSite) {
+        event.preventDefault();
+        void window.siteNest.browserAction("stop");
       }
       return;
     }
@@ -4157,9 +4310,15 @@ function bindEvents() {
     } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "r") {
       event.preventDefault();
       void window.siteNest.browserAction("reload");
+    } else if (event.key === "F5") {
+      event.preventDefault();
+      void window.siteNest.browserAction("reload");
     } else if (event.altKey && event.key === "ArrowLeft") {
       event.preventDefault();
       void window.siteNest.browserAction("back");
+    } else if (event.altKey && event.key === "ArrowRight") {
+      event.preventDefault();
+      void window.siteNest.browserAction("forward");
     }
   });
 
@@ -4174,6 +4333,16 @@ function bindEvents() {
 
   new ResizeObserver(syncBrowserBounds).observe(dom.webviewFrame);
   window.siteNest?.onBrowserState(handleBrowserState);
+  window.siteNest?.onBrowserNotice?.((notice) => {
+    showToast(
+      notice?.tone === "error" ? "浏览安全提示" : "浏览提示",
+      notice?.message || "页面操作已处理",
+      notice?.tone === "error" ? "error" : "info",
+    );
+  });
+  window.siteNest?.onOpenPageActions?.(() => {
+    setPageActionPanelOpen(true);
+  });
   window.siteNest?.onAutomationStatus(({ naixi }) => renderNaixiAutomation(naixi));
 }
 

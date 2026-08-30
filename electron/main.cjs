@@ -2,6 +2,7 @@ const {
   app,
   BrowserWindow,
   clipboard,
+  dialog,
   Menu,
   WebContentsView,
   ipcMain,
@@ -55,6 +56,15 @@ const {
   publicConnectorError,
 } = require("./connectors/index.cjs");
 const { extractZohoDeskTicketId } = require("./assistants/builtins/zoho-desk.cjs");
+const {
+  DownloadManager,
+  ExternalProtocolService,
+  ManagedPopupService,
+  WebContextMenuService,
+  WindowOpenPolicyService,
+  resolveNavigationTarget,
+  securityStateForUrl,
+} = require("./browser/index.cjs");
 
 const APP_ID = "local.qiye.sitehub";
 const SITE_PARTITION = "persist:qiye-sites";
@@ -141,6 +151,11 @@ let connectorConnectionService;
 let zohoConnectorService;
 let zohoDashboardAbortController;
 let zohoDashboardRefreshPromise;
+let externalProtocolService;
+let downloadManager;
+let managedPopupService;
+let webContextMenuService;
+let windowOpenPolicyService;
 
 function dataFilePath() {
   return path.join(app.getPath("userData"), "site-nest-data.json");
@@ -239,6 +254,7 @@ function emptyBrowserState(workspaceId, snapshot = {}) {
     canGoBack: false,
     canGoForward: false,
     zoomFactor: 1,
+    securityState: securityStateForUrl(currentURL),
     error: "",
     siteIssue: "",
   };
@@ -297,6 +313,7 @@ function createRuntimeTab(workspaceId, persisted = {}) {
       canGoBack: false,
       canGoForward: false,
       zoomFactor: 1,
+      securityState: securityStateForUrl(url),
       error: "",
       siteIssue: "",
     },
@@ -555,6 +572,136 @@ function persistState() {
       await getStateStore().save(JSON.parse(snapshot));
     });
   return writeQueue;
+}
+
+function browserOwnerWindow(context) {
+  if (context?.detachedWindow && !context.detachedWindow.isDestroyed()) {
+    return context.detachedWindow;
+  }
+  return mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+}
+
+function emitBrowserNotice(message, tone = "info") {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("browser:notice", {
+    message: String(message || "").slice(0, 240),
+    tone: tone === "error" ? "error" : "info",
+  });
+}
+
+async function addCurrentPageToSites(context) {
+  if (!context?.view || context.view.webContents.isDestroyed()) return null;
+  const url = context.view.webContents.getURL();
+  if (!isSafeWebUrl(url)) throw new Error("当前页面不是可保存的网站");
+  const state = await getState();
+  const title = String(context.view.webContents.getTitle() || new URL(url).hostname)
+    .trim()
+    .slice(0, 80);
+  const result = addSiteToState(state, {
+    name: title || new URL(url).hostname,
+    url,
+    workspaceId: context.workspaceId,
+    browserProfileId: context.browserProfileId || DEFAULT_BROWSER_PROFILE_ID,
+    pinned: false,
+  }, { defaultSites: DEFAULT_SITES });
+  cachedState = result.state;
+  if (!result.existed) await persistState();
+  emitBrowserNotice(result.existed ? "当前页面已在我的站点中" : "已添加到我的站点");
+  return result;
+}
+
+function getBrowserServices() {
+  if (managedPopupService && webContextMenuService && downloadManager) {
+    return {
+      downloads: downloadManager,
+      externalProtocol: externalProtocolService,
+      managedPopups: managedPopupService,
+      contextMenus: webContextMenuService,
+      windowPolicy: windowOpenPolicyService,
+    };
+  }
+  externalProtocolService = new ExternalProtocolService({ shell, dialog });
+  downloadManager = new DownloadManager({
+    app,
+    dialog,
+    getOwnerWindow: () => browserOwnerWindow(activeBrowserContext()),
+    onStatus: ({ status, filename }) => {
+      if (status === "completed") emitBrowserNotice(`下载完成：${filename}`);
+      if (status === "failed") emitBrowserNotice(`下载失败：${filename}`, "error");
+    },
+  });
+  windowOpenPolicyService = new WindowOpenPolicyService({
+    getPolicies: () => cachedState?.uiSettings?.sitePopupPolicies || [],
+  });
+  managedPopupService = new ManagedPopupService({
+    BrowserWindow,
+    Menu,
+    policyService: windowOpenPolicyService,
+    externalProtocolService,
+    browserPartitionForProfile,
+    openTab: (url, options = {}) => {
+      const context = options.context || activeBrowserContext();
+      if (!context) throw new Error("当前没有可接收新页签的空间");
+      return openTransientBrowserTab(context.workspaceId, url, {
+        background: options.background === true,
+      });
+    },
+    openExternal: async (url) => {
+      if (isSafeWebUrl(url)) await shell.openExternal(url);
+    },
+    askToOpen: async (details, context, ownerWindow) => {
+      const result = await dialog.showMessageBox(ownerWindow || browserOwnerWindow(context), {
+        type: "question",
+        title: "网页请求打开新窗口",
+        message: "是否在栖页新页签中打开？",
+        detail: new URL(details.url).hostname,
+        buttons: ["阻止", "在新页签打开"],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      });
+      if (result.response === 1) {
+        await openTransientBrowserTab(context.workspaceId, details.url);
+      }
+    },
+    onBlocked: (decision) => {
+      emitBrowserNotice(
+        decision.reason === "suspected-ad-popup"
+          ? "已阻止疑似广告弹窗"
+          : "已按浏览安全策略阻止新窗口",
+        "error",
+      );
+    },
+  });
+  webContextMenuService = new WebContextMenuService({
+    Menu,
+    clipboard,
+    actions: {
+      openTab: (url, options = {}) => {
+        const context = options.context || activeBrowserContext();
+        return context
+          ? openTransientBrowserTab(context.workspaceId, url, {
+              background: options.background === true,
+            })
+          : null;
+      },
+      navigateCurrent: (url, context) => browserActionForContext(context, "navigate", url),
+      openExternal: (url) => isSafeWebUrl(url) ? shell.openExternal(url) : null,
+      browserAction: (action, context) => browserActionForContext(context, action),
+      translateSelection: () => emitBrowserNotice("翻译服务将在下一阶段启用"),
+      translatePage: () => emitBrowserNotice("整页翻译将在下一阶段启用"),
+      addCurrentPage: ({ context }) => void addCurrentPageToSites(context),
+      openPageActions: () => mainWindow?.webContents.send("assistants:open-panel"),
+      inspectResource: () => emitBrowserNotice("资源检测将在资源治理阶段启用"),
+    },
+  });
+  return {
+    downloads: downloadManager,
+    externalProtocol: externalProtocolService,
+    managedPopups: managedPopupService,
+    contextMenus: webContextMenuService,
+    windowPolicy: windowOpenPolicyService,
+  };
 }
 
 function getConnectorServices() {
@@ -1054,6 +1201,7 @@ function compactBrowserState(patch = {}, context = activeBrowserContext()) {
     canGoForward: Boolean(navigation?.canGoForward()),
     zoomFactor:
       view?.webContents.getZoomFactor() || context.browserState.zoomFactor || 1,
+    securityState: securityStateForUrl(currentURL),
   };
   const workspace = workspaceBrowserContexts.get(context.workspaceId);
   if (workspace) workspace.browserState = browserStateForWorkspace(workspace);
@@ -1285,6 +1433,7 @@ function getPersistentSiteSession() {
       .replace(/\sElectron\/[^\s]+/g, "")
       .replace(/\ssite-nest-desktop\/[^\s]+/g, ""),
   );
+  getBrowserServices().downloads.attach(persistentSiteSession);
   persistentSiteSession.readyPromise = persistentSiteSession
     .setProxy({ mode: "system" })
     .catch((error) => console.warn("Unable to apply system proxy:", error.message));
@@ -1532,39 +1681,28 @@ function ensureSiteView(context = activeBrowserContext()) {
   view.setBackgroundColor("#ffffff");
   if (context.workspaceId === activeBrowserWorkspaceId) syncActiveBrowserAliases(context);
 
-  view.webContents.setWindowOpenHandler((details) => {
-    const { url, disposition, postBody } = details;
-    const isForegroundGet =
-      !postBody &&
-      (disposition === "default" || disposition === "foreground-tab");
-    if (isSafeWebUrl(url) && isForegroundGet) {
-      setImmediate(() => {
-        void openTransientBrowserTab(context.workspaceId, url).catch((error) => {
-          console.warn("Unable to open transient browser tab:", error?.message || error);
-        });
-      });
-    } else if (isSafeWebUrl(url) && postBody) {
-      return {
-        action: "allow",
-        overrideBrowserWindowOptions: {
-          autoHideMenuBar: true,
-          webPreferences: {
-            partition: browserPartitionForProfile(context.browserProfileId),
-            nodeIntegration: false,
-            contextIsolation: true,
-            sandbox: true,
-          },
-        },
-      };
-    } else if (/^(mailto|tel):/i.test(url)) {
-      setImmediate(() => void shell.openExternal(url));
-    }
-    return { action: "deny" };
+  const browserServices = getBrowserServices();
+  browserServices.managedPopups.attachToWebContents(
+    view.webContents,
+    context,
+    browserOwnerWindow(context),
+  );
+  view.webContents.on("context-menu", (_event, params) => {
+    browserServices.contextMenus.popup(
+      view.webContents,
+      params,
+      {
+        workspaceId: context.workspaceId,
+        tabId: context.tabId,
+        url: view.webContents.getURL(),
+      },
+      browserOwnerWindow(context),
+    );
   });
   view.webContents.on("will-navigate", (event, url) => {
     if (isSafeWebUrl(url)) return;
     event.preventDefault();
-    if (/^(mailto|tel):/i.test(url)) void shell.openExternal(url);
+    void browserServices.externalProtocol.open(url, browserOwnerWindow(context));
   });
   view.webContents.on("did-start-loading", () =>
     compactBrowserState(
@@ -1577,6 +1715,7 @@ function ensureSiteView(context = activeBrowserContext()) {
       loading: false,
       title: view.webContents.getTitle(),
       url: view.webContents.getURL(),
+      securityState: securityStateForUrl(view.webContents.getURL()),
     }, context);
     persistWorkspaceBrowserContext(context, {
       currentURL: view.webContents.getURL(),
@@ -1584,14 +1723,14 @@ function ensureSiteView(context = activeBrowserContext()) {
     setTimeout(() => void inspectKnownSiteIssue(context), 350);
   });
   view.webContents.on("did-navigate", (_event, url) => {
-    compactBrowserState({ url, error: "" }, context);
+    compactBrowserState({ url, securityState: securityStateForUrl(url), error: "" }, context);
     persistWorkspaceBrowserContext(context, { currentURL: url });
   });
   view.webContents.on(
     "did-navigate-in-page",
     (_event, url, isMainFrame) => {
       if (isMainFrame) {
-        compactBrowserState({ url, error: "" }, context);
+        compactBrowserState({ url, securityState: securityStateForUrl(url), error: "" }, context);
         persistWorkspaceBrowserContext(context, { currentURL: url });
       }
     },
@@ -1902,7 +2041,9 @@ async function createRuntimeBrowserTab(workspace, input = {}) {
   } else {
     workspace.tabs.set(tab.tabId, tab);
   }
-  workspace.activeTabId = tab.tabId;
+  if (input.activate !== false || !workspace.activeTabId) {
+    workspace.activeTabId = tab.tabId;
+  }
   persistWorkspaceBrowserWorkspace(workspace);
   return tab;
 }
@@ -1917,6 +2058,7 @@ async function openTransientBrowserTab(workspaceId, rawUrl, options = {}) {
   const existing = findRuntimeTabByReliableContext(workspace, options.reliableContext) ||
     findDuplicateRuntimeTab(workspace, null, url);
   if (existing) {
+    if (options.background === true) return emitWorkspaceBrowserState(workspace);
     if (workspaceId === activeBrowserWorkspaceId) {
       return selectBrowserTab({ tabId: existing.tabId, bounds: options.bounds });
     }
@@ -1933,7 +2075,13 @@ async function openTransientBrowserTab(workspaceId, rawUrl, options = {}) {
     homeURL: url,
     title: options.title || "",
     reliableContext: options.reliableContext || null,
+    activate: options.background !== true,
   });
+  if (options.background === true) {
+    await ensureRuntimeTabView(tab, { url, forceURL: true });
+    persistWorkspaceBrowserWorkspace(workspace);
+    return emitWorkspaceBrowserState(workspace);
+  }
   if (workspaceId === activeBrowserWorkspaceId) {
     return selectBrowserTab({ tabId: tab.tabId, bounds: options.bounds });
   }
@@ -2114,6 +2262,46 @@ function showBrowserTabContextMenu(event, payload) {
   });
 }
 
+function showAddressContextMenu(event) {
+  const owner = BrowserWindow.fromWebContents(event.sender);
+  if (!owner || owner.isDestroyed()) return Promise.resolve({ action: null });
+  const context = activeBrowserContext();
+  return new Promise((resolve) => {
+    let selectedAction = null;
+    const menu = Menu.buildFromTemplate([
+      { label: "撤销", role: "undo" },
+      { type: "separator" },
+      { label: "剪切", role: "cut" },
+      { label: "复制", role: "copy" },
+      { label: "粘贴", role: "paste" },
+      {
+        label: "粘贴并转到",
+        enabled: Boolean(context && clipboard.readText().trim()),
+        click: () => {
+          selectedAction = "paste-and-go";
+          const pasted = clipboard.readText();
+          let target;
+          try {
+            target = resolveNavigationTarget(pasted);
+          } catch (error) {
+            emitBrowserNotice(error?.message || "无法识别剪贴板内容", "error");
+            return;
+          }
+          void browserActionForContext(context, "navigate", target.url).catch((error) => {
+            emitBrowserNotice(error?.message || "无法打开剪贴板内容", "error");
+          });
+        },
+      },
+      { type: "separator" },
+      { label: "全选", role: "selectAll" },
+    ]);
+    menu.popup({
+      window: owner,
+      callback: () => resolve({ action: selectedAction }),
+    });
+  });
+}
+
 async function duplicateSiteTab(payload) {
   const state = await getState();
   const site = state.sites.find(
@@ -2201,8 +2389,10 @@ async function browserActionForContext(context, action, value) {
       }
       break;
     case "navigate":
+      {
+      const target = resolveNavigationTarget(value);
       context.currentSiteId = null;
-      context.currentHomeUrl = normalizeUrl(value);
+      context.currentHomeUrl = target.url;
       syncActiveBrowserAliases(context);
       persistWorkspaceBrowserContext(context, {
         currentURL: context.currentHomeUrl,
@@ -2213,6 +2403,7 @@ async function browserActionForContext(context, action, value) {
       );
       await loadUrlAllowingRedirectAbort(contents, context.currentHomeUrl);
       break;
+      }
     case "zoom-in":
       contents.setZoomFactor(Math.min(1.5, contents.getZoomFactor() + 0.1));
       break;
@@ -3114,6 +3305,9 @@ function registerIpc() {
   ipcMain.handle("browser:show-tab-context-menu", (event, payload) =>
     showBrowserTabContextMenu(event, payload),
   );
+  ipcMain.handle("browser:show-address-context-menu", (event) =>
+    showAddressContextMenu(event),
+  );
   ipcMain.handle("sites:duplicate-tab", (_event, payload) =>
     duplicateSiteTab(payload),
   );
@@ -3218,7 +3412,10 @@ function createMainWindow() {
     if (url !== mainWindow.webContents.getURL()) event.preventDefault();
   });
   mainWindow.on("resize", () => applySiteViewBounds(siteViewBounds));
-  mainWindow.on("close", () => destroyAllWorkspaceBrowserViews());
+  mainWindow.on("close", () => {
+    managedPopupService?.closeAll();
+    destroyAllWorkspaceBrowserViews();
+  });
   mainWindow.on("closed", () => {
     destroyAllWorkspaceBrowserViews();
     mainWindow = undefined;
@@ -3304,9 +3501,34 @@ function createMainWindow() {
           })()`);
           console.log(JSON.stringify({ googleLiveProbe: result }));
           await new Promise((resolve) => setTimeout(resolve, 500));
+        } else if (CAPTURE_ROUTE === "settings" || CAPTURE_ROUTE === "settings-popup") {
+          await mainWindow.webContents.executeJavaScript("navigateTo('settings')");
+          await new Promise((resolve) => setTimeout(resolve, 700));
+          if (CAPTURE_ROUTE === "settings-popup") {
+            await mainWindow.webContents.executeJavaScript(
+              "document.getElementById('popupPolicySettings')?.scrollIntoView({ block: 'center' })",
+            );
+            await new Promise((resolve) => setTimeout(resolve, 350));
+          }
         } else if (CAPTURE_ROUTE === "sites") {
           await mainWindow.webContents.executeJavaScript("navigateTo('sites')");
           await new Promise((resolve) => setTimeout(resolve, 700));
+        } else if (CAPTURE_ROUTE === "browser-toolbar") {
+          if (!isSafeWebUrl(TAB_PROBE_BASE_URL)) {
+            throw new Error("QIYE_TAB_PROBE_BASE_URL is required for browser-toolbar");
+          }
+          await new Promise((resolve) => setTimeout(resolve, 900));
+          const toolbarURL = new URL("/toolbar", TAB_PROBE_BASE_URL).toString();
+          await mainWindow.webContents.executeJavaScript(`openSite({
+            id: 'nodeseek-info',
+            name: '栖页工具栏测试',
+            shortName: '测',
+            url: ${JSON.stringify(toolbarURL)},
+            color: '#25846e',
+            openMode: 'internal',
+            workspaceId: 'personal'
+          })`);
+          await new Promise((resolve) => setTimeout(resolve, 900));
         } else if (CAPTURE_ROUTE === "workspace-tabs-probe") {
           if (!isSafeWebUrl(TAB_PROBE_BASE_URL)) {
             throw new Error("QIYE_TAB_PROBE_BASE_URL is required for workspace-tabs-probe");
@@ -3389,6 +3611,77 @@ function createMainWindow() {
               },
             }),
           );
+        } else if (CAPTURE_ROUTE === "browser-popup-probe") {
+          if (!isSafeWebUrl(TAB_PROBE_BASE_URL)) {
+            throw new Error("QIYE_TAB_PROBE_BASE_URL is required for browser-popup-probe");
+          }
+          const originURL = new URL("/popup-origin", TAB_PROBE_BASE_URL).toString();
+          await showBrowser({
+            url: originURL,
+            workspaceId: "work",
+            bounds: siteViewBounds,
+          });
+          const workspace = activeWorkspaceBrowserContext();
+          const openerTab = activeBrowserContext(workspace);
+          const contents = openerTab.view.webContents;
+          await contents.executeJavaScript(`(() => {
+            document.cookie = 'shared_session=qiye; path=/; SameSite=Lax';
+            window.__qiyePopupMessages = [];
+            window.addEventListener('message', (event) => {
+              if (event.origin === location.origin && event.data?.kind) {
+                window.__qiyePopupMessages.push(event.data);
+              }
+            });
+          })()`);
+          const waitForPopupMessages = async (count) => {
+            for (let attempt = 0; attempt < 160; attempt += 1) {
+              const messages = await contents.executeJavaScript(
+                "window.__qiyePopupMessages || []",
+              );
+              if (messages.length >= count) return messages;
+              await new Promise((resolve) => setTimeout(resolve, 25));
+            }
+            throw new Error(`managed popup did not return ${count} opener messages`);
+          };
+          await contents.executeJavaScript(
+            `(() => { window.open(${JSON.stringify(new URL("/popup-login", TAB_PROBE_BASE_URL).toString())}, 'loginPopup', 'popup,width=620,height=680'); return true; })()`,
+          );
+          await waitForPopupMessages(1);
+          await contents.executeJavaScript(`(() => {
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = ${JSON.stringify(new URL("/popup-post", TAB_PROBE_BASE_URL).toString())};
+            form.target = 'postLoginPopup';
+            const input = document.createElement('input');
+            input.name = 'assertion';
+            input.value = 'fixture-value';
+            form.appendChild(input);
+            document.body.appendChild(form);
+            form.submit();
+            form.remove();
+          })()`);
+          await waitForPopupMessages(2);
+          await contents.executeJavaScript(
+            `(() => { window.open(${JSON.stringify(new URL("/popup-oauth", TAB_PROBE_BASE_URL).toString())}, 'oauthPopup', 'popup,width=620,height=680'); return true; })()`,
+          );
+          const messages = await waitForPopupMessages(3);
+          for (let attempt = 0; attempt < 80 && managedPopupService?.windows.size; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+          const cookies = await persistentSiteSession.cookies.get({
+            url: originURL,
+            name: "shared_session",
+          });
+          console.log(JSON.stringify({
+            browserPopupProbe: {
+              messages,
+              sharedCookie: cookies[0]?.value || null,
+              partition: browserPartitionForProfile(openerTab.browserProfileId),
+              remainingManagedWindows: managedPopupService?.windows.size || 0,
+              openerUrl: contents.getURL(),
+              tabCount: workspace.tabs.size,
+            },
+          }));
         } else if (CAPTURE_ROUTE === "workspace-tabs-duplicate-probe") {
           if (!isSafeWebUrl(TAB_PROBE_BASE_URL)) {
             throw new Error(

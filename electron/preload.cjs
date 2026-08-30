@@ -55,6 +55,8 @@ contextBridge.exposeInMainWorld("siteNest", {
     ipcRenderer.invoke("browser:open-tab-external", { tabId }),
   showBrowserTabContextMenu: (tabId) =>
     ipcRenderer.invoke("browser:show-tab-context-menu", { tabId }),
+  showAddressContextMenu: () =>
+    ipcRenderer.invoke("browser:show-address-context-menu"),
   duplicateSiteTab: (siteId, bounds) =>
     ipcRenderer.invoke("sites:duplicate-tab", { siteId, bounds }),
   closeBrowserTab: (tabId, bounds) =>
@@ -80,6 +82,16 @@ contextBridge.exposeInMainWorld("siteNest", {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on("browser:state", listener);
     return () => ipcRenderer.removeListener("browser:state", listener);
+  },
+  onBrowserNotice: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("browser:notice", listener);
+    return () => ipcRenderer.removeListener("browser:notice", listener);
+  },
+  onOpenPageActions: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("assistants:open-panel", listener);
+    return () => ipcRenderer.removeListener("assistants:open-panel", listener);
   },
   onAppCommand: (callback) => {
     const listener = (_event, value) => callback(value);

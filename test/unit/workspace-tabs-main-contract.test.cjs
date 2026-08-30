@@ -12,6 +12,10 @@ const preloadSource = fs.readFileSync(
   path.join(projectRoot, "electron", "preload.cjs"),
   "utf8",
 );
+const managedPopupSource = fs.readFileSync(
+  path.join(projectRoot, "electron", "browser", "managed-popup-service.cjs"),
+  "utf8",
+);
 
 function sourceBetween(startMarker, endMarker) {
   const start = mainSource.indexOf(startMarker);
@@ -89,31 +93,25 @@ test("safe foreground GET popups become transient tabs without navigating the op
     "function ensureSiteView",
     "async function activateWorkspaceBrowserContext",
   );
-  const openHandlerStart = ensureSiteView.indexOf("setWindowOpenHandler");
-  const openHandlerEnd = ensureSiteView.indexOf("view.webContents.on(\"will-navigate\"", openHandlerStart);
-  assert.ok(openHandlerStart >= 0 && openHandlerEnd > openHandlerStart);
-  const openHandler = ensureSiteView.slice(openHandlerStart, openHandlerEnd);
-
-  assert.match(openHandler, /const \{ url, disposition, postBody \} = details/);
-  assert.match(openHandler, /!postBody/);
-  assert.match(openHandler, /disposition === ["']default["']/);
-  assert.match(openHandler, /disposition === ["']foreground-tab["']/);
-  assert.match(openHandler, /openTransientBrowserTab\(context\.workspaceId, url\)/);
-  assert.match(openHandler, /return \{ action: ["']deny["'] \}/);
+  assert.match(ensureSiteView, /managedPopups\.attachToWebContents/);
+  assert.match(managedPopupSource, /decision\.kind === ["']tab["']/);
+  assert.match(managedPopupSource, /decision\.kind === ["']background-tab["']/);
+  assert.match(managedPopupSource, /this\.openTab\(details\.url/);
+  assert.match(managedPopupSource, /return \{ action: ["']deny["'] \}/);
 
   // A GET popup must not replace the URL in the WebContentsView that opened it.
-  assert.doesNotMatch(openHandler, /(?:loadURL|loadUrlAllowingRedirectAbort)\s*\(\s*(?:view|context\.view)\.webContents/);
+  assert.doesNotMatch(managedPopupSource, /(?:loadURL|loadUrlAllowingRedirectAbort)\s*\(\s*(?:view|context\.view)\.webContents/);
 
   // POST-backed login/SAML popups remain usable, but inherit the hardened shared session.
-  assert.match(openHandler, /isSafeWebUrl\(url\) && postBody/);
-  assert.match(openHandler, /action: ["']allow["']/);
+  assert.match(managedPopupSource, /decision\.kind === ["']popup["']/);
+  assert.match(managedPopupSource, /action: ["']allow["']/);
   assert.match(
-    openHandler,
-    /partition:\s*browserPartitionForProfile\(context\.browserProfileId\)/,
+    managedPopupSource,
+    /partition:\s*this\.browserPartitionForProfile\(context\.browserProfileId\)/,
   );
-  assert.match(openHandler, /nodeIntegration:\s*false/);
-  assert.match(openHandler, /contextIsolation:\s*true/);
-  assert.match(openHandler, /sandbox:\s*true/);
+  assert.match(managedPopupSource, /nodeIntegration:\s*false/);
+  assert.match(managedPopupSource, /contextIsolation:\s*true/);
+  assert.match(managedPopupSource, /sandbox:\s*true/);
 });
 
 test("transient popup dedupe is scoped to one workspace and uses an exact normalized URL", () => {

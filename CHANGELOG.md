@@ -1,5 +1,15 @@
 # 变更记录
 
+## 0.5.0 - 开发中
+
+### Phase 1：浏览器基础与登录弹窗
+
+- 新增网页原生上下文菜单，按选中文字、编辑区、链接、媒体和普通页面生成固定白名单操作；密码框不提供翻译或搜索，选中文字不进入渲染进程或日志。
+- 地址栏支持网址与普通文字搜索、“粘贴并转到”，明确拒绝 `javascript:`、`data:` 和本地文件协议；补齐 F5、Esc 和 Alt+Right 快捷键。
+- 新增窗口打开策略、受控登录弹窗和外部协议确认；OAuth、SSO 与 POST 窗口继承原 `browserProfileId` 和 `persist:qiye-sites`，保留 opener、POST 与 Cookie。
+- 设置页增加站点级弹窗规则；schema 升级到 v5，但不清理旧标签、站点、Google/Zoho 配置或网站登录状态。
+- 新增统一下载保存确认、安全文件名、连接安全状态以及真实 Electron popup/POST/redirect/postMessage 回归。
+
 ## 0.4.1 - 2026-08-30
 
 ### 侧栏与 Chrome 书签

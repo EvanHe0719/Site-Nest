@@ -6,6 +6,8 @@
   "private": true,
   "main": "electron/main.cjs",
   "scripts": {
+    "lint": "node scripts/lint.cjs",
+    "typecheck": "tsc -p tsconfig.json",
     "check": "node scripts/check-syntax.cjs",
     "test:unit": "node --test test/unit/*.test.cjs",
     "test:integration": "node --test test/integration/*.test.cjs",
@@ -16,7 +18,8 @@
   },
   "devDependencies": {
     "electron": "44.0.0",
-    "electron-builder": "26.15.3"
+    "electron-builder": "26.15.3",
+    "typescript": "^7.0.2"
   },
   "build": {
     "appId": "local.qiye.sitehub",

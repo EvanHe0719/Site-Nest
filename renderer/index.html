@@ -686,6 +686,41 @@
                   </div>
                 </article>
 
+                <article class="settings-card settings-card--wide" id="popupPolicySettings">
+                  <div class="settings-card-icon" data-icon="shield"></div>
+                  <div class="settings-card-copy">
+                    <div class="settings-title-row">
+                      <div>
+                        <span class="section-kicker">BROWSING &amp; SECURITY</span>
+                        <h3>新窗口与登录弹窗</h3>
+                      </div>
+                      <span class="status-pill" id="popupPolicyCount">自动判断</span>
+                    </div>
+                    <p>普通链接进入栖页页签；OAuth、SSO 与 POST 表单使用同一浏览身份的受控窗口。你可以按域名覆盖自动判断。</p>
+                    <form class="popup-policy-form" id="popupPolicyForm">
+                      <label>
+                        <span>域名规则</span>
+                        <input id="popupPolicyHost" autocomplete="off" placeholder="例如 accounts.sap.com 或 *.hana.ondemand.com" required />
+                      </label>
+                      <label>
+                        <span>打开方式</span>
+                        <select id="popupPolicyMode">
+                          <option value="popup">受控弹窗</option>
+                          <option value="tab">栖页页签</option>
+                          <option value="external">外部浏览器</option>
+                          <option value="ask">每次询问</option>
+                          <option value="block">阻止</option>
+                        </select>
+                      </label>
+                      <label class="popup-policy-check"><input id="popupPolicyPreserveOpener" type="checkbox" checked /><span>保留 opener</span></label>
+                      <label class="popup-policy-check"><input id="popupPolicyAllowPost" type="checkbox" /><span>允许 POST 窗口</span></label>
+                      <button class="secondary-button compact-button" type="submit">添加规则</button>
+                    </form>
+                    <div class="popup-policy-list" id="popupPolicyList"></div>
+                    <p class="popup-policy-note">未配置规则时使用安全启发式。危险脚本协议始终阻止，未知外部协议必须确认。</p>
+                  </div>
+                </article>
+
                 <article class="settings-card settings-card--wide settings-card--chrome-bookmarks" id="chromeBookmarksSettingsSection" data-settings-section="chrome-bookmarks" tabindex="-1">
                   <div class="settings-card-icon" data-icon="chrome"></div>
                   <div class="settings-card-copy">
@@ -842,25 +877,16 @@
               <div class="address-field" id="addressField">
                 <span class="address-lock" data-icon="lock"></span>
                 <input id="addressInput" type="text" spellcheck="false" aria-label="当前网址" />
-                <span class="browser-security-note" title="登录状态仅保存在栖页">
+                <span class="browser-security-note" id="browserSecurityNote" title="正在读取连接安全状态">
                   <span data-icon="shield"></span>
-                  <span>会话仅存栖页</span>
+                  <span id="browserSecurityLabel">安全状态</span>
                 </span>
                 <span class="loading-line" id="loadingLine"></span>
               </div>
 
               <div class="browser-tools">
-                <div class="zoom-control">
-                  <button class="toolbar-button" id="zoomOut" type="button" title="缩小">
-                    <span data-icon="minus"></span>
-                  </button>
-                  <button class="zoom-label" id="zoomReset" type="button" title="恢复 100%">100%</button>
-                  <button class="toolbar-button" id="zoomIn" type="button" title="放大">
-                    <span data-icon="plus"></span>
-                  </button>
-                </div>
-                <button class="toolbar-button" id="openExternal" type="button" title="在默认浏览器打开">
-                  <span data-icon="external"></span>
+                <button class="toolbar-button" id="translatePageButton" type="button" title="翻译本页">
+                  <span data-icon="language"></span>
                 </button>
                 <button class="toolbar-button toolbar-button--labeled" id="duplicateCurrentTab" type="button" title="复制当前页签">
                   <span data-icon="copy"></span>
@@ -880,6 +906,18 @@
                   aria-expanded="false"
                 >
                   <span data-icon="spark"></span>
+                </button>
+                <div class="zoom-control">
+                  <button class="toolbar-button" id="zoomOut" type="button" title="缩小">
+                    <span data-icon="minus"></span>
+                  </button>
+                  <button class="zoom-label" id="zoomReset" type="button" title="恢复 100%">100%</button>
+                  <button class="toolbar-button" id="zoomIn" type="button" title="放大">
+                    <span data-icon="plus"></span>
+                  </button>
+                </div>
+                <button class="toolbar-button" id="openExternal" type="button" title="在默认浏览器打开">
+                  <span data-icon="external"></span>
                 </button>
                 <button class="toolbar-button toolbar-button--labeled is-hidden" id="siteLoginButton" type="button">
                   <span data-icon="cookie"></span>

@@ -1,6 +1,7 @@
 const { createHash, randomUUID } = require("node:crypto");
+const { normalizeSitePopupPolicies } = require("./browser/window-open-policy-service.cjs");
 
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 5;
 const DEFAULT_WORKSPACE_ID = "personal";
 const DEFAULT_BROWSER_PROFILE_ID = "default";
 const VALID_SITE_KINDS = new Set(["normal", "workApp"]);
@@ -269,6 +270,7 @@ function normalizeUiSettings(value) {
       ? input.sessionVisibility
       : "all",
     contextAssistantCollapsed: input.contextAssistantCollapsed === true,
+    sitePopupPolicies: normalizeSitePopupPolicies(input.sitePopupPolicies),
   };
 }
 
@@ -1532,6 +1534,7 @@ function appendConnectorExecutionInState(state, execution, options = {}) {
 }
 
 const normalizeStateV3 = normalizeStateV4;
+const normalizeStateV5 = normalizeStateV4;
 
 module.exports = {
   CURRENT_SCHEMA_VERSION,
@@ -1557,6 +1560,7 @@ module.exports = {
   normalizeSiteOrders,
   normalizeStateV3,
   normalizeStateV4,
+  normalizeStateV5,
   updateUiSettingsInState,
   upsertConnectorConnectionInState,
   appendConnectorExecutionInState,

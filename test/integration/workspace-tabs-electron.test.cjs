@@ -82,6 +82,76 @@ function parseProbe(stdout, marker = "workspaceTabsProbe") {
 }
 
 test(
+  "managed login windows preserve opener, POST, redirects, shared Cookie and the persistent partition",
+  { timeout: 60000 },
+  async (t) => {
+    const requests = [];
+    const server = http.createServer((request, response) => {
+      requests.push({ method: request.method, url: request.url });
+      if (request.url === "/popup-oauth") {
+        response.writeHead(302, { location: "/popup-oauth-redirect" });
+        response.end();
+        return;
+      }
+      if (request.url === "/popup-oauth-redirect") {
+        response.writeHead(302, { location: "/popup-oauth-callback" });
+        response.end();
+        return;
+      }
+      response.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+      });
+      if (request.url === "/popup-origin") {
+        response.end("<!doctype html><title>Popup origin</title><main>opener</main>");
+        return;
+      }
+      const kind = request.url === "/popup-post"
+        ? "post"
+        : request.url === "/popup-oauth-callback"
+          ? "oauth"
+          : "login";
+      response.end(`<!doctype html><title>${kind}</title><script>
+        window.opener.postMessage({
+          kind: ${JSON.stringify(kind)},
+          method: ${JSON.stringify(request.method)},
+          cookie: document.cookie,
+          path: location.pathname
+        }, location.origin);
+        setTimeout(() => window.close(), 20);
+      </script>`);
+    });
+    const address = await listen(server);
+    t.after(() => closeServer(server));
+    const baseURL = `http://127.0.0.1:${address.port}/`;
+    const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-popup-electron-"));
+    t.after(() => fsp.rm(userData, { recursive: true, force: true }));
+
+    const result = await runElectronProbe({
+      userData,
+      baseURL,
+      route: "browser-popup-probe",
+    });
+    assert.match(result.stdout, /browserPopupProbe/, result.stderr || result.stdout);
+    const probe = parseProbe(result.stdout, "browserPopupProbe");
+    const byKind = Object.fromEntries(probe.messages.map((item) => [item.kind, item]));
+
+    assert.equal(byKind.login.cookie.includes("shared_session=qiye"), true);
+    assert.equal(byKind.post.method, "POST");
+    assert.equal(byKind.oauth.path, "/popup-oauth-callback");
+    assert.equal(probe.sharedCookie, "qiye");
+    assert.equal(probe.partition, "persist:qiye-sites");
+    assert.equal(probe.remainingManagedWindows, 0);
+    assert.equal(probe.openerUrl, new URL("/popup-origin", baseURL).toString());
+    assert.equal(probe.tabCount, 1);
+    assert.ok(requests.some((item) => item.method === "POST" && item.url === "/popup-post"));
+    assert.ok(requests.some((item) => item.url === "/popup-oauth-redirect"));
+    assert.ok(requests.some((item) => item.url === "/popup-oauth-callback"));
+    assert.ok((await fsp.stat(result.capturePath)).size > 1000);
+  },
+);
+
+test(
   "real Electron keeps the opener tab and one WebContentsView identity through detach and reattach",
   { timeout: 60000 },
   async (t) => {

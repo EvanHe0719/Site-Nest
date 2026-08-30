@@ -293,14 +293,18 @@ test("priority ordering is explainable: overdue before due soon before waiting",
   assert.deepEqual(prioritizeTickets(tickets)[0].reasons.map((item) => item.code), ["sla-overdue"]);
 });
 
-test("v4 migration keeps sites separate from sessions and is idempotent", () => {
+test("v5 migration keeps sites separate from sessions and is idempotent", () => {
   const initial = createInitialState({ now: NOW, defaultSites: [
     { id: "site-a", name: "站点 A", url: "https://a.example/", workspaceId: "work" },
   ] });
-  assert.equal(initial.version, 4);
+  assert.equal(initial.version, 5);
   assert.equal(initial.sites.length, 1);
   assert.equal(initial.workspaceBrowserStates.work.tabs.length, 0);
-  assert.deepEqual(initial.uiSettings, { sessionVisibility: "all", contextAssistantCollapsed: false });
+  assert.deepEqual(initial.uiSettings, {
+    sessionVisibility: "all",
+    contextAssistantCollapsed: false,
+    sitePopupPolicies: [],
+  });
   const migrated = migrateState(initial, { now: "2030-01-01T00:00:00Z" });
   assert.equal(migrated.changed, false);
 });
@@ -315,7 +319,35 @@ test("session visibility and context-assistant preferences survive state normali
   assert.deepEqual(restarted.uiSettings, {
     sessionVisibility: "workspace",
     contextAssistantCollapsed: true,
+    sitePopupPolicies: [],
   });
+});
+
+test("site popup policies survive v5 migration and reject duplicate or unsafe host patterns", () => {
+  const initial = createInitialState({ now: NOW });
+  const updated = updateUiSettingsInState(initial, {
+    sitePopupPolicies: [
+      {
+        hostnamePattern: "*.hana.ondemand.com",
+        mode: "popup",
+        preserveOpener: true,
+        allowPost: true,
+        allowedRedirectOrigins: ["https://accounts.sap.com/login"],
+      },
+      { hostnamePattern: "*.hana.ondemand.com", mode: "block" },
+      { hostnamePattern: "javascript:bad", mode: "popup" },
+    ],
+  }, { now: NOW }).state;
+  const restarted = migrateState(JSON.parse(JSON.stringify(updated)), { now: NOW }).state;
+  assert.deepEqual(restarted.uiSettings.sitePopupPolicies, [
+    {
+      hostnamePattern: "*.hana.ondemand.com",
+      mode: "popup",
+      preserveOpener: true,
+      allowPost: true,
+      allowedRedirectOrigins: ["https://accounts.sap.com"],
+    },
+  ]);
 });
 
 test("connector public config strips token-shaped keys before normal state persistence", () => {
