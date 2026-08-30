@@ -1,5 +1,16 @@
 # 栖页架构审计与增量改造记录
 
+## 0.5.0 最终审计（2026-08-30）
+
+- 桌面与浏览：Electron 44、`BrowserWindow` 和现有多 `WebContentsView` 会话模型；没有更换框架、引入 CEF、第二套 Chromium 或 Chrome 扩展运行时。
+- 前端：原生 HTML/CSS/JavaScript，无 UI 框架和独立状态库；图标继续使用现有内置集合。TypeScript 仅以 `checkJs` 方式对核心 JavaScript 做静态检查，不把项目迁移成 TypeScript。
+- 状态与迁移：主进程缓存 + 原子 JSON `site-nest-data.json`，schema v8；任务、用户脚本公开记录、翻译公开配置和内存设置均通过归一化兼容旧字段。
+- 会话与登录：所有网页仍使用 `persist:qiye-sites`；生命周期休眠只销毁 WebContents，不清理 Cookie、LocalStorage、IndexedDB、Cache、安全凭据或 Google/Zoho 状态。
+- 安全存储：翻译 API Key、Google/Zoho OAuth 令牌和连接器密钥继续使用 Electron `safeStorage`；渲染进程没有读取 Token 的 IPC。
+- IPC：右键、弹窗、翻译、任务、用户脚本、资源扫描和生命周期都通过 context-isolated preload 白名单；网页主世界不获得 Electron/Node API。
+- 测试与构建：`check`、自定义安全 `lint`、TypeScript `checkJs`、Node 单元测试、真实 Electron 集成测试和 electron-builder Windows x64 portable 均可执行。
+- 外部真实性：SAP Support Notes 仍缺少本机真实账号授权验证；本地 SSO/OAuth/POST/重定向/下载夹具已覆盖浏览器机制，跳转审计删除 query 与 fragment。翻译 Provider、Zoho、Emma 与 Customer Ops 的联机能力只在提供真实配置时启用，不用 Fixture 填充正式界面。
+
 ## 0.4.1 增量审计（2026-08-30）
 
 - 侧栏、Chrome 书签、设置页、当前会话与顶部标签均由 `renderer/index.html`、`renderer/app.js` 和 `renderer/styles.css` 管理，没有组件框架或并行 Store。

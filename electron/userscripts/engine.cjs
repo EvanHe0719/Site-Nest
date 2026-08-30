@@ -111,9 +111,16 @@ class UserScriptEngine {
   async runAt(contents, context, runAt) {
     if (!contents || contents.isDestroyed()) return [];
     const state = await this.getState();
-    const scripts = state.userScripts.filter((script) =>
-      script.enabled && script.runAt === runAt && script.compatibility?.compatible &&
-      userScriptMatches(script, contents.getURL(), context).matched && this._permissionsApproved(state, script, contents.getURL()));
+    const rawUrl = contents.getURL();
+    let hostname = "";
+    try { hostname = new URL(rawUrl).hostname.toLowerCase(); } catch {}
+    const scripts = state.userScripts.filter((script) => {
+      const sensitiveSiteApproved = state.userScriptPermissions.some((item) =>
+        item.scriptId === script.id && item.permission === "sensitive-site" && item.value === hostname);
+      return script.enabled && script.runAt === runAt && script.compatibility?.compatible &&
+        userScriptMatches(script, rawUrl, { ...context, sensitiveSiteApproved }).matched &&
+        this._permissionsApproved(state, script, rawUrl);
+    });
     const results = [];
     for (const script of scripts) results.push(await this._execute(contents, context, script));
     return results;

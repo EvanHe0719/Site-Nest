@@ -163,6 +163,23 @@ function updateBuiltInSiteApproval(state, scriptId, hostname, approved, options 
   return { state: next, script, hostname: host, approved: approved === true };
 }
 
+function updateSensitiveSiteApproval(state, scriptId, hostname, approved, options = {}) {
+  const next = structuredClone(state);
+  const script = next.userScripts.find((item) => item.id === String(scriptId || ""));
+  if (!script || script.sourceType === "builtIn") throw new Error("仅第三方用户脚本支持登录页高级授权");
+  const host = String(hostname || "").trim().toLowerCase().slice(0, 255);
+  if (!host || !/^(?:localhost|[a-z0-9.-]+|\[[a-f0-9:]+\])$/i.test(host)) throw new Error("当前网站域名无效");
+  next.userScriptPermissions = next.userScriptPermissions.filter((item) =>
+    !(item.scriptId === script.id && item.permission === "sensitive-site" && item.value === host));
+  const now = options.now || new Date().toISOString();
+  if (approved === true) {
+    next.userScriptPermissions.push({ scriptId: script.id, permission: "sensitive-site", value: host, approvedAt: now });
+  }
+  script.updatedAt = now;
+  next.updatedAt = now;
+  return { state: next, script, hostname: host, approved: approved === true };
+}
+
 function appendUserScriptExecution(state, execution, options = {}) {
   const next = structuredClone(state);
   const scriptIds = next.userScripts.map((script) => script.id);
@@ -184,6 +201,7 @@ module.exports = {
   removeUserScript,
   sourceHash,
   updateBuiltInSiteApproval,
+  updateSensitiveSiteApproval,
   updateUserScriptEnabled,
   upsertUserScript,
 };

@@ -21,7 +21,8 @@ class DownloadManager {
   attach(targetSession) {
     if (!targetSession || this.attachedSessions.has(targetSession)) return;
     this.attachedSessions.add(targetSession);
-    targetSession.on("will-download", (_event, item, webContents) => {
+    targetSession.on("will-download", (event, item, webContents) => {
+      if (event.defaultPrevented) return;
       const filename = sanitizeDownloadFilename(item.getFilename());
       const defaultPath = path.join(this.app.getPath("downloads"), filename);
       const webContentsId = Number(webContents?.id) || 0;

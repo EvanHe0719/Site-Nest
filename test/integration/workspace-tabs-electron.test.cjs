@@ -88,27 +88,40 @@ test(
     const requests = [];
     const server = http.createServer((request, response) => {
       requests.push({ method: request.method, url: request.url });
-      if (request.url === "/popup-oauth") {
-        response.writeHead(302, { location: "/popup-oauth-redirect" });
+      const requestUrl = new URL(request.url, "http://127.0.0.1");
+      if (requestUrl.pathname === "/popup-oauth") {
+        response.writeHead(302, { location: "/popup-oauth-redirect?session=fixture-session" });
         response.end();
         return;
       }
-      if (request.url === "/popup-oauth-redirect") {
-        response.writeHead(302, { location: "/popup-oauth-callback" });
+      if (requestUrl.pathname === "/popup-oauth-redirect") {
+        response.writeHead(302, { location: "/popup-oauth-callback?authorization_code=fixture-code" });
         response.end();
+        return;
+      }
+      if (requestUrl.pathname === "/popup-file.txt") {
+        response.writeHead(200, {
+          "content-type": "text/plain; charset=utf-8",
+          "content-disposition": "attachment; filename=popup-file.txt",
+        });
+        response.end("popup download fixture");
         return;
       }
       response.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
       });
-      if (request.url === "/popup-origin") {
+      if (requestUrl.pathname === "/popup-origin") {
         response.end("<!doctype html><title>Popup origin</title><main>opener</main>");
         return;
       }
-      const kind = request.url === "/popup-post"
+      if (requestUrl.pathname === "/popup-download-page") {
+        response.end('<!doctype html><title>Popup download</title><a id="popup-download-link" href="/popup-file.txt" download>Download</a>');
+        return;
+      }
+      const kind = requestUrl.pathname === "/popup-post"
         ? "post"
-        : request.url === "/popup-oauth-callback"
+        : requestUrl.pathname === "/popup-oauth-callback"
           ? "oauth"
           : "login";
       response.end(`<!doctype html><title>${kind}</title><script>
@@ -141,12 +154,18 @@ test(
     assert.equal(byKind.oauth.path, "/popup-oauth-callback");
     assert.equal(probe.sharedCookie, "qiye");
     assert.equal(probe.partition, "persist:qiye-sites");
+    assert.equal(probe.popupDownloadTriggered, true);
     assert.equal(probe.remainingManagedWindows, 0);
     assert.equal(probe.openerUrl, new URL("/popup-origin", baseURL).toString());
     assert.equal(probe.tabCount, 1);
     assert.ok(requests.some((item) => item.method === "POST" && item.url === "/popup-post"));
-    assert.ok(requests.some((item) => item.url === "/popup-oauth-redirect"));
-    assert.ok(requests.some((item) => item.url === "/popup-oauth-callback"));
+    assert.ok(requests.some((item) => item.url.startsWith("/popup-oauth-redirect")));
+    assert.ok(requests.some((item) => item.url.startsWith("/popup-oauth-callback")));
+    assert.ok(requests.some((item) => item.url === "/popup-file.txt"));
+    const auditText = JSON.stringify(probe.navigationAudits);
+    assert.match(auditText, /popup-oauth-redirect/);
+    assert.match(auditText, /popup-oauth-callback/);
+    assert.doesNotMatch(auditText, /fixture-secret|fixture-state|fixture-session|fixture-code|\?/);
     assert.ok((await fsp.stat(result.capturePath)).size > 1000);
   },
 );

@@ -1,3 +1,17 @@
+function sanitizeNavigationUrl(rawUrl) {
+  try {
+    const url = new URL(String(rawUrl || ""));
+    if (!["http:", "https:"].includes(url.protocol)) return "";
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
 class ManagedPopupService {
   constructor({
     BrowserWindow,
@@ -22,6 +36,7 @@ class ManagedPopupService {
     this.onBlocked = onBlocked;
     this.handleInternalAction = handleInternalAction;
     this.windows = new Map();
+    this.navigationAudits = [];
   }
 
   secureWindowOptions(context) {
@@ -94,7 +109,13 @@ class ManagedPopupService {
     if (!childWindow || childWindow.isDestroyed()) return;
     const id = childWindow.webContents.id;
     const decision = this.policyService.classify(details, details.referrer?.url || "");
-    this.windows.set(id, { window: childWindow, context, details, decision });
+    const navigationChain = [];
+    const recordNavigation = (rawUrl) => {
+      const sanitized = sanitizeNavigationUrl(rawUrl);
+      if (sanitized && navigationChain.at(-1) !== sanitized && navigationChain.length < 20) navigationChain.push(sanitized);
+    };
+    recordNavigation(details.url);
+    this.windows.set(id, { window: childWindow, context, details, decision, navigationChain });
     const moveToTab = async () => {
       const url = childWindow.webContents.getURL();
       if (!/^https?:\/\//i.test(url)) return;
@@ -150,10 +171,24 @@ class ManagedPopupService {
       event.preventDefault();
       void this.externalProtocolService.open(url, childWindow);
     });
+    childWindow.webContents.on("did-navigate", (_event, url) => recordNavigation(url));
+    childWindow.webContents.on("did-redirect-navigation", (_event, url) => recordNavigation(url));
     this.attachToWebContents(childWindow.webContents, context, childWindow);
     childWindow.once("closed", () => {
+      this.navigationAudits.push({
+        webContentsId: id,
+        workspaceId: context.workspaceId,
+        browserProfileId: context.browserProfileId,
+        navigationChain: [...navigationChain],
+        finishedAt: new Date().toISOString(),
+      });
+      this.navigationAudits = this.navigationAudits.slice(-50);
       this.windows.delete(id);
     });
+  }
+
+  recentNavigationAudits() {
+    return this.navigationAudits.map((audit) => ({ ...audit, navigationChain: [...audit.navigationChain] }));
   }
 
   closeAll() {
@@ -164,4 +199,4 @@ class ManagedPopupService {
   }
 }
 
-module.exports = { ManagedPopupService };
+module.exports = { ManagedPopupService, sanitizeNavigationUrl };

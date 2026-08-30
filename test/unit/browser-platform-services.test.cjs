@@ -20,6 +20,9 @@ const {
 const {
   sanitizeDownloadFilename,
 } = require("../../electron/browser/download-manager.cjs");
+const {
+  sanitizeNavigationUrl,
+} = require("../../electron/browser/managed-popup-service.cjs");
 
 function fakeWebContents(overrides = {}) {
   return {
@@ -167,4 +170,12 @@ test("external protocols auto-open only mail and phone while unknown schemes req
 test("download filenames are sanitized before a save dialog is shown", () => {
   assert.equal(sanitizeDownloadFilename('report<final>:2026?.pdf'), "report_final__2026_.pdf");
   assert.equal(sanitizeDownloadFilename("..."), "download");
+});
+
+test("managed popup navigation audit removes every query and fragment value", () => {
+  assert.equal(
+    sanitizeNavigationUrl("https://accounts.example.com/oauth/callback?code=secret&session=private#token"),
+    "https://accounts.example.com/oauth/callback",
+  );
+  assert.equal(sanitizeNavigationUrl("javascript:alert(1)"), "");
 });

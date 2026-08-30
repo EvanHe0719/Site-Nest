@@ -104,6 +104,7 @@ const {
   isSensitiveUserScriptUrl,
   removeUserScript,
   updateBuiltInSiteApproval,
+  updateSensitiveSiteApproval,
   updateUserScriptEnabled,
   upsertUserScript,
 } = require("./userscripts/index.cjs");
@@ -3673,6 +3674,9 @@ function publicUserScript(script, state = cachedState) {
     approvedSites: (state?.userScriptPermissions || [])
       .filter((item) => item.scriptId === script.id && item.permission === "site")
       .map((item) => item.value),
+    sensitiveApprovedSites: (state?.userScriptPermissions || [])
+      .filter((item) => item.scriptId === script.id && item.permission === "sensitive-site")
+      .map((item) => item.value),
   };
 }
 
@@ -4234,6 +4238,36 @@ function registerIpc() {
     const hostname = new URL(context.view.webContents.getURL()).hostname;
     const state = await getState();
     const result = updateBuiltInSiteApproval(state, payload?.scriptId, hostname, payload?.approved);
+    cachedState = result.state;
+    await persistState();
+    mainWindow?.webContents.send("userscripts:changed", userScriptSnapshot(cachedState));
+    return { ...userScriptSnapshot(cachedState), script: publicUserScript(result.script, cachedState), hostname };
+  });
+  ipcMain.handle("userscripts:set-sensitive-site-approved", async (_event, payload) => {
+    const context = activeUserScriptContext();
+    if (!context) throw new Error("当前没有可授权的网站页面");
+    const url = context.view.webContents.getURL();
+    const sensitive = isSensitiveUserScriptUrl(url);
+    if (sensitive.sensitiveType !== "login") throw new Error("当前页面不是可高级授权的普通登录页");
+    const hostname = new URL(url).hostname.toLowerCase();
+    const state = await getState();
+    const script = state.userScripts.find((item) => item.id === String(payload?.scriptId || ""));
+    if (!script || script.sourceType === "builtIn") throw new Error("仅第三方用户脚本支持登录页高级授权");
+    if (payload?.approved === true) {
+      const confirmation = await dialog.showMessageBox(browserOwnerWindow(context), {
+        type: "warning",
+        title: "登录页用户脚本高级授权",
+        message: `允许“${script.name}”在 ${hostname} 的普通登录页运行？`,
+        detail: "第三方脚本可能读取登录页上除密码框以外的页面内容。栖页仍会隔离 Cookie、密码、Node、Electron 和未批准的跨域请求；OAuth/SAML 回调、支付和密码管理页面始终禁止。",
+        buttons: ["取消", "授予当前域名"],
+        defaultId: 0,
+        cancelId: 0,
+        checkboxLabel: "我理解第三方脚本可能读取此登录页面内容",
+        checkboxChecked: false,
+      });
+      if (confirmation.response !== 1 || confirmation.checkboxChecked !== true) throw new Error("未完成登录页高级授权确认");
+    }
+    const result = updateSensitiveSiteApproval(state, script.id, hostname, payload?.approved);
     cachedState = result.state;
     await persistState();
     mainWindow?.webContents.send("userscripts:changed", userScriptSnapshot(cachedState));
@@ -4827,9 +4861,37 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
           })()`);
           await waitForPopupMessages(2);
           await contents.executeJavaScript(
-            `(() => { window.open(${JSON.stringify(new URL("/popup-oauth", TAB_PROBE_BASE_URL).toString())}, 'oauthPopup', 'popup,width=620,height=680'); return true; })()`,
+            `(() => { window.open(${JSON.stringify(new URL("/popup-oauth?code=fixture-secret&state=fixture-state", TAB_PROBE_BASE_URL).toString())}, 'oauthPopup', 'popup,width=620,height=680'); return true; })()`,
           );
           const messages = await waitForPopupMessages(3);
+          for (let attempt = 0; attempt < 80 && managedPopupService?.windows.size; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+          let popupDownloadTriggered = false;
+          const preventFixtureDownload = (event) => {
+            popupDownloadTriggered = true;
+            event.preventDefault();
+          };
+          persistentSiteSession.prependOnceListener("will-download", preventFixtureDownload);
+          await contents.executeJavaScript(
+            `(() => { window.open(${JSON.stringify(new URL("/popup-download-page", TAB_PROBE_BASE_URL).toString())}, 'downloadPopup', 'popup,width=620,height=680'); return true; })()`,
+          );
+          let downloadPopup = null;
+          for (let attempt = 0; attempt < 80; attempt += 1) {
+            downloadPopup = Array.from(managedPopupService?.windows.values() || []).at(-1)?.window || null;
+            let popupPath = "";
+            try { popupPath = new URL(downloadPopup?.webContents.getURL() || "").pathname; } catch {}
+            if (downloadPopup && !downloadPopup.isDestroyed() && popupPath === "/popup-download-page") break;
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+          if (!downloadPopup || downloadPopup.isDestroyed()) throw new Error("download popup did not open");
+          await downloadPopup.webContents.executeJavaScript("document.getElementById('popup-download-link').click()");
+          for (let attempt = 0; attempt < 80 && !popupDownloadTriggered; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+          persistentSiteSession.removeListener("will-download", preventFixtureDownload);
+          if (!popupDownloadTriggered) throw new Error("managed popup did not trigger its download");
+          downloadPopup.close();
           for (let attempt = 0; attempt < 80 && managedPopupService?.windows.size; attempt += 1) {
             await new Promise((resolve) => setTimeout(resolve, 25));
           }
@@ -4842,6 +4904,8 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
               messages,
               sharedCookie: cookies[0]?.value || null,
               partition: browserPartitionForProfile(openerTab.browserProfileId),
+              popupDownloadTriggered,
+              navigationAudits: managedPopupService?.recentNavigationAudits() || [],
               remainingManagedWindows: managedPopupService?.windows.size || 0,
               openerUrl: contents.getURL(),
               tabCount: workspace.tabs.size,

@@ -12,6 +12,7 @@ const {
   userScriptMatches,
   upsertUserScript,
   updateBuiltInSiteApproval,
+  updateSensitiveSiteApproval,
 } = require("../../electron/userscripts/index.cjs");
 
 const NOW = "2026-08-30T06:00:00.000Z";
@@ -65,6 +66,9 @@ test("match and exclude rules are workspace-aware and sensitive third-party page
   const login = userScriptMatches(script, "https://accounts.example.com/signin", { workspaceId: "work" });
   assert.equal(login.matched, false);
   assert.equal(login.sensitive, true);
+  const approvedLogin = userScriptMatches(script, "https://accounts.example.com/signin", { workspaceId: "work", sensitiveSiteApproved: true });
+  assert.equal(approvedLogin.matched, true);
+  assert.equal(approvedLogin.sensitiveType, "login");
   assert.deepEqual(isSensitiveUserScriptUrl("file:///C:/secret.txt"), { blocked: true, reason: "系统内部或本地协议" });
   const local = parseUserScript(SOURCE.replace("https://*.example.com/*", "http://127.0.0.1:8787/*"), { now: NOW });
   assert.equal(userScriptMatches(local, "http://127.0.0.1:8787/page", {}).matched, true);
@@ -101,6 +105,10 @@ test("schema v8 creates one disabled built-in and keeps script values isolated b
   assert.equal(approved.state.userScriptPermissions.some((item) => item.permission === "site" && item.value === "docs.example.com"), true);
   const revoked = updateBuiltInSiteApproval(approved.state, "builtin-restore-copy", "docs.example.com", false, { now: NOW });
   assert.equal(revoked.script.enabled, false);
+  const sensitive = updateSensitiveSiteApproval(restored, "script-a", "accounts.example.com", true, { now: NOW });
+  assert.equal(sensitive.state.userScriptPermissions.some((item) => item.permission === "sensitive-site" && item.value === "accounts.example.com"), true);
+  const sensitiveRevoked = updateSensitiveSiteApproval(sensitive.state, "script-a", "accounts.example.com", false, { now: NOW });
+  assert.equal(sensitiveRevoked.state.userScriptPermissions.some((item) => item.permission === "sensitive-site"), false);
 });
 
 test("remote source hash changes are detectable without replacing the installed script", () => {

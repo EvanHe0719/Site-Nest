@@ -76,6 +76,7 @@ contextBridge.exposeInMainWorld("siteNest", {
   confirmUserScriptInstall: (reviewToken) => ipcRenderer.invoke("userscripts:confirm-install", reviewToken),
   setUserScriptEnabled: (scriptId, enabled) => ipcRenderer.invoke("userscripts:set-enabled", { scriptId, enabled }),
   setUserScriptSiteApproved: (scriptId, approved) => ipcRenderer.invoke("userscripts:set-site-approved", { scriptId, approved }),
+  setUserScriptSensitiveSiteApproved: (scriptId, approved) => ipcRenderer.invoke("userscripts:set-sensitive-site-approved", { scriptId, approved }),
   removeUserScript: (scriptId) => ipcRenderer.invoke("userscripts:remove", scriptId),
   checkUserScriptUpdate: (scriptId) => ipcRenderer.invoke("userscripts:check-update", scriptId),
   getUserScriptCommands: () => ipcRenderer.invoke("userscripts:commands"),

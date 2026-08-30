@@ -3785,6 +3785,28 @@ function renderUserScripts() {
         actions.appendChild(sites);
       }
     }
+    const currentUrl = browserSnapshot.url || "";
+    const currentLoginPage = /^https?:\/\//i.test(currentUrl) && /(?:login|logon|sign[-_]?in|signin|authorize|authorization|accounts\.)/i.test(currentUrl);
+    if (script.sourceType !== "builtIn" && currentHost && currentLoginPage) {
+      const sensitiveApproved = script.sensitiveApprovedSites?.includes(currentHost) === true;
+      const sensitiveButton = document.createElement("button");
+      sensitiveButton.type = "button";
+      sensitiveButton.className = "secondary-button compact-button";
+      sensitiveButton.textContent = sensitiveApproved ? "撤销登录页授权" : "登录页高级授权";
+      sensitiveButton.addEventListener("click", async () => {
+        sensitiveButton.disabled = true;
+        try {
+          const snapshot = await window.siteNest.setUserScriptSensitiveSiteApproved(script.id, !sensitiveApproved);
+          applyUserScriptSnapshot(snapshot);
+          showToast(sensitiveApproved ? "已撤销登录页授权" : "已授予登录页权限", `${currentHost} · OAuth/SAML 回调、支付和密码页面仍禁止`);
+        } catch (error) {
+          showToast("登录页授权未更改", error?.message || "请重新确认", "error");
+        } finally {
+          sensitiveButton.disabled = false;
+        }
+      });
+      actions.appendChild(sensitiveButton);
+    }
     if (script.sourceType === "remoteUrl") {
       const update = document.createElement("button");
       update.type = "button";

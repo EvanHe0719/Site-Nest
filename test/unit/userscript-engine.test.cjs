@@ -7,6 +7,7 @@ const {
   parseUserScript,
   runtimeWrapper,
   updateBuiltInSiteApproval,
+  updateSensitiveSiteApproval,
   upsertUserScript,
 } = require("../../electron/userscripts/index.cjs");
 
@@ -68,6 +69,32 @@ test("engine schedules only enabled, approved and matching run-at scripts", asyn
   assert.match(injected[0].scripts[0].code, /用户脚本不能读写密码/);
   assert.equal(executions[0].status, "success");
   assert.equal(executions[0].hostname, "docs.example.com");
+});
+
+test("ordinary login pages require an explicit per-script advanced site approval", async () => {
+  const initial = createInitialState({ now: NOW, defaultSites: [] });
+  const script = parseUserScript(scriptSource("Login helper").replace("https://docs.example.com/*", "https://accounts.example.com/*"), {
+    id: "login-helper",
+    sourceType: "pasted",
+    enabled: true,
+    now: NOW,
+  });
+  let state = upsertUserScript(initial, script, { now: NOW }).state;
+  const injected = [];
+  const contents = {
+    ...fakeContents(async (_worldId, scripts) => { injected.push(scripts[0].code); return { ok: true }; }),
+    getURL: () => "https://accounts.example.com/signin",
+  };
+  const engine = new UserScriptEngine({
+    getState: async () => state,
+    updateState: async (mutator) => { state = mutator(state); return { ok: true }; },
+    recordExecution: async () => undefined,
+  });
+  assert.deepEqual(await engine.runAt(contents, { tabId: "tab-login", workspaceId: "personal", browserProfileId: "default" }, "document-end"), []);
+  state = updateSensitiveSiteApproval(state, script.id, "accounts.example.com", true, { now: NOW }).state;
+  const approved = await engine.runAt(contents, { tabId: "tab-login", workspaceId: "personal", browserProfileId: "default" }, "document-end");
+  assert.equal(approved[0].ok, true);
+  assert.equal(injected.length, 1);
 });
 
 test("runtime storage is isolated by script and host requests require the per-page token", async () => {

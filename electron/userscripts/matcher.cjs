@@ -57,7 +57,8 @@ function userScriptMatches(script, rawUrl, context = {}) {
   let url;
   try { url = new URL(rawUrl); } catch { return { matched: false, reason: "网址无效" }; }
   const sensitive = isSensitiveUserScriptUrl(rawUrl);
-  if (sensitive.blocked) return { matched: false, reason: sensitive.reason, sensitive: true };
+  const loginApproved = sensitive.sensitiveType === "login" && context.sensitiveSiteApproved === true;
+  if (sensitive.blocked && !loginApproved) return { matched: false, reason: sensitive.reason, sensitive: true, sensitiveType: sensitive.sensitiveType };
   if (script.workspaceIds?.length && !script.workspaceIds.includes(context.workspaceId)) return { matched: false, reason: "工作空间不匹配" };
   if (script.browserProfileIds?.length && !script.browserProfileIds.includes(context.browserProfileId)) return { matched: false, reason: "浏览身份不匹配" };
   const excluded = (script.excludes || []).some((pattern) =>
@@ -67,7 +68,7 @@ function userScriptMatches(script, rawUrl, context = {}) {
   const includeRules = script.includes || [];
   const matched = matchRules.some((pattern) => matchPattern(pattern, url)) ||
     includeRules.some((pattern) => includePattern(pattern, rawUrl));
-  return { matched, reason: matched ? "规则匹配" : "未命中 @match/@include", sensitive: sensitive.blocked };
+  return { matched, reason: matched ? "规则匹配" : "未命中 @match/@include", sensitive: sensitive.blocked, sensitiveType: sensitive.sensitiveType };
 }
 
 function connectPatternMatches(pattern, hostname) {
