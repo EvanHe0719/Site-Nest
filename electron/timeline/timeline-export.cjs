@@ -6,9 +6,12 @@ const TYPE_LABELS = Object.freeze({
   decision: "重要决定",
   growth: "成长经历",
   personalEvent: "个人事件",
+  challenge: "挑战",
   other: "其他",
 });
 const IMPORTANCE_LABELS = Object.freeze({ normal: "普通", important: "重要", major: "重大" });
+const DIRECTION_LABELS = Object.freeze({ positive: "正向", neutral: "平稳", negative: "负向" });
+const { buildTimelineWaveform } = require("./timeline-waveform.cjs");
 
 function cleanText(value) {
   return String(value || "")
@@ -64,7 +67,7 @@ function eventForExport(event, tracksById) {
   return {
     id: event.id,
     track: track ? { id: track.id, name: track.name, type: track.type } : { id: event.trackId },
-    type: event.type,
+    eventType: event.type,
     title: cleanText(event.title),
     summary: cleanText(event.summary),
     background: cleanText(event.background),
@@ -76,6 +79,8 @@ function eventForExport(event, tracksById) {
     endDate: event.endDate,
     datePrecision: event.datePrecision,
     ongoing: event.ongoing,
+    impactDirection: event.impactDirection,
+    impactLevel: event.impactLevel,
     importance: event.importance,
     tags: (event.tags || []).map(cleanText),
     source: {
@@ -103,6 +108,9 @@ function buildTimelineJsonExport(options = {}) {
     exportedAt: options.exportedAt || new Date().toISOString(),
     appVersion: String(options.appVersion || ""),
     schemaVersion: Number(options.schemaVersion) || 0,
+    track: tracks.find((track) => track.id === options.trackId)
+      ? { id: options.trackId, name: cleanText(tracks.find((track) => track.id === options.trackId).name) }
+      : null,
     year: Number(options.year),
     tracks: tracks.map((track) => ({
       id: track.id,
@@ -140,6 +148,8 @@ function buildTimelineMarkdown(options = {}) {
       `- 日期：${timelineDateLabel(event)}`,
       `- 轨道：${cleanText(track?.name || event.trackId)}`,
       `- 类型：${TYPE_LABELS[event.type] || "其他"}`,
+      `- 方向：${DIRECTION_LABELS[event.impactDirection] || "平稳"}`,
+      `- 影响程度：${event.impactLevel || 1}`,
       `- 重要程度：${IMPORTANCE_LABELS[event.importance] || "普通"}`,
     );
     if (event.tags?.length) lines.push(`- 标签：${event.tags.map(cleanText).join("、")}`);
@@ -158,10 +168,50 @@ function buildTimelineMarkdown(options = {}) {
   return lines.join("\n");
 }
 
+function escapeXml(value) {
+  return cleanText(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function buildTimelineSvgExport(options = {}) {
+  const width = 1200;
+  const height = 420;
+  const left = 64;
+  const right = 32;
+  const baseline = 210;
+  const amplitude = 30;
+  const trackId = options.trackId === "work" ? "work" : "personal";
+  const track = (options.tracks || []).find((item) => item.id === trackId);
+  const waveform = buildTimelineWaveform(options.events, {
+    trackId,
+    year: options.year,
+    month: options.month,
+    scope: options.scope,
+  });
+  const x = (position) => left + position * (width - left - right);
+  const y = (value) => baseline - value * amplitude;
+  const path = waveform.samples.map((sample, index) =>
+    `${index ? "L" : "M"}${x(sample.position).toFixed(2)},${y(sample.value).toFixed(2)}`,
+  ).join(" ");
+  const labels = waveform.scope === "month"
+    ? Array.from({ length: new Date(Date.UTC(waveform.year, waveform.month, 0)).getUTCDate() }, (_item, index) => ({ label: String(index + 1), position: index / Math.max(1, new Date(Date.UTC(waveform.year, waveform.month, 0)).getUTCDate() - 1) }))
+    : Array.from({ length: 12 }, (_item, index) => ({ label: `${index + 1} 月`, position: (index + 0.5) / 12 }));
+  const nodes = waveform.clusters.map((cluster) => {
+    const radius = cluster.events.some((event) => event.importance === "major") ? 10 : 7;
+    const title = cluster.events.map((event) => `${event.startDate} ${event.title}`).join("；");
+    return `<g><title>${escapeXml(title)}</title><circle cx="${x(cluster.position).toFixed(2)}" cy="${y(cluster.value).toFixed(2)}" r="${radius}" fill="#1f7a67" stroke="#fff" stroke-width="3" />${cluster.events.length > 1 ? `<text x="${x(cluster.position).toFixed(2)}" y="${(y(cluster.value) + 4).toFixed(2)}" text-anchor="middle" fill="#fff" font-size="10">${cluster.events.length}</text>` : ""}</g>`;
+  }).join("");
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="title desc"><title id="title">${escapeXml(`${options.year} ${track?.name || trackId}时间轴`)}</title><desc id="desc">由用户记录的方向和影响程度绘制，不包含可执行内容。</desc><rect width="100%" height="100%" rx="24" fill="#fbfaf6"/><text x="${left}" y="42" fill="#173f36" font-size="24" font-weight="700">${escapeXml(`${options.year} ${track?.name || trackId}`)}</text><line x1="${left}" x2="${width - right}" y1="${baseline}" y2="${baseline}" stroke="#a7b7b1" stroke-dasharray="5 7"/>${labels.map((item) => `<text x="${x(item.position).toFixed(2)}" y="${height - 36}" text-anchor="middle" fill="#66736f" font-size="12">${item.label}</text>`).join("")}<path d="${path}" fill="none" stroke="#1f7a67" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>${nodes}</svg>\n`;
+}
+
 module.exports = {
   buildAnnualReview,
   buildTimelineJsonExport,
   buildTimelineMarkdown,
+  buildTimelineSvgExport,
   cleanText,
   timelineDateLabel,
 };

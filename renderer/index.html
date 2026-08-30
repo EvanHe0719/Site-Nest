@@ -478,25 +478,29 @@
                     <button type="button" data-timeline-year-move="1" aria-label="下一年"><span data-icon="arrow-right"></span></button>
                   </div>
                   <div class="timeline-filter-control">
-                    <label class="timeline-track-filter"><input id="timelineShowWork" type="checkbox" checked /><span class="timeline-track-dot timeline-track-dot--work"></span>工作线</label>
-                    <label class="timeline-track-filter"><input id="timelineShowPersonal" type="checkbox" checked /><span class="timeline-track-dot timeline-track-dot--personal"></span>个人线</label>
+                    <div class="timeline-track-switch" id="timelineTrackSwitch" role="tablist" aria-label="时间轴轨道">
+                      <button type="button" data-timeline-track="work" role="tab"><span class="timeline-track-dot timeline-track-dot--work"></span>工作</button>
+                      <button type="button" data-timeline-track="personal" role="tab"><span class="timeline-track-dot timeline-track-dot--personal"></span>个人</button>
+                    </div>
                     <select id="timelineTypeFilter" aria-label="事件类型筛选">
                       <option value="all">全部类型</option><option value="achievement">成就</option><option value="turningPoint">重大转折</option><option value="responsibility">职责变化</option><option value="projectMilestone">项目里程碑</option><option value="decision">重要决定</option><option value="growth">成长经历</option><option value="personalEvent">个人事件</option><option value="other">其他</option>
                     </select>
                     <label class="timeline-search"><span data-icon="search"></span><input id="timelineSearchInput" type="search" maxlength="200" placeholder="搜索时间轴" /></label>
                   </div>
                   <div class="timeline-action-control">
-                    <div class="timeline-view-switch" id="timelineViewSwitch" role="group" aria-label="时间轴视图"><button class="is-active" type="button" data-timeline-view="timeline">双轨</button><button type="button" data-timeline-view="list">列表</button></div>
+                    <div class="timeline-view-switch" id="timelineViewSwitch" role="group" aria-label="时间轴视图"><button class="is-active" type="button" data-timeline-view="timeline">波形</button><button type="button" data-timeline-view="list">列表</button></div>
+                    <button class="secondary-button compact-button is-hidden" id="timelineBackToYear" type="button"><span data-icon="arrow-left"></span>返回年度</button>
                     <button class="secondary-button compact-button" id="timelineReviewButton" type="button">年度回顾</button>
                     <button class="secondary-button compact-button" id="timelineExportMarkdown" type="button">导出 MD</button>
                     <button class="secondary-button compact-button" id="timelineExportJson" type="button">导出 JSON</button>
+                    <button class="secondary-button compact-button" id="timelineExportSvg" type="button">导出 SVG</button>
                     <button class="primary-button compact-button" id="timelineAddButton" type="button"><span data-icon="plus"></span>添加记录</button>
                   </div>
                 </div>
                 <div class="timeline-month-nav" id="timelineMonthNav" aria-label="月份导航">
                   <button type="button" data-timeline-month="1">1 月</button><button type="button" data-timeline-month="2">2 月</button><button type="button" data-timeline-month="3">3 月</button><button type="button" data-timeline-month="4">4 月</button><button type="button" data-timeline-month="5">5 月</button><button type="button" data-timeline-month="6">6 月</button><button type="button" data-timeline-month="7">7 月</button><button type="button" data-timeline-month="8">8 月</button><button type="button" data-timeline-month="9">9 月</button><button type="button" data-timeline-month="10">10 月</button><button type="button" data-timeline-month="11">11 月</button><button type="button" data-timeline-month="12">12 月</button>
                 </div>
-                <div class="timeline-status-row"><span id="timelineResultSummary">尚未加载时间轴</span><span>记录仅保存在本机，不计入待办数量</span></div>
+                <div class="timeline-status-row"><span id="timelineResultSummary">尚未加载时间轴</span><span>工作与个人独立计算，仅保存在本机</span></div>
                 <div class="timeline-canvas" id="timelineCanvas" aria-live="polite"></div>
                 <div class="timeline-list" id="timelineList" hidden></div>
               </section>
@@ -1420,13 +1424,17 @@
           <div class="form-field-row task-form-field-row--three">
             <label class="form-field"><span>轨道</span><select id="timelineEventTrack"><option value="work">工作线</option><option value="personal">个人线</option></select></label>
             <label class="form-field"><span>所属空间</span><select id="timelineEventWorkspace"><option value="personal">个人</option><option value="work">工作</option><option value="research">研究</option></select></label>
-            <label class="form-field"><span>类型</span><select id="timelineEventType"><option value="achievement">成就</option><option value="turningPoint">重大转折</option><option value="responsibility">职责变化</option><option value="projectMilestone">项目里程碑</option><option value="decision">重要决定</option><option value="growth">成长经历</option><option value="personalEvent">个人事件</option><option value="other">其他</option></select></label>
+            <label class="form-field"><span>类型</span><select id="timelineEventType"><option value="achievement">成就</option><option value="turningPoint">重大转折</option><option value="responsibility">职责变化</option><option value="projectMilestone">项目里程碑</option><option value="decision">重要决定</option><option value="growth">成长经历</option><option value="personalEvent">个人事件</option><option value="challenge">挑战</option><option value="other">其他</option></select></label>
           </div>
           <div class="form-field-row timeline-date-fields">
             <label class="form-field"><span>时间精度</span><select id="timelineDatePrecision"><option value="day">日</option><option value="month">月</option><option value="year">年</option></select></label>
             <label class="form-field"><span>开始</span><input id="timelineStartDate" type="date" required /></label>
             <label class="form-field"><span>结束</span><input id="timelineEndDate" type="date" /></label>
             <label class="form-field"><span>重要程度</span><select id="timelineImportance"><option value="normal">普通</option><option value="important">重要</option><option value="major">重大</option></select></label>
+          </div>
+          <div class="form-field-row timeline-impact-fields">
+            <label class="form-field"><span>方向</span><select id="timelineImpactDirection"><option value="positive">正向</option><option value="neutral">平稳</option><option value="negative">负向</option></select></label>
+            <label class="form-field"><span>影响程度</span><select id="timelineImpactLevel"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label>
           </div>
           <label class="settings-switch-row timeline-ongoing-row"><span><strong>持续至今</strong><small>适合职责、项目或成长阶段</small></span><input id="timelineOngoing" type="checkbox" /></label>
           <label class="form-field"><span>摘要</span><textarea id="timelineSummary" rows="2" maxlength="5000" placeholder="一两句话说明这件事"></textarea></label>

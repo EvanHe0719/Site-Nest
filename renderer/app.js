@@ -242,14 +242,15 @@ const dom = {
   taskCompletedList: document.getElementById("taskCompletedList"),
   timelinePanel: document.getElementById("timelinePanel"),
   timelineYearInput: document.getElementById("timelineYearInput"),
-  timelineShowWork: document.getElementById("timelineShowWork"),
-  timelineShowPersonal: document.getElementById("timelineShowPersonal"),
+  timelineTrackSwitch: document.getElementById("timelineTrackSwitch"),
   timelineTypeFilter: document.getElementById("timelineTypeFilter"),
   timelineSearchInput: document.getElementById("timelineSearchInput"),
   timelineViewSwitch: document.getElementById("timelineViewSwitch"),
   timelineReviewButton: document.getElementById("timelineReviewButton"),
   timelineExportMarkdown: document.getElementById("timelineExportMarkdown"),
   timelineExportJson: document.getElementById("timelineExportJson"),
+  timelineExportSvg: document.getElementById("timelineExportSvg"),
+  timelineBackToYear: document.getElementById("timelineBackToYear"),
   timelineAddButton: document.getElementById("timelineAddButton"),
   timelineMonthNav: document.getElementById("timelineMonthNav"),
   timelineResultSummary: document.getElementById("timelineResultSummary"),
@@ -267,6 +268,8 @@ const dom = {
   timelineStartDate: document.getElementById("timelineStartDate"),
   timelineEndDate: document.getElementById("timelineEndDate"),
   timelineImportance: document.getElementById("timelineImportance"),
+  timelineImpactDirection: document.getElementById("timelineImpactDirection"),
+  timelineImpactLevel: document.getElementById("timelineImpactLevel"),
   timelineOngoing: document.getElementById("timelineOngoing"),
   timelineSummary: document.getElementById("timelineSummary"),
   timelineBackground: document.getElementById("timelineBackground"),
@@ -493,8 +496,11 @@ let timelineState = {
   settings: {
     viewMode: "timeline",
     selectedYear: new Date().getFullYear(),
-    showWork: true,
-    showPersonal: true,
+    selectedTrackId: "personal",
+    trackViews: {
+      work: { selectedYear: new Date().getFullYear(), selectedMonth: null, scope: "year", zoom: 1 },
+      personal: { selectedYear: new Date().getFullYear(), selectedMonth: null, scope: "year", zoom: 1 },
+    },
     typeFilter: "all",
     search: "",
     lastTrackId: "personal",
@@ -857,6 +863,10 @@ async function buildGlobalSearchItems() {
           timelineFocusEventId = event.id;
           currentTaskView = "timeline";
           navigateTo("plan");
+          if (timelineState.settings.selectedTrackId !== event.trackId) {
+            await setTimelineSettings({ selectedTrackId: event.trackId, lastTrackId: event.trackId });
+          }
+          await setTimelineTrackView({ selectedYear: year, selectedMonth: null, scope: "year" });
           await setTimelineYear(year, { focusEventId: event.id });
         },
       )));
@@ -3645,9 +3655,11 @@ const TIMELINE_TYPE_LABELS = {
   decision: "重要决定",
   growth: "成长经历",
   personalEvent: "个人事件",
+  challenge: "挑战",
   other: "其他",
 };
 const TIMELINE_IMPORTANCE_LABELS = { normal: "普通", important: "重要", major: "重大" };
+const TIMELINE_DIRECTION_LABELS = { positive: "正向", neutral: "平稳", negative: "负向" };
 
 function localDateKey(value) {
   const date = value instanceof Date ? value : new Date(value);
@@ -3763,6 +3775,8 @@ function openTimelineEventModal(event = null, draft = {}) {
   configureTimelineDateInput(dom.timelineStartDate, precision, value.startDate || localDateKey(new Date()));
   configureTimelineDateInput(dom.timelineEndDate, precision, value.endDate || "");
   dom.timelineImportance.value = value.importance || "normal";
+  dom.timelineImpactDirection.value = value.impactDirection || "neutral";
+  dom.timelineImpactLevel.value = String(value.impactLevel || 1);
   dom.timelineOngoing.checked = value.ongoing === true;
   dom.timelineEndDate.disabled = dom.timelineOngoing.checked;
   dom.timelineSummary.value = value.summary || "";
@@ -3809,6 +3823,8 @@ function timelineEventFormPayload() {
     endDate: dom.timelineOngoing.checked ? null : dom.timelineEndDate.value || null,
     datePrecision: dom.timelineDatePrecision.value,
     ongoing: dom.timelineOngoing.checked,
+    impactDirection: dom.timelineImpactDirection.value,
+    impactLevel: Number(dom.timelineImpactLevel.value) || 1,
     importance: dom.timelineImportance.value,
     tags: dom.timelineTags.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean),
     relatedTaskIds,
@@ -3852,19 +3868,22 @@ async function openCurrentPageAsTimelineDraft() {
   }
 }
 
-function timelineEventMonth(event) {
-  const selectedYear = Number(timelineState.loadedYear || timelineState.settings.selectedYear);
-  const startYear = Number(String(event.startDate || "").slice(0, 4));
-  if (startYear < selectedYear) return 1;
-  return Math.max(1, Math.min(12, Number(String(event.startDate || "").slice(5, 7)) || 1));
-}
-
 function filteredTimelineEvents() {
   const settings = timelineState.settings;
+  const selectedTrackId = settings.selectedTrackId === "work" ? "work" : "personal";
   const query = String(settings.search || "").trim().toLocaleLowerCase("zh-CN");
   return timelineState.events.filter((event) => {
-    if (event.trackId === "work" && !settings.showWork) return false;
-    if (event.trackId === "personal" && !settings.showPersonal) return false;
+    if (event.trackId !== selectedTrackId) return false;
+    const view = timelineTrackView();
+    if (view.scope === "month") {
+      const start = timelineDateParts(event.startDate);
+      const end = timelineDateParts(event.endDate);
+      const year = Number(view.selectedYear || timelineState.loadedYear);
+      const month = Number(view.selectedMonth);
+      const startsBeforeEnd = start && (start.year < year || (start.year === year && start.month <= month));
+      const endsAfterStart = event.ongoing || (end && (end.year > year || (end.year === year && end.month >= month)));
+      if (!startsBeforeEnd || !((start.year === year && start.month === month) || endsAfterStart)) return false;
+    }
     if (settings.typeFilter !== "all" && event.type !== settings.typeFilter) return false;
     if (!query) return true;
     return [
@@ -3882,6 +3901,111 @@ function filteredTimelineEvents() {
   });
 }
 
+function timelineTrackView() {
+  const trackId = timelineState.settings.selectedTrackId === "work" ? "work" : "personal";
+  return timelineState.settings.trackViews?.[trackId] || {
+    selectedYear: Number(timelineState.loadedYear || timelineState.settings.selectedYear) || new Date().getFullYear(),
+    selectedMonth: null,
+    scope: "year",
+    zoom: 1,
+  };
+}
+
+function timelineDateParts(value) {
+  const match = String(value || "").match(/^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?/);
+  return match ? { year: Number(match[1]), month: Number(match[2] || 1), day: Number(match[3] || 1) } : null;
+}
+
+function timelineDaysInMonth(year, month) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function timelineImpactValue(event) {
+  const level = Math.max(1, Math.min(5, Number(event.impactLevel) || 1));
+  return event.impactDirection === "positive" ? level : event.impactDirection === "negative" ? -level : 0;
+}
+
+function timelinePosition(event, year, scope, month) {
+  const parts = timelineDateParts(event.startDate);
+  if (!parts) return 0;
+  if (scope === "month") {
+    const days = timelineDaysInMonth(year, month);
+    if (parts.year < year || (parts.year === year && parts.month < month)) return 0;
+    if (parts.year > year || (parts.year === year && parts.month > month)) return 1;
+    return Math.max(0, Math.min(1, (parts.day - 1) / Math.max(1, days - 1)));
+  }
+  if (parts.year < year) return 0;
+  if (parts.year > year) return 1;
+  return Math.max(0, Math.min(1, ((parts.month - 1) + (parts.day - 1) / timelineDaysInMonth(year, parts.month)) / 12));
+}
+
+function timelineEndPosition(event, year, scope, month) {
+  if (event.ongoing) return 1;
+  const parts = timelineDateParts(event.endDate);
+  if (!parts) return null;
+  if (scope === "month") {
+    const days = timelineDaysInMonth(year, month);
+    if (parts.year < year || (parts.year === year && parts.month < month)) return 0;
+    if (parts.year > year || (parts.year === year && parts.month > month)) return 1;
+    return Math.max(0, Math.min(1, (parts.day - 1) / Math.max(1, days - 1)));
+  }
+  if (parts.year < year) return 0;
+  if (parts.year > year) return 1;
+  return Math.max(0, Math.min(1, ((parts.month - 1) + (parts.day - 1) / timelineDaysInMonth(year, parts.month)) / 12));
+}
+
+function buildTimelineWaveform(events, year, scope, month) {
+  const sampleCount = scope === "month" ? timelineDaysInMonth(year, month) * 4 : 144;
+  const values = Array.from({ length: sampleCount + 1 }, () => 0);
+  const clusters = new Map();
+  const relevantEvents = events.filter((event) => {
+    const start = timelineDateParts(event.startDate);
+    const end = timelineDateParts(event.endDate);
+    if (!start) return false;
+    if (scope === "year") return start.year === year || (start.year < year && (event.ongoing || (end && end.year >= year)));
+    const startsBeforeEndOfMonth = start.year < year || (start.year === year && start.month <= month);
+    const endsAfterStartOfMonth = event.ongoing || (end && (end.year > year || (end.year === year && end.month >= month)));
+    return startsBeforeEndOfMonth && ((start.year === year && start.month === month) || endsAfterStartOfMonth);
+  });
+  relevantEvents.forEach((event) => {
+    const position = timelinePosition(event, year, scope, month);
+    const magnitude = timelineImpactValue(event);
+    const startIndex = Math.round(position * sampleCount);
+    const endPosition = timelineEndPosition(event, year, scope, month);
+    if ((event.ongoing || event.endDate) && endPosition !== null && endPosition > position) {
+      const endIndex = Math.max(startIndex, Math.round(endPosition * sampleCount));
+      const ramp = Math.max(2, Math.round(sampleCount * 0.02));
+      for (let index = Math.max(0, startIndex - ramp); index <= Math.min(sampleCount, endIndex + ramp); index += 1) {
+        const enter = Math.max(0, Math.min(1, (index - (startIndex - ramp)) / ramp));
+        const leave = Math.max(0, Math.min(1, ((endIndex + ramp) - index) / ramp));
+        values[index] += magnitude * Math.min(enter, leave);
+      }
+    } else {
+      const radius = Math.max(3, Math.round(sampleCount * (scope === "month" ? 0.04 : 0.02)));
+      for (let offset = -radius; offset <= radius; offset += 1) {
+        const index = startIndex + offset;
+        if (index < 0 || index > sampleCount) continue;
+        values[index] += magnitude * (1 - Math.abs(offset) / radius);
+      }
+    }
+    const parts = timelineDateParts(event.startDate);
+    const key = scope === "month"
+      ? `${parts?.year}-${parts?.month}-${parts?.day}`
+      : `${parts?.year}-${parts?.month}`;
+    if (!clusters.has(key)) clusters.set(key, []);
+    clusters.get(key).push(event);
+  });
+  return {
+    events: relevantEvents,
+    samples: values.map((value, index) => ({ position: index / sampleCount, value: Math.max(-5, Math.min(5, value)) })),
+    clusters: Array.from(clusters.values()).map((items) => ({
+      events: items,
+      position: timelinePosition(items[0], year, scope, month),
+      value: timelineImpactValue(items.slice().sort((left, right) => Number(right.impactLevel) - Number(left.impactLevel))[0]),
+    })),
+  };
+}
+
 function createTimelineEventCard(event) {
   const card = document.createElement("article");
   card.className = "timeline-event-card";
@@ -3889,6 +4013,8 @@ function createTimelineEventCard(event) {
   card.dataset.track = event.trackId;
   card.dataset.trackLabel = timelineTrackName(event.trackId);
   card.dataset.importance = event.importance;
+  card.tabIndex = 0;
+  card.setAttribute("role", "button");
   if (event.id === timelineFocusEventId) card.classList.add("is-focused");
   const top = document.createElement("div");
   top.className = "timeline-event-topline";
@@ -3925,38 +4051,135 @@ function createTimelineEventCard(event) {
     card.appendChild(source);
   }
   card.addEventListener("click", () => openTimelineEventModal(event));
+  card.addEventListener("keydown", (keyEvent) => {
+    if (["Enter", " "].includes(keyEvent.key)) {
+      keyEvent.preventDefault();
+      openTimelineEventModal(event);
+    }
+  });
   return card;
+}
+
+function renderTimelineCluster(events, anchor) {
+  dom.timelineCanvas.querySelector(".timeline-cluster-list")?.remove();
+  const panel = document.createElement("section");
+  panel.className = "timeline-cluster-list";
+  const heading = document.createElement("strong");
+  heading.textContent = `${events[0]?.startDate || ""} · ${events.length} 条记录`;
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "icon-button";
+  close.setAttribute("aria-label", "关闭事件簇");
+  close.appendChild(createIconElement("close"));
+  close.addEventListener("click", () => panel.remove());
+  panel.append(heading, close);
+  events.forEach((event) => panel.appendChild(createTimelineEventCard(event)));
+  dom.timelineCanvas.appendChild(panel);
+  anchor?.setAttribute("aria-expanded", "true");
 }
 
 function renderTimelineCanvas(events) {
   dom.timelineCanvas.replaceChildren();
-  for (let month = 1; month <= 12; month += 1) {
-    const monthEvents = events.filter((event) => timelineEventMonth(event) === month);
-    const section = document.createElement("section");
-    section.className = "timeline-month-section";
-    section.dataset.timelineMonthSection = String(month);
-    const heading = document.createElement("div");
-    heading.className = "timeline-month-heading";
-    const label = document.createElement("strong");
-    label.textContent = `${month} 月 · ${monthEvents.length}`;
-    heading.appendChild(label);
-    const grid = document.createElement("div");
-    grid.className = "timeline-month-grid";
-    const work = document.createElement("div");
-    work.className = "timeline-track-column timeline-track-column--work";
-    const personal = document.createElement("div");
-    personal.className = "timeline-track-column timeline-track-column--personal";
-    monthEvents.filter((event) => event.trackId === "work").forEach((event) => work.appendChild(createTimelineEventCard(event)));
-    monthEvents.filter((event) => event.trackId !== "work").forEach((event) => personal.appendChild(createTimelineEventCard(event)));
-    const axis = document.createElement("div");
-    axis.className = "timeline-axis";
-    const node = document.createElement("span");
-    node.className = "timeline-axis-node";
-    node.textContent = String(month);
-    axis.appendChild(node);
-    grid.append(work, axis, personal);
-    section.append(heading, grid);
-    dom.timelineCanvas.appendChild(section);
+  const settings = timelineState.settings;
+  const view = timelineTrackView();
+  const year = Number(timelineState.loadedYear || view.selectedYear || settings.selectedYear);
+  const month = Number(view.selectedMonth) || 1;
+  const scope = view.scope === "month" ? "month" : "year";
+  const waveform = buildTimelineWaveform(events, year, scope, month);
+  const svgNs = "http://www.w3.org/2000/svg";
+  const width = Math.round((scope === "month" ? 1320 : 1180) * (Number(view.zoom) || 1));
+  const height = 430;
+  const left = 58;
+  const right = 34;
+  const baseline = 214;
+  const amplitude = 31;
+  const x = (position) => left + position * (width - left - right);
+  const y = (value) => baseline - value * amplitude;
+  const svg = document.createElementNS(svgNs, "svg");
+  svg.classList.add("timeline-waveform-svg");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("width", String(width));
+  svg.setAttribute("height", String(height));
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", `${year} 年${settings.selectedTrackId === "work" ? "工作" : "个人"}${scope === "month" ? `${month} 月` : "年度"}波形时间轴`);
+  const baselineLine = document.createElementNS(svgNs, "line");
+  baselineLine.setAttribute("x1", String(left));
+  baselineLine.setAttribute("x2", String(width - right));
+  baselineLine.setAttribute("y1", String(baseline));
+  baselineLine.setAttribute("y2", String(baseline));
+  baselineLine.classList.add("timeline-waveform-baseline");
+  svg.appendChild(baselineLine);
+  const path = document.createElementNS(svgNs, "path");
+  path.setAttribute("d", waveform.samples.map((sample, index) => `${index ? "L" : "M"}${x(sample.position).toFixed(2)},${y(sample.value).toFixed(2)}`).join(" "));
+  path.classList.add("timeline-waveform-path", `timeline-waveform-path--${settings.selectedTrackId}`);
+  svg.appendChild(path);
+  const labelCount = scope === "month" ? timelineDaysInMonth(year, month) : 12;
+  Array.from({ length: labelCount }, (_item, index) => {
+    if (scope === "month" && index % 2 !== 0 && index !== labelCount - 1) return;
+    const position = scope === "month" ? index / Math.max(1, labelCount - 1) : (index + 0.5) / 12;
+    const label = document.createElementNS(svgNs, "text");
+    label.textContent = scope === "month" ? String(index + 1) : `${index + 1} 月`;
+    label.setAttribute("x", x(position).toFixed(2));
+    label.setAttribute("y", "397");
+    label.setAttribute("text-anchor", "middle");
+    label.classList.add("timeline-waveform-label");
+    if (scope === "year") {
+      label.setAttribute("tabindex", "0");
+      label.setAttribute("role", "button");
+      label.setAttribute("aria-label", `查看 ${index + 1} 月`);
+      const enterMonth = () => void setTimelineTrackView({ selectedMonth: index + 1, scope: "month" });
+      label.addEventListener("click", enterMonth);
+      label.addEventListener("keydown", (event) => {
+        if (["Enter", " "].includes(event.key)) { event.preventDefault(); enterMonth(); }
+      });
+    }
+    svg.appendChild(label);
+  });
+  waveform.clusters.forEach((cluster) => {
+    const group = document.createElementNS(svgNs, "g");
+    group.classList.add("timeline-waveform-node");
+    group.setAttribute("tabindex", "0");
+    group.setAttribute("role", "button");
+    group.setAttribute("aria-expanded", "false");
+    group.dataset.timelineEventId = cluster.events[0].id;
+    group.setAttribute("aria-label", cluster.events.length > 1
+      ? `${cluster.events[0].startDate}，${cluster.events.length} 条记录`
+      : `${cluster.events[0].startDate}，${cluster.events[0].title}`);
+    const title = document.createElementNS(svgNs, "title");
+    title.textContent = cluster.events.map((event) => `${event.title} · ${TIMELINE_DIRECTION_LABELS[event.impactDirection] || "平稳"} ${event.impactLevel || 1}`).join("；");
+    const circle = document.createElementNS(svgNs, "circle");
+    circle.setAttribute("cx", x(cluster.position).toFixed(2));
+    circle.setAttribute("cy", y(cluster.value).toFixed(2));
+    circle.setAttribute("r", cluster.events.some((event) => event.importance === "major") ? "11" : "8");
+    circle.dataset.direction = cluster.value > 0 ? "positive" : cluster.value < 0 ? "negative" : "neutral";
+    group.append(title, circle);
+    if (cluster.events.length > 1) {
+      const count = document.createElementNS(svgNs, "text");
+      count.textContent = `+${cluster.events.length - 1}`;
+      count.setAttribute("x", x(cluster.position).toFixed(2));
+      count.setAttribute("y", (y(cluster.value) + 3.5).toFixed(2));
+      count.setAttribute("text-anchor", "middle");
+      count.classList.add("timeline-waveform-count");
+      group.appendChild(count);
+    }
+    const activate = () => cluster.events.length === 1
+      ? openTimelineEventModal(cluster.events[0])
+      : renderTimelineCluster(cluster.events, group);
+    group.addEventListener("click", activate);
+    group.addEventListener("keydown", (event) => {
+      if (["Enter", " "].includes(event.key)) { event.preventDefault(); activate(); }
+    });
+    svg.appendChild(group);
+  });
+  const scroller = document.createElement("div");
+  scroller.className = "timeline-waveform-scroll";
+  scroller.appendChild(svg);
+  dom.timelineCanvas.appendChild(scroller);
+  if (!waveform.events.length) {
+    const empty = document.createElement("p");
+    empty.className = "timeline-waveform-empty";
+    empty.textContent = `当前${settings.selectedTrackId === "work" ? "工作" : "个人"}时间轴没有记录。`;
+    dom.timelineCanvas.appendChild(empty);
   }
 }
 
@@ -3964,7 +4187,7 @@ function renderTimelineList(events) {
   dom.timelineList.replaceChildren();
   const header = document.createElement("div");
   header.className = "timeline-list-header";
-  ["日期", "轨道", "类型", "标题", "程度", "标签", "最近修改", "操作"].forEach((label) => {
+  ["日期", "轨道", "类型", "标题", "方向", "影响", "重要", "内容标签", "操作"].forEach((label) => {
     const cell = document.createElement("span");
     cell.textContent = label;
     header.appendChild(cell);
@@ -3987,9 +4210,10 @@ function renderTimelineList(events) {
       timelineTrackName(event.trackId),
       TIMELINE_TYPE_LABELS[event.type] || "其他",
       event.title,
+      TIMELINE_DIRECTION_LABELS[event.impactDirection] || "平稳",
+      String(event.impactLevel || 1),
       TIMELINE_IMPORTANCE_LABELS[event.importance] || "普通",
       (event.tags || []).join("、") || "—",
-      new Date(event.updatedAt).toLocaleString("zh-CN"),
     ];
     values.forEach((value, index) => {
       const cell = document.createElement(index === 3 ? "strong" : "span");
@@ -4008,25 +4232,31 @@ function renderTimelineList(events) {
 function renderTimeline() {
   if (!dom.timelinePanel || currentTaskView !== "timeline") return;
   const settings = timelineState.settings;
-  if (document.activeElement !== dom.timelineYearInput) dom.timelineYearInput.value = String(timelineState.loadedYear || settings.selectedYear);
-  dom.timelineShowWork.checked = settings.showWork !== false;
-  dom.timelineShowPersonal.checked = settings.showPersonal !== false;
+  const trackView = timelineTrackView();
+  if (document.activeElement !== dom.timelineYearInput) dom.timelineYearInput.value = String(timelineState.loadedYear || trackView.selectedYear || settings.selectedYear);
+  dom.timelineTrackSwitch.querySelectorAll("[data-timeline-track]").forEach((button) => {
+    const active = button.dataset.timelineTrack === settings.selectedTrackId;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
   dom.timelineTypeFilter.value = settings.typeFilter || "all";
   if (document.activeElement !== dom.timelineSearchInput) dom.timelineSearchInput.value = settings.search || "";
   dom.timelineViewSwitch.querySelectorAll("[data-timeline-view]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.timelineView === settings.viewMode);
   });
   const events = filteredTimelineEvents();
+  const scopeLabel = trackView.scope === "month" ? `${trackView.selectedMonth} 月` : "年度";
   dom.timelineResultSummary.textContent = timelineState.loading
     ? "正在读取本机时间轴…"
-    : `${timelineState.loadedYear || settings.selectedYear} 年 · ${events.length} 条记录`;
+    : `${timelineState.loadedYear || trackView.selectedYear || settings.selectedYear} 年 · ${settings.selectedTrackId === "work" ? "工作" : "个人"} · ${scopeLabel} · ${events.length} 条记录`;
+  dom.timelineBackToYear.classList.toggle("is-hidden", trackView.scope !== "month");
+  dom.timelineMonthNav.classList.toggle("is-hidden", trackView.scope === "month");
   dom.timelineCanvas.hidden = settings.viewMode === "list";
   dom.timelineList.hidden = settings.viewMode !== "list";
   if (settings.viewMode === "list") renderTimelineList(events);
   else renderTimelineCanvas(events);
-  const activeMonth = Number(document.querySelector(".timeline-month-nav button.is-active")?.dataset.timelineMonth) || 1;
   dom.timelineMonthNav.querySelectorAll("[data-timeline-month]").forEach((button) => {
-    button.classList.toggle("is-active", Number(button.dataset.timelineMonth) === activeMonth);
+    button.classList.toggle("is-active", Number(button.dataset.timelineMonth) === Number(trackView.selectedMonth));
   });
   if (timelineFocusEventId) {
     requestAnimationFrame(() => {
@@ -4062,7 +4292,7 @@ async function loadTimelineYear(year, options = {}) {
   timelineState = { ...timelineState, loading: true, requestId };
   renderTimeline();
   try {
-    const snapshot = await window.siteNest.getTimeline(targetYear);
+    const snapshot = await window.siteNest.getTimeline({ year: targetYear, trackId: timelineState.settings.selectedTrackId });
     if (timelineState.requestId !== requestId) return timelineState;
     applyTimelineSnapshot(snapshot);
   } catch (error) {
@@ -4087,9 +4317,22 @@ async function setTimelineSettings(patch) {
 async function setTimelineYear(year, options = {}) {
   const target = Math.max(1, Math.min(9999, Number(year) || new Date().getFullYear()));
   if (options.focusEventId) timelineFocusEventId = options.focusEventId;
-  const snapshot = await setTimelineSettings({ selectedYear: target });
+  const trackId = timelineState.settings.selectedTrackId === "work" ? "work" : "personal";
+  const snapshot = await setTimelineSettings({
+    selectedYear: target,
+    trackViews: { [trackId]: { ...timelineTrackView(), selectedYear: target } },
+  });
   if (!snapshot || Number(snapshot.year) !== target) await loadTimelineYear(target, { force: true });
   return timelineState;
+}
+
+async function setTimelineTrackView(patch = {}) {
+  const trackId = timelineState.settings.selectedTrackId === "work" ? "work" : "personal";
+  const nextView = { ...timelineTrackView(), ...patch };
+  return setTimelineSettings({
+    selectedYear: nextView.selectedYear,
+    trackViews: { [trackId]: nextView },
+  });
 }
 
 function showTimelineReview() {
@@ -4119,7 +4362,14 @@ function showTimelineReview() {
 
 async function exportTimeline(format) {
   try {
-    const result = await window.siteNest.exportTimeline(timelineState.loadedYear || timelineState.settings.selectedYear, format);
+    const view = timelineTrackView();
+    const result = await window.siteNest.exportTimeline({
+      year: timelineState.loadedYear || view.selectedYear || timelineState.settings.selectedYear,
+      format,
+      trackId: timelineState.settings.selectedTrackId,
+      scope: view.scope,
+      month: view.selectedMonth,
+    });
     if (!result.canceled) showToast("时间轴已导出", result.filePath);
   } catch (error) {
     showToast("无法导出时间轴", error?.message || "请稍后重试", "error");
@@ -6868,18 +7118,27 @@ function bindEvents() {
     const button = event.target.closest("[data-task-view]");
     if (!button) return;
     currentTaskView = button.dataset.taskView;
+    if (currentTaskView === "timeline" && ["work", "personal"].includes(appState.activeWorkspaceId)) {
+      const trackId = appState.activeWorkspaceId;
+      if (timelineState.settings.selectedTrackId !== trackId) {
+        void setTimelineSettings({ selectedTrackId: trackId, lastTrackId: trackId });
+      }
+    }
     renderPlan();
   });
   dom.timelineAddButton.addEventListener("click", () => openTimelineEventModal());
   dom.timelineYearInput.addEventListener("change", () => void setTimelineYear(dom.timelineYearInput.value));
   const persistTimelineFilters = () => void setTimelineSettings({
-    showWork: dom.timelineShowWork.checked,
-    showPersonal: dom.timelineShowPersonal.checked,
     typeFilter: dom.timelineTypeFilter.value,
     search: dom.timelineSearchInput.value.trim(),
   });
-  dom.timelineShowWork.addEventListener("change", persistTimelineFilters);
-  dom.timelineShowPersonal.addEventListener("change", persistTimelineFilters);
+  dom.timelineTrackSwitch.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-timeline-track]");
+    if (!button || button.dataset.timelineTrack === timelineState.settings.selectedTrackId) return;
+    const trackId = button.dataset.timelineTrack === "work" ? "work" : "personal";
+    const nextView = timelineState.settings.trackViews?.[trackId] || { selectedYear: new Date().getFullYear(), selectedMonth: null, scope: "year", zoom: 1 };
+    void setTimelineSettings({ selectedTrackId: trackId, lastTrackId: trackId, selectedYear: nextView.selectedYear });
+  });
   dom.timelineTypeFilter.addEventListener("change", persistTimelineFilters);
   dom.timelineSearchInput.addEventListener("input", () => {
     timelineState.settings = { ...timelineState.settings, search: dom.timelineSearchInput.value.trim() };
@@ -6895,9 +7154,9 @@ function bindEvents() {
   dom.timelineMonthNav.addEventListener("click", (event) => {
     const button = event.target.closest("[data-timeline-month]");
     if (!button) return;
-    dom.timelineMonthNav.querySelectorAll("[data-timeline-month]").forEach((item) => item.classList.toggle("is-active", item === button));
-    document.querySelector(`[data-timeline-month-section="${button.dataset.timelineMonth}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    void setTimelineTrackView({ selectedMonth: Number(button.dataset.timelineMonth), scope: "month" });
   });
+  dom.timelineBackToYear.addEventListener("click", () => void setTimelineTrackView({ selectedMonth: null, scope: "year" }));
   dom.timelineMonthNav.addEventListener("pointerdown", (event) => {
     timelineMonthNavDrag = { pointerId: event.pointerId, x: event.clientX, scrollLeft: dom.timelineMonthNav.scrollLeft };
     dom.timelineMonthNav.classList.add("is-dragging");
@@ -6913,18 +7172,6 @@ function bindEvents() {
   };
   dom.timelineMonthNav.addEventListener("pointerup", endTimelineMonthDrag);
   dom.timelineMonthNav.addEventListener("pointercancel", endTimelineMonthDrag);
-  const planScroller = dom.timelinePanel.closest(".page-scroll");
-  planScroller?.addEventListener("scroll", () => {
-    if (currentTaskView !== "timeline" || timelineState.settings.viewMode === "list") return;
-    const threshold = planScroller.getBoundingClientRect().top + 230;
-    let active = 1;
-    dom.timelineCanvas.querySelectorAll("[data-timeline-month-section]").forEach((section) => {
-      if (section.getBoundingClientRect().top <= threshold) active = Number(section.dataset.timelineMonthSection);
-    });
-    dom.timelineMonthNav.querySelectorAll("[data-timeline-month]").forEach((button) => {
-      button.classList.toggle("is-active", Number(button.dataset.timelineMonth) === active);
-    });
-  }, { passive: true });
   dom.timelineDatePrecision.addEventListener("change", () => {
     const precision = dom.timelineDatePrecision.value;
     configureTimelineDateInput(dom.timelineStartDate, precision);
@@ -6978,6 +7225,7 @@ function bindEvents() {
   });
   dom.timelineExportMarkdown.addEventListener("click", () => void exportTimeline("markdown"));
   dom.timelineExportJson.addEventListener("click", () => void exportTimeline("json"));
+  dom.timelineExportSvg.addEventListener("click", () => void exportTimeline("svg"));
   dom.timelineReviewExportMarkdown.addEventListener("click", () => void exportTimeline("markdown"));
   dom.timelineReviewExportJson.addEventListener("click", () => void exportTimeline("json"));
   document.addEventListener("click", (event) => {

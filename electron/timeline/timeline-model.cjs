@@ -9,10 +9,12 @@ const TIMELINE_EVENT_TYPES = new Set([
   "decision",
   "growth",
   "personalEvent",
+  "challenge",
   "other",
 ]);
 const TIMELINE_DATE_PRECISIONS = new Set(["day", "month", "year"]);
 const TIMELINE_IMPORTANCE = new Set(["normal", "important", "major"]);
+const TIMELINE_IMPACT_DIRECTIONS = new Set(["positive", "neutral", "negative"]);
 const TIMELINE_VIEW_MODES = new Set(["timeline", "list"]);
 const DEFAULT_TIMELINE_TRACKS = Object.freeze([
   Object.freeze({
@@ -186,7 +188,14 @@ function normalizeTimelineEvent(value, options = {}) {
     endDate,
     datePrecision,
     ongoing,
+    impactDirection: TIMELINE_IMPACT_DIRECTIONS.has(input.impactDirection)
+      ? input.impactDirection
+      : "neutral",
+    impactLevel: Math.max(1, Math.min(5, Math.trunc(Number(input.impactLevel) || 1))),
     importance: TIMELINE_IMPORTANCE.has(input.importance) ? input.importance : "normal",
+    tagIds: Array.from(new Set((Array.isArray(input.tagIds) ? input.tagIds : [])
+      .map((item) => safeIdentifier(item, 120))
+      .filter(Boolean))).slice(0, 100),
     tags: Array.from(new Set((Array.isArray(input.tags) ? input.tags : [])
       .map((item) => safeString(item, 60, true))
       .filter(Boolean))).slice(0, 30),
@@ -225,14 +234,39 @@ function normalizeTimelineUiSettings(value = {}, options = {}) {
   const typeFilter = input.typeFilter === "all" || TIMELINE_EVENT_TYPES.has(input.typeFilter)
     ? input.typeFilter
     : "all";
+  const legacyYear = Number.isInteger(year) && year >= 1 && year <= 9999 ? year : currentYear;
+  const selectedTrackId = ["work", "personal"].includes(input.selectedTrackId)
+    ? input.selectedTrackId
+    : ["work", "personal"].includes(input.lastTrackId) ? input.lastTrackId : "personal";
+  const normalizeTrackView = (trackId) => {
+    const candidate = input.trackViews?.[trackId] && typeof input.trackViews[trackId] === "object"
+      ? input.trackViews[trackId]
+      : {};
+    const candidateYear = Number(candidate.selectedYear);
+    const candidateMonth = Number(candidate.selectedMonth);
+    return {
+      selectedYear: Number.isInteger(candidateYear) && candidateYear >= 1 && candidateYear <= 9999
+        ? candidateYear
+        : legacyYear,
+      selectedMonth: Number.isInteger(candidateMonth) && candidateMonth >= 1 && candidateMonth <= 12
+        ? candidateMonth
+        : null,
+      scope: candidate.scope === "month" ? "month" : "year",
+      zoom: Math.max(0.75, Math.min(2.5, Number(candidate.zoom) || 1)),
+    };
+  };
+  const trackViews = {
+    work: normalizeTrackView("work"),
+    personal: normalizeTrackView("personal"),
+  };
   return {
     viewMode: TIMELINE_VIEW_MODES.has(input.viewMode) ? input.viewMode : "timeline",
-    selectedYear: Number.isInteger(year) && year >= 1 && year <= 9999 ? year : currentYear,
-    showWork: input.showWork !== false,
-    showPersonal: input.showPersonal !== false,
+    selectedYear: trackViews[selectedTrackId].selectedYear,
+    selectedTrackId,
+    trackViews,
     typeFilter,
     search: safeString(input.search, 200, true),
-    lastTrackId: ["work", "personal"].includes(input.lastTrackId) ? input.lastTrackId : "personal",
+    lastTrackId: selectedTrackId,
   };
 }
 
@@ -300,6 +334,8 @@ function addTimelineEventToState(state, input, options = {}) {
   if (next.timelineEvents.some((item) => item.id === event.id)) throw new Error("时间轴记录 ID 已存在");
   next.timelineEvents.push(event);
   next.timelineUiSettings.lastTrackId = event.trackId;
+  next.timelineUiSettings.selectedTrackId = event.trackId;
+  next.timelineUiSettings.trackViews[event.trackId].selectedYear = timelineYear(event.startDate);
   next.timelineUiSettings.selectedYear = timelineYear(event.startDate);
   next.updatedAt = now;
   return { state: next, event };
@@ -327,6 +363,8 @@ function updateTimelineEventInState(state, input, options = {}) {
   if (!event) throw new Error("时间轴记录内容无效");
   next.timelineEvents[index] = event;
   next.timelineUiSettings.lastTrackId = event.trackId;
+  next.timelineUiSettings.selectedTrackId = event.trackId;
+  next.timelineUiSettings.trackViews[event.trackId].selectedYear = timelineYear(event.startDate);
   next.timelineUiSettings.selectedYear = timelineYear(event.startDate);
   next.updatedAt = now;
   return { state: next, event };
@@ -346,9 +384,23 @@ function deleteTimelineEventFromState(state, eventId, options = {}) {
 function updateTimelineUiSettingsInState(state, patch, options = {}) {
   const next = stateForTimelineMutation(state, options);
   const now = isoNow(options.now);
+  const selectedTrackId = ["work", "personal"].includes(patch?.selectedTrackId)
+    ? patch.selectedTrackId
+    : next.timelineUiSettings.selectedTrackId;
+  const trackViews = {
+    ...(next.timelineUiSettings.trackViews || {}),
+    ...(patch?.trackViews || {}),
+  };
+  if (patch?.selectedYear !== undefined && !patch?.trackViews?.[selectedTrackId]) {
+    trackViews[selectedTrackId] = {
+      ...(trackViews[selectedTrackId] || {}),
+      selectedYear: patch.selectedYear,
+    };
+  }
   next.timelineUiSettings = normalizeTimelineUiSettings({
     ...next.timelineUiSettings,
     ...(patch || {}),
+    trackViews,
   }, options);
   next.updatedAt = now;
   return { state: next, timelineUiSettings: next.timelineUiSettings };
@@ -404,6 +456,7 @@ module.exports = {
   TIMELINE_DATE_PRECISIONS,
   TIMELINE_EVENT_TYPES,
   TIMELINE_IMPORTANCE,
+  TIMELINE_IMPACT_DIRECTIONS,
   TimelineSearchIndex,
   addTimelineEventToState,
   deleteTimelineEventFromState,

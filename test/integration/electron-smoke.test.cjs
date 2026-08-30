@@ -111,9 +111,9 @@ test(
     await fsp.writeFile(dataFile, JSON.stringify(v2Fixture, null, 2), "utf8");
 
     const first = await runElectron({ userData, route: "state-probe" });
-    assert.match(first.stdout, /"version":12/);
+    assert.match(first.stdout, /"version":13/);
     const migrated = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(migrated.version, 12);
+    assert.equal(migrated.version, 13);
     assert.equal(migrated.activeWorkspaceId, "personal");
     assert.deepEqual(
       migrated.workspaces.map((workspace) => workspace.id),
@@ -165,7 +165,7 @@ test(
 
     const dataFile = path.join(userData, "site-nest-data.json");
     const persisted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(persisted.version, 12);
+    assert.equal(persisted.version, 13);
     assert.equal(persisted.localTasks.length, 1);
     assert.equal(persisted.localTasks[0].title, "IPC 本地任务已更新");
     assert.equal(persisted.taskReminders.length, 1);
@@ -184,7 +184,7 @@ test(
 );
 
 test(
-  "双线时间轴按年惰性读取、切换视图、生成任务草稿并持久化",
+  "工作和个人波形时间轴独立读取、切换视图、生成任务草稿并持久化",
   { timeout: 90000 },
   async (t) => {
     const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-timeline-integration-"));
@@ -205,9 +205,13 @@ test(
     assert.ok(line, probe.stdout);
     const result = JSON.parse(line).timelineProbe;
     assert.deepEqual(result.beforeTracks, ["work", "personal"]);
-    assert.equal(result.eventCount, 3);
-    assert.equal(result.timelineCardCount, 3);
-    assert.equal(result.listRowCount, 3);
+    assert.equal(result.workEventCount, 2);
+    assert.equal(result.workNodeCount, 2);
+    assert.equal(result.personalNodeCount, 1);
+    assert.equal(result.workOnly, true);
+    assert.equal(result.personalOnly, true);
+    assert.match(result.workPath, /^M/);
+    assert.equal(result.listRowCount, 2);
     assert.equal(result.draft.title, "转为时间轴草稿");
     assert.equal(result.draft.summary, "任务备注");
     assert.equal(result.draft.relatedTaskIds.length, 1);
@@ -215,7 +219,7 @@ test(
     assert.equal(result.countBeforeDraft, result.countAfterDraft, "opening a task draft must not auto-save");
     assert.equal(result.searchId, result.addedId);
     assert.equal(result.emptyYearCount, 1, "ongoing responsibility remains visible in later years");
-    assert.equal(result.reviewTotal, 3);
+    assert.equal(result.reviewTotal, 2);
     assert.equal(result.pageDraft.title, "时间轴网页来源");
     assert.equal(result.pageDraft.summary, "仅保存用户选中的这一段");
     assert.equal(result.pageDraft.sourceHostname, "127.0.0.1");
@@ -229,7 +233,7 @@ test(
     assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
 
     const persisted = JSON.parse(await fsp.readFile(path.join(userData, "site-nest-data.json"), "utf8"));
-    assert.equal(persisted.version, 12);
+    assert.equal(persisted.version, 13);
     assert.deepEqual(persisted.timelineTracks.map((track) => track.id), ["work", "personal"]);
     assert.equal(persisted.timelineEvents.filter((event) => !event.deletedAt).length, 3);
     assert.equal(persisted.timelineUiSettings.viewMode, "timeline");

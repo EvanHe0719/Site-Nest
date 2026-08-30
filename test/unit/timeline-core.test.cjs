@@ -12,6 +12,8 @@ const {
   buildAnnualReview,
   buildTimelineJsonExport,
   buildTimelineMarkdown,
+  buildTimelineSvgExport,
+  buildTimelineWaveform,
   deleteTimelineEventFromState,
   normalizeTimelineDate,
   sanitizeTimelineSourceUrl,
@@ -39,9 +41,9 @@ function event(overrides = {}) {
   };
 }
 
-test("schema v12 creates work and personal timeline tracks exactly once", () => {
+test("schema v13 creates work and personal timeline tracks exactly once", () => {
   const initial = state();
-  assert.equal(CURRENT_SCHEMA_VERSION, 12);
+  assert.equal(CURRENT_SCHEMA_VERSION, 13);
   assert.deepEqual(initial.timelineTracks.map((track) => track.id), ["work", "personal"]);
   assert.deepEqual(initial.timelineEvents, []);
   assert.equal(initial.timelineUiSettings.selectedYear, 2026);
@@ -102,14 +104,16 @@ test("year selection, view mode, track filter and text search are deterministic"
   current = updateTimelineUiSettingsInState(current, {
     selectedYear: 2025,
     viewMode: "list",
-    showWork: false,
-    showPersonal: true,
+    selectedTrackId: "personal",
+    trackViews: { personal: { selectedYear: 2025, selectedMonth: 8, scope: "month", zoom: 1.5 } },
     typeFilter: "growth",
     search: "阅读",
   }, { currentYear: 2026 }).state;
   assert.equal(current.timelineUiSettings.selectedYear, 2025);
   assert.equal(current.timelineUiSettings.viewMode, "list");
-  assert.equal(current.timelineUiSettings.showWork, false);
+  assert.equal(current.timelineUiSettings.selectedTrackId, "personal");
+  assert.equal(current.timelineUiSettings.trackViews.personal.scope, "month");
+  assert.equal(current.timelineUiSettings.trackViews.work.selectedYear, 2026);
   const matched = timelineEventsForYear(current.timelineEvents, 2026, {
     trackIds: ["personal"],
     type: "growth",
@@ -214,12 +218,83 @@ test("timeline-export-v1 is stable and strips executable presentation content", 
   });
   assert.equal(exported.exportVersion, "timeline-export-v1");
   assert.equal(exported.appVersion, "0.5.5");
-  assert.equal(exported.schemaVersion, 12);
+  assert.equal(exported.schemaVersion, 13);
+  assert.equal(exported.events[0].eventType, "achievement");
+  assert.equal(exported.events[0].impactDirection, "neutral");
+  assert.equal(exported.events[0].impactLevel, 1);
   assert.equal(exported.events[0].title, "alert(1)安全复盘");
   assert.equal(exported.events[0].summary, "纯文本");
   assert.deepEqual(Object.keys(exported.events[0].presentation), ["iconKey", "accentKey", "emphasis"]);
   assert.equal(Object.hasOwn(exported.events[0], "html"), false);
   assert.equal(Object.hasOwn(exported.events[0], "javascript"), false);
+});
+
+test("work and personal waveforms are independent and use deterministic direction and level", () => {
+  let current = state();
+  current = addTimelineEventToState(current, event({
+    id: "work-up",
+    startDate: "2026-03-15",
+    impactDirection: "positive",
+    impactLevel: 5,
+  }), { now: NOW }).state;
+  current = addTimelineEventToState(current, event({
+    id: "work-down",
+    startDate: "2026-09-15",
+    impactDirection: "negative",
+    impactLevel: 4,
+  }), { now: NOW }).state;
+  current = addTimelineEventToState(current, event({
+    id: "personal-flat",
+    trackId: "personal",
+    workspaceId: "personal",
+    startDate: "2026-03-15",
+    impactDirection: "neutral",
+    impactLevel: 5,
+  }), { now: NOW }).state;
+  const work = buildTimelineWaveform(current.timelineEvents, { trackId: "work", year: 2026 });
+  const personal = buildTimelineWaveform(current.timelineEvents, { trackId: "personal", year: 2026 });
+  assert.deepEqual(work.clusters.flatMap((cluster) => cluster.events.map((item) => item.id)).sort(), ["work-down", "work-up"]);
+  assert.deepEqual(personal.clusters.flatMap((cluster) => cluster.events.map((item) => item.id)), ["personal-flat"]);
+  assert.ok(Math.max(...work.samples.map((sample) => sample.value)) >= 4.9);
+  assert.ok(Math.min(...work.samples.map((sample) => sample.value)) <= -3.9);
+  assert.equal(Math.max(...personal.samples.map((sample) => Math.abs(sample.value))), 0);
+});
+
+test("single events return to baseline while ongoing events form a platform", () => {
+  let current = state();
+  current = addTimelineEventToState(current, event({
+    id: "single",
+    startDate: "2026-02-10",
+    impactDirection: "positive",
+    impactLevel: 3,
+  }), { now: NOW }).state;
+  current = addTimelineEventToState(current, event({
+    id: "ongoing",
+    startDate: "2026-06-01",
+    ongoing: true,
+    impactDirection: "negative",
+    impactLevel: 2,
+  }), { now: NOW }).state;
+  const waveform = buildTimelineWaveform(current.timelineEvents, { trackId: "work", year: 2026 });
+  assert.equal(waveform.samples[0].value, 0);
+  assert.equal(waveform.samples.at(-1).value, -2);
+  assert.ok(waveform.samples.some((sample) => sample.value === 3));
+});
+
+test("monthly waveform uses real day positions and SVG export is inert", () => {
+  let current = state();
+  current = addTimelineEventToState(current, event({
+    startDate: "2026-08-31",
+    impactDirection: "positive",
+    impactLevel: 2,
+  }), { now: NOW }).state;
+  const month = buildTimelineWaveform(current.timelineEvents, { trackId: "work", year: 2026, month: 8, scope: "month" });
+  assert.equal(month.scope, "month");
+  assert.ok(month.clusters[0].position > 0.99);
+  const svg = buildTimelineSvgExport({ year: 2026, month: 8, scope: "month", trackId: "work", tracks: current.timelineTracks, events: current.timelineEvents });
+  assert.match(svg, /^<\?xml/);
+  assert.match(svg, /<path d="M/);
+  assert.doesNotMatch(svg, /<script|javascript:/i);
 });
 
 test("timeline search index updates incrementally after edits and deletions", () => {

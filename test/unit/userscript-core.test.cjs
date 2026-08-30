@@ -81,9 +81,9 @@ test("connect rules never treat a global wildcard as approved", () => {
   assert.equal(connectPatternMatches("*.example.net", "example.org"), false);
 });
 
-test("schema v12 preserves one disabled built-in and keeps script values isolated by id", () => {
+test("schema v13 preserves one disabled built-in and keeps script values isolated by id", () => {
   const initial = createInitialState({ now: NOW, defaultSites: [] });
-  assert.equal(initial.version, 12);
+  assert.equal(initial.version, 13);
   assert.equal(initial.userScripts.length, 1);
   assert.equal(initial.userScripts[0].id, "builtin-restore-copy");
   assert.equal(initial.userScripts[0].enabled, false);

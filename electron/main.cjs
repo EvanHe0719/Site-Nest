@@ -131,6 +131,7 @@ const {
   buildAnnualReview,
   buildTimelineJsonExport,
   buildTimelineMarkdown,
+  buildTimelineSvgExport,
   deleteTimelineEventFromState,
   sanitizeTimelineSourceUrl,
   timelineEventsForYear,
@@ -4628,16 +4629,23 @@ function timelineReviewSnapshot(review) {
   };
 }
 
-function timelineSnapshot(state = cachedState, requestedYear = null) {
+function timelineSnapshot(state = cachedState, requestedYear = null, requestedTrackId = null) {
   const settings = state?.timelineUiSettings || {};
+  const trackId = ["work", "personal"].includes(requestedTrackId)
+    ? requestedTrackId
+    : ["work", "personal"].includes(settings.selectedTrackId)
+      ? settings.selectedTrackId
+      : settings.lastTrackId === "work" ? "work" : "personal";
+  const trackView = settings.trackViews?.[trackId] || {};
   const parsedYear = Number(requestedYear);
   const year = Number.isInteger(parsedYear) && parsedYear >= 1 && parsedYear <= 9999
     ? parsedYear
-    : Number(settings.selectedYear) || new Date().getFullYear();
+    : Number(trackView.selectedYear || settings.selectedYear) || new Date().getFullYear();
   const tracks = Array.isArray(state?.timelineTracks) ? state.timelineTracks : [];
-  const events = timelineEventsForYear(state?.timelineEvents, year);
+  const events = timelineEventsForYear(state?.timelineEvents, year, { trackIds: [trackId] });
   return {
     year,
+    trackId,
     tracks,
     events,
     settings,
@@ -4650,7 +4658,7 @@ function emitTimelineChanged(focusEventId = null) {
   const event = cachedState?.timelineEvents?.find((item) => item.id === focusEventId);
   const year = event ? Number(String(event.startDate).slice(0, 4)) : null;
   mainWindow.webContents.send("timeline:changed", {
-    ...timelineSnapshot(cachedState, year),
+    ...timelineSnapshot(cachedState, year, event?.trackId),
     focusEventId,
   });
 }
@@ -4663,7 +4671,7 @@ async function mutateTimelineState(mutator) {
   if (result.event) timelineSearchIndex.upsert(result.event);
   emitTimelineChanged(result.event?.deletedAt ? null : result.event?.id || null);
   const year = result.event ? Number(String(result.event.startDate).slice(0, 4)) : null;
-  return { event: result.event, ...timelineSnapshot(cachedState, year) };
+  return { event: result.event, ...timelineSnapshot(cachedState, year, result.event?.trackId) };
 }
 
 async function ensureTimelineSearchIndex() {
@@ -4758,28 +4766,41 @@ async function currentPageTimelineDraft() {
 
 async function exportTimelineYear(payload = {}) {
   const state = await getState();
-  const year = Number(payload.year) || state.timelineUiSettings.selectedYear || new Date().getFullYear();
-  const format = payload.format === "json" ? "json" : "markdown";
+  const trackId = payload.trackId === "work" ? "work" : "personal";
+  const trackView = state.timelineUiSettings.trackViews?.[trackId] || {};
+  const year = Number(payload.year) || trackView.selectedYear || state.timelineUiSettings.selectedYear || new Date().getFullYear();
+  const format = ["json", "markdown", "svg"].includes(payload.format) ? payload.format : "markdown";
   const tracks = state.timelineTracks;
-  const events = timelineEventsForYear(state.timelineEvents, year);
+  const events = timelineEventsForYear(state.timelineEvents, year, { trackIds: [trackId] });
   const exportedAt = new Date().toISOString();
+  const options = {
+    tracks,
+    events,
+    year,
+    trackId,
+    month: Number(payload.month) || null,
+    scope: payload.scope === "month" ? "month" : "year",
+    exportedAt,
+    appVersion: app.getVersion(),
+    schemaVersion: state.version,
+  };
   const content = format === "json"
     ? `${JSON.stringify(buildTimelineJsonExport({
-      tracks,
-      events,
-      year,
-      exportedAt,
-      appVersion: app.getVersion(),
-      schemaVersion: state.version,
+      ...options,
     }), null, 2)}\n`
-    : buildTimelineMarkdown({ tracks, events, year, exportedAt });
-  const extension = format === "json" ? "json" : "md";
+    : format === "svg"
+      ? buildTimelineSvgExport(options)
+      : buildTimelineMarkdown(options);
+  const extension = format === "json" ? "json" : format === "svg" ? "svg" : "md";
+  const trackName = trackId === "work" ? "工作" : "个人";
   const result = await dialog.showSaveDialog(mainWindow, {
-    title: `导出 ${year} 年时间轴`,
-    defaultPath: path.join(app.getPath("documents"), `栖页-${year}-时间轴.${extension}`),
+    title: `导出 ${year} 年${trackName}时间轴`,
+    defaultPath: path.join(app.getPath("documents"), `栖页-${year}-${trackName}时间轴.${extension}`),
     filters: format === "json"
       ? [{ name: "JSON", extensions: ["json"] }]
-      : [{ name: "Markdown", extensions: ["md"] }],
+      : format === "svg"
+        ? [{ name: "SVG", extensions: ["svg"] }]
+        : [{ name: "Markdown", extensions: ["md"] }],
   });
   if (result.canceled || !result.filePath) return { canceled: true, format, year };
   await fsp.writeFile(result.filePath, content, "utf8");
@@ -5530,7 +5551,7 @@ function registerIpc() {
     return taskSnapshot(cachedState);
   });
   ipcMain.handle("timeline:get", async (_event, payload) =>
-    timelineSnapshot(await getState(), payload?.year),
+    timelineSnapshot(await getState(), payload?.year, payload?.trackId),
   );
   ipcMain.handle("timeline:add", (_event, payload) =>
     mutateTimelineState((state) => addTimelineEventToState(state, payload)),
@@ -6663,30 +6684,37 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
             pageDraft = await currentPageTimelineDraft();
           }
           const result = await mainWindow.webContents.executeJavaScript(`(async () => {
-            const before = await window.siteNest.getTimeline(2026);
+            const before = await window.siteNest.getTimeline({ year: 2026, trackId: 'work' });
             const day = await window.siteNest.addTimelineEvent({
               trackId: 'work', workspaceId: 'work', type: 'achievement', title: 'IPC 工作成就',
-              startDate: '2026-08-30', datePrecision: 'day', importance: 'major', tags: ['SAP']
+              startDate: '2026-08-30', datePrecision: 'day', importance: 'major', impactDirection: 'positive', impactLevel: 5, tags: ['SAP']
             });
             await window.siteNest.addTimelineEvent({
               trackId: 'personal', workspaceId: 'personal', type: 'growth', title: 'IPC 个人成长',
-              startDate: '2026-08', datePrecision: 'month', importance: 'important'
+              startDate: '2026-08', datePrecision: 'month', importance: 'important', impactDirection: 'negative', impactLevel: 3
             });
             await window.siteNest.addTimelineEvent({
               trackId: 'work', workspaceId: 'work', type: 'responsibility', title: 'IPC 持续职责',
-              startDate: '2026', datePrecision: 'year', ongoing: true
+              startDate: '2026', datePrecision: 'year', ongoing: true, impactDirection: 'negative', impactLevel: 2
             });
-            const configured = await window.siteNest.updateTimelineSettings({ selectedYear: 2026, viewMode: 'timeline' });
+            const configured = await window.siteNest.updateTimelineSettings({ selectedYear: 2026, selectedTrackId: 'work', lastTrackId: 'work', viewMode: 'timeline' });
             applyTimelineSnapshot(configured);
             currentTaskView = 'timeline';
             navigateTo('plan');
             await loadTimelineYear(2026, { force: true });
-            const timelineCardCount = document.querySelectorAll('[data-timeline-event-id]').length;
+            const workNodeCount = document.querySelectorAll('.timeline-waveform-node[data-timeline-event-id]').length;
+            const workOnly = timelineState.events.every((item) => item.trackId === 'work');
+            const workPath = document.querySelector('.timeline-waveform-path')?.getAttribute('d') || '';
             const listSnapshot = await window.siteNest.updateTimelineSettings({ viewMode: 'list' });
             applyTimelineSnapshot(listSnapshot);
             renderTimeline();
             const listRowCount = document.querySelectorAll('.timeline-list-row').length;
-            const restored = await window.siteNest.updateTimelineSettings({ viewMode: 'timeline' });
+            const personalSnapshot = await window.siteNest.updateTimelineSettings({ selectedTrackId: 'personal', lastTrackId: 'personal', viewMode: 'timeline' });
+            applyTimelineSnapshot(personalSnapshot);
+            renderTimeline();
+            const personalNodeCount = document.querySelectorAll('.timeline-waveform-node[data-timeline-event-id]').length;
+            const personalOnly = timelineState.events.every((item) => item.trackId === 'personal');
+            const restored = await window.siteNest.updateTimelineSettings({ selectedTrackId: 'work', lastTrackId: 'work', viewMode: 'timeline' });
             applyTimelineSnapshot(restored);
             const taskResult = await window.siteNest.addTask({ title: '转为时间轴草稿', workspaceId: 'work', status: 'done', notes: '任务备注' });
             applyTaskSnapshot(taskResult);
@@ -6699,13 +6727,17 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
               relatedTaskIds: JSON.parse(document.getElementById('timelineRelatedTaskIds').value || '[]')
             };
             closeModal(document.getElementById('timelineEventModal'));
-            const countAfterDraft = (await window.siteNest.getTimeline(2026)).events.length;
+            const countAfterDraft = (await window.siteNest.getTimeline({ year: 2026, trackId: 'work' })).events.length;
             const search = await window.siteNest.searchTimeline('工作成就', 5);
-            const emptyYear = await window.siteNest.getTimeline(2027);
+            const emptyYear = await window.siteNest.getTimeline({ year: 2027, trackId: 'work' });
             return {
               beforeTracks: before.tracks.map((item) => item.id),
-              eventCount: timelineState.events.length,
-              timelineCardCount,
+              workEventCount: timelineState.events.length,
+              workNodeCount,
+              personalNodeCount,
+              workOnly,
+              personalOnly,
+              workPath,
               listRowCount,
               draft,
               countBeforeDraft,
