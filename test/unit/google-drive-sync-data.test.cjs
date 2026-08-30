@@ -98,6 +98,7 @@ function sampleState() {
   state.taskSettings = { remindersEnabled: true, trayOnClose: true };
   state.timelineEvents = [{ id: "local-timeline", title: "仅本机时间轴", sourceUrl: "https://example.test/?token=secret" }];
   state.timelineUiSettings = { selectedYear: 2026, viewMode: "timeline" };
+  state.tabGroups = [{ id: "local-tab-group", workspaceId: "personal", name: "仅本机分组" }];
   return state;
 }
 
@@ -133,6 +134,7 @@ test("safe snapshot is an allowlist and excludes sessions, OAuth material, cooki
   assert.equal(Object.hasOwn(snapshot, "timelineTracks"), false);
   assert.equal(Object.hasOwn(snapshot, "timelineEvents"), false);
   assert.equal(Object.hasOwn(snapshot, "timelineUiSettings"), false);
+  assert.equal(Object.hasOwn(snapshot, "tabGroups"), false);
 
   const site = snapshot.sites[0];
   assert.equal(site.url, "https://safe.example.test/path?page=1");

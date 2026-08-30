@@ -162,6 +162,7 @@ const dom = {
   browserTabBar: document.getElementById("browserTabBar"),
   browserTabList: document.getElementById("browserTabList"),
   browserTabHint: document.getElementById("browserTabHint"),
+  browserOrganizeTabs: document.getElementById("browserOrganizeTabs"),
   webviewFrame: document.getElementById("webviewFrame"),
   webviewPlaceholder: document.getElementById("webviewPlaceholder"),
   webviewPlaceholderSpinner: document.getElementById("webviewPlaceholderSpinner"),
@@ -290,6 +291,20 @@ const dom = {
   timelineReviewExportMarkdown: document.getElementById("timelineReviewExportMarkdown"),
   timelineReviewExportJson: document.getElementById("timelineReviewExportJson"),
   taskModal: document.getElementById("taskModal"),
+  tabGroupModal: document.getElementById("tabGroupModal"),
+  tabGroupModalTitle: document.getElementById("tabGroupModalTitle"),
+  tabGroupForm: document.getElementById("tabGroupForm"),
+  tabGroupId: document.getElementById("tabGroupId"),
+  tabGroupWorkspaceId: document.getElementById("tabGroupWorkspaceId"),
+  tabGroupTabIds: document.getElementById("tabGroupTabIds"),
+  tabGroupName: document.getElementById("tabGroupName"),
+  tabGroupColor: document.getElementById("tabGroupColor"),
+  tabGroupIcon: document.getElementById("tabGroupIcon"),
+  duplicateTabsModal: document.getElementById("duplicateTabsModal"),
+  duplicateTabsForm: document.getElementById("duplicateTabsForm"),
+  duplicateTabsGroups: document.getElementById("duplicateTabsGroups"),
+  duplicateTabsSimilar: document.getElementById("duplicateTabsSimilar"),
+  resolveDuplicateTabsButton: document.getElementById("resolveDuplicateTabsButton"),
   taskForm: document.getElementById("taskForm"),
   taskModalTitle: document.getElementById("taskModalTitle"),
   taskId: document.getElementById("taskId"),
@@ -422,6 +437,7 @@ let appState = {
   activeWorkspaceId: "personal",
   sites: [],
   bookmarks: [],
+  tabGroups: [],
   importMeta: null,
   automations: null,
   uiSettings: {
@@ -506,6 +522,7 @@ let browserSnapshot = {
   siteId: null,
   activeTabId: null,
   tabs: [],
+  tabGroups: [],
   hasOpenPage: false,
   title: "",
   url: "",
@@ -524,6 +541,7 @@ let workspaceSwitchInProgress = false;
 let workspaceSwitchBrowserIntent = false;
 let desiredWorkspaceId = "personal";
 let browserTabDrag = null;
+let duplicateTabsCurrentReport = null;
 let siteContextMenuTarget = null;
 let chromeBookmarkReadState = "idle";
 let chromeBookmarkReadError = "";
@@ -779,9 +797,20 @@ function localSearchMatches(query) {
   const normalized = query.toLocaleLowerCase("zh-CN");
   const matches = [];
   allCurrentSessions()
-    .filter((session) => `${sessionTitle(session)} ${session.url || ""}`.toLocaleLowerCase("zh-CN").includes(normalized))
+    .filter((session) => `${sessionTitle(session)} ${session.url || ""} ${tabGroupById(session.tabGroupId)?.name || ""}`.toLocaleLowerCase("zh-CN").includes(normalized))
     .slice(0, 5)
-    .forEach((session) => matches.push(globalResult("当前会话", `session:${session.tabId}`, sessionTitle(session), `${workspaceName(session.workspaceId)} · ${hostFromUrl(session.url)}`, "会话", () => showSession(session))));
+    .forEach((session) => matches.push(globalResult("当前会话", `session:${session.tabId}`, sessionTitle(session), `${workspaceName(session.workspaceId)} · ${tabGroupById(session.tabGroupId)?.name || "未分组"} · ${hostFromUrl(session.url)}`, "会话", () => showSession(session))));
+  (appState.tabGroups || [])
+    .filter((group) => !group.deletedAt && group.name.toLocaleLowerCase("zh-CN").includes(normalized))
+    .slice(0, 5)
+    .forEach((group) => matches.push(globalResult(
+      "页签分组",
+      `tab-group:${group.id}`,
+      group.name,
+      `${workspaceName(group.workspaceId)} · ${tabCountForGroup(group.id, group.workspaceId)} 个页签`,
+      "分组",
+      () => showTabGroup(group),
+    )));
   appState.sites
     .filter((site) => `${site.name} ${site.url} ${site.description || ""}`.toLocaleLowerCase("zh-CN").includes(normalized))
     .slice(0, 5)
@@ -1294,12 +1323,23 @@ function defaultSiteKind(workspaceId = activeWorkspaceId()) {
   return workspaceId === "work" ? "workApp" : "normal";
 }
 
+function tabGroupsForWorkspaceState(workspaceId, source = appState.tabGroups) {
+  return (Array.isArray(source) ? source : [])
+    .filter((group) => group.workspaceId === workspaceId && !group.deletedAt)
+    .sort((left, right) => Number(left.sortOrder) - Number(right.sortOrder) || String(left.createdAt).localeCompare(String(right.createdAt)));
+}
+
+function tabGroupById(groupId) {
+  return (appState.tabGroups || []).find((group) => group.id === groupId && !group.deletedAt) || null;
+}
+
 function emptyBrowserSnapshot(workspaceId = activeWorkspaceId()) {
   return {
     workspaceId,
     siteId: null,
     activeTabId: null,
     tabs: [],
+    tabGroups: tabGroupsForWorkspaceState(workspaceId),
     hasOpenPage: false,
     title: "",
     url: "",
@@ -1344,8 +1384,34 @@ function normalizeWorkspaceBrowserState(value, workspaceId = activeWorkspaceId()
       active: Boolean(tab.active),
       allowDuplicate: tab.allowDuplicate === true,
       keepRunning: tab.keepRunning === true,
+      webContentsId: Number.isFinite(Number(tab.webContentsId)) ? Number(tab.webContentsId) : null,
+      tabGroupId: tab.tabGroupId ? String(tab.tabGroupId) : null,
+      groupSortOrder: Number.isFinite(Number(tab.groupSortOrder)) ? Number(tab.groupSortOrder) : 0,
       lifecycleState: String(tab.lifecycleState || ""),
     }));
+  const rawGroups = Array.isArray(incoming.tabGroups)
+    ? incoming.tabGroups
+    : tabGroupsForWorkspaceState(workspaceId);
+  const tabGroups = rawGroups
+    .filter((group) => group && group.id && !group.deletedAt && String(group.workspaceId || workspaceId) === String(workspaceId))
+    .map((group, index) => ({
+      id: String(group.id),
+      workspaceId: String(group.workspaceId || workspaceId),
+      name: String(group.name || "未命名分组"),
+      colorKey: String(group.colorKey || "pine"),
+      iconKey: String(group.iconKey || "folder"),
+      collapsed: group.collapsed === true,
+      sortOrder: Number.isFinite(Number(group.sortOrder)) ? Number(group.sortOrder) : index,
+      lastActiveSessionId: group.lastActiveSessionId ? String(group.lastActiveSessionId) : null,
+      createdAt: group.createdAt || null,
+      updatedAt: group.updatedAt || null,
+      deletedAt: null,
+    }))
+    .sort((left, right) => left.sortOrder - right.sortOrder);
+  const validGroupIds = new Set(tabGroups.map((group) => group.id));
+  tabs.forEach((tab) => {
+    if (!validGroupIds.has(tab.tabGroupId)) tab.tabGroupId = null;
+  });
   const requestedActiveTabId = Object.prototype.hasOwnProperty.call(incoming, "activeTabId")
     ? incoming.activeTabId
     : persisted.activeTabId;
@@ -1367,6 +1433,7 @@ function normalizeWorkspaceBrowserState(value, workspaceId = activeWorkspaceId()
     workspaceId: String(incoming.workspaceId || workspaceId),
     activeTabId,
     tabs,
+    tabGroups,
     siteId: hasOpenPage && siteId ? String(siteId) : null,
     hasOpenPage,
     currentURL: hasOpenPage ? currentURL : null,
@@ -1467,11 +1534,268 @@ function updateBrowserTabContentState(value = browserSnapshot) {
   }
 }
 
+function commitTabOrganizationResult(result) {
+  const next = browserStateFromResult(result?.browserState || result);
+  if (next) handleBrowserState(next);
+  return next;
+}
+
+function openTabGroupModal(options = {}) {
+  const group = options.group || null;
+  dom.tabGroupModalTitle.textContent = group ? "编辑页签组" : "新建页签组";
+  dom.tabGroupId.value = group?.id || "";
+  dom.tabGroupWorkspaceId.value = group?.workspaceId || options.workspaceId || activeWorkspaceId();
+  dom.tabGroupTabIds.value = JSON.stringify(options.tabIds || []);
+  dom.tabGroupName.value = group?.name || options.name || "";
+  dom.tabGroupColor.value = group?.colorKey || options.colorKey || "pine";
+  dom.tabGroupIcon.value = group?.iconKey || options.iconKey || "folder";
+  openModal(dom.tabGroupModal);
+}
+
+async function toggleTabGroup(group) {
+  try {
+    const result = await window.siteNest.updateTabGroup(group.id, { collapsed: !group.collapsed });
+    commitTabOrganizationResult(result);
+  } catch (error) {
+    showToast("无法切换分组", error?.message || "请稍后重试", "error");
+  }
+}
+
+function tabCountForGroup(groupId, workspaceId = null) {
+  return allCurrentSessions().filter((session) =>
+    session.tabGroupId === groupId && (!workspaceId || session.workspaceId === workspaceId),
+  ).length;
+}
+
+async function mergeTabGroupWith(source, target) {
+  if (!source || !target || source.id === target.id) return;
+  const sourceCount = tabCountForGroup(source.id, source.workspaceId);
+  const targetCount = tabCountForGroup(target.id, target.workspaceId);
+  const confirmed = window.confirm(
+    `将“${source.name}”（${sourceCount} 个页签）合并到“${target.name}”（${targetCount} 个页签）？\n\n页签会移动到目标组末尾，网页不会重新加载。`,
+  );
+  if (!confirmed) return;
+  try {
+    const result = await window.siteNest.mergeTabGroups(source.id, target.id);
+    commitTabOrganizationResult(result);
+    showToast("分组已合并", "网页、会话编号和浏览身份均保持不变；可在组菜单撤销一次");
+  } catch (error) {
+    showToast("无法合并分组", error?.message || "请稍后重试", "error");
+  }
+}
+
+async function undoLastTabGroupMerge() {
+  try {
+    commitTabOrganizationResult(await window.siteNest.undoTabGroupMerge());
+    showToast("已撤销上次分组合并");
+  } catch (error) {
+    showToast("无法撤销分组合并", error?.message || "没有可撤销的操作", "error");
+  }
+}
+
+async function executeTabGroupContextAction(group, action) {
+  if (!group?.id || !action) return;
+  if (action === "edit") {
+    openTabGroupModal({ group });
+    return;
+  }
+  if (action === "toggle") {
+    await toggleTabGroup(group);
+    return;
+  }
+  if (action === "ungroup") {
+    commitTabOrganizationResult(await window.siteNest.ungroupTabGroup(group.id));
+    return;
+  }
+  if (action.startsWith("merge-group:")) {
+    const target = tabGroupById(action.slice("merge-group:".length));
+    await mergeTabGroupWith(group, target);
+    return;
+  }
+  if (action === "undo-merge") {
+    await undoLastTabGroupMerge();
+    return;
+  }
+  if (action === "close-group") {
+    const result = await window.siteNest.closeTabGroup(group.id);
+    commitTabOrganizationResult(result);
+    if (!result.ok) showToast("批量关闭已停止", result.blocked?.reason || "页签受到保护", "error");
+    return;
+  }
+  if (action === "delete-empty") {
+    commitTabOrganizationResult(await window.siteNest.deleteEmptyTabGroup(group.id));
+  }
+}
+
+async function openTopTabGroupContextMenu(group) {
+  if (typeof window.siteNest?.showBrowserTabGroupContextMenu !== "function") {
+    openTabGroupContextMenu(group);
+    return;
+  }
+  try {
+    const result = await window.siteNest.showBrowserTabGroupContextMenu(group.id);
+    await executeTabGroupContextAction(group, result?.action);
+  } catch (error) {
+    showToast("无法打开分组菜单", error?.message || "请稍后重试", "error");
+  }
+}
+
+function openTabGroupContextMenu(group, anchor = {}) {
+  if (!group?.id) return;
+  siteContextMenuTarget = { type: "tab-group", groupId: group.id };
+  const title = document.createElement("strong");
+  title.className = "app-context-menu-title";
+  title.textContent = `${group.name} · ${tabCountForGroup(group.id, group.workspaceId)} 个页签`;
+  const divider = document.createElement("div");
+  divider.className = "app-context-menu-divider";
+  const mergeTargets = tabGroupsForWorkspaceState(group.workspaceId)
+    .filter((candidate) => candidate.id !== group.id);
+  const buttons = [
+    title,
+    contextMenuButton("重命名与修改标识", "edit", () => openTabGroupModal({ group })),
+    contextMenuButton(group.collapsed ? "展开分组" : "折叠分组", group.collapsed ? "chevron-right" : "chevron-down", () => toggleTabGroup(group)),
+    contextMenuButton("将全部页签移出分组", "route", async () => {
+      try {
+        commitTabOrganizationResult(await window.siteNest.ungroupTabGroup(group.id));
+      } catch (error) {
+        showToast("无法移出页签", error?.message || "请稍后重试", "error");
+      }
+    }),
+  ];
+  mergeTargets.forEach((target) => buttons.push(
+    contextMenuButton(`合并到“${target.name}”`, "folder", () => mergeTabGroupWith(group, target)),
+  ));
+  buttons.push(
+    contextMenuButton("撤销上次分组合并", "arrow-left", () => undoLastTabGroupMerge()),
+    divider,
+    contextMenuButton("关闭分组中的页签", "close", async () => {
+      try {
+        const result = await window.siteNest.closeTabGroup(group.id);
+        commitTabOrganizationResult(result);
+        if (!result.ok) showToast("批量关闭已停止", result.blocked?.reason || "页签受到保护", "error");
+      } catch (error) {
+        showToast("无法关闭分组", error?.message || "请稍后重试", "error");
+      }
+    }, { danger: true }),
+  );
+  if (tabCountForGroup(group.id, group.workspaceId) === 0) {
+    buttons.push(contextMenuButton("删除空分组", "trash", async () => {
+      try {
+        commitTabOrganizationResult(await window.siteNest.deleteEmptyTabGroup(group.id));
+      } catch (error) {
+        showToast("无法删除分组", error?.message || "请稍后重试", "error");
+      }
+    }, { danger: true }));
+  }
+  dom.appContextMenu.replaceChildren(...buttons);
+  dom.appContextMenu.hidden = false;
+  positionAppContextMenu(anchor);
+}
+
+async function openSiteGroupSuggestion(session) {
+  try {
+    const result = await window.siteNest.suggestSiteTabGroups(session.workspaceId);
+    const suggestion = (result?.suggestions || []).find((candidate) => candidate.tabIds.includes(session.tabId));
+    if (!suggestion) {
+      showToast("没有可分组的同站点页签", "至少需要两个明确属于同一 hostname 或已配置站点家族的页签");
+      return;
+    }
+    openTabGroupModal({
+      workspaceId: session.workspaceId,
+      tabIds: suggestion.tabIds,
+      name: suggestion.suggestedName,
+    });
+  } catch (error) {
+    showToast("无法分析站点分组", error?.message || "请稍后重试", "error");
+  }
+}
+
+function duplicateTabStatusLabels(tab) {
+  const labels = [];
+  if (tab.audible) labels.push("正在播放声音");
+  if (tab.downloading) labels.push("正在下载");
+  if (tab.unsavedRisk) labels.push(tab.protectionReason || "可能有未保存内容");
+  return labels;
+}
+
+function formatSessionLastActive(value) {
+  const timestamp = Date.parse(value || "");
+  if (!Number.isFinite(timestamp)) return "未知";
+  const minutes = Math.max(0, Math.round((Date.now() - timestamp) / 60000));
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(timestamp));
+}
+
+function renderDuplicateTabsReport(report) {
+  dom.duplicateTabsGroups.replaceChildren();
+  dom.duplicateTabsSimilar.replaceChildren();
+  const exactGroups = report?.exact || [];
+  if (!exactGroups.length) {
+    const empty = document.createElement("div");
+    empty.className = "duplicate-tabs-empty";
+    empty.textContent = "没有发现完全重复的页签。";
+    dom.duplicateTabsGroups.appendChild(empty);
+  }
+  exactGroups.forEach((group, groupIndex) => {
+    const fieldset = document.createElement("fieldset");
+    fieldset.className = "duplicate-tabs-group";
+    const legend = document.createElement("legend");
+    legend.textContent = `完全重复 · ${group.tabs.length} 个`;
+    fieldset.appendChild(legend);
+    group.tabs.forEach((tab) => {
+      const label = document.createElement("label");
+      label.className = `duplicate-tab-choice${tab.unsavedRisk ? " has-risk" : ""}`;
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = `duplicate-keeper-${groupIndex}`;
+      radio.value = tab.tabId;
+      radio.checked = tab.tabId === group.recommendedKeeperId;
+      const copy = document.createElement("span");
+      const title = document.createElement("strong");
+      title.textContent = tab.title || hostFromUrl(tab.url) || "未命名页签";
+      const url = document.createElement("small");
+      url.textContent = tab.url;
+      const meta = document.createElement("small");
+      const status = duplicateTabStatusLabels(tab);
+      meta.textContent = `${tab.groupName} · 最后使用 ${formatSessionLastActive(tab.lastActiveAt)}${status.length ? ` · ${status.join(" · ")}` : ""}`;
+      copy.append(title, url, meta);
+      label.append(radio, copy);
+      fieldset.appendChild(label);
+    });
+    dom.duplicateTabsGroups.appendChild(fieldset);
+  });
+  const similar = (report?.similar || []).filter((group) => group.tabs.length > 1);
+  if (similar.length) {
+    const heading = document.createElement("strong");
+    heading.textContent = "同站点提示（不会关闭）";
+    dom.duplicateTabsSimilar.appendChild(heading);
+    similar.forEach((group) => {
+      const row = document.createElement("div");
+      row.textContent = `${group.hostname} · ${group.tabs.length} 个不同页面`;
+      dom.duplicateTabsSimilar.appendChild(row);
+    });
+  }
+  dom.resolveDuplicateTabsButton.disabled = exactGroups.length === 0;
+}
+
+async function openDuplicateTabsDialog(workspaceId = activeWorkspaceId()) {
+  try {
+    duplicateTabsCurrentReport = await window.siteNest.detectDuplicateTabs(workspaceId);
+    renderDuplicateTabsReport(duplicateTabsCurrentReport);
+    openModal(dom.duplicateTabsModal);
+  } catch (error) {
+    showToast("无法检测重复页签", error?.message || "请稍后重试", "error");
+  }
+}
+
 function renderBrowserTabs(value = browserSnapshot) {
   const snapshot = normalizeWorkspaceBrowserState(value, value?.workspaceId || activeWorkspaceId());
   dom.browserTabHint.textContent = `${workspaceName(snapshot.workspaceId)}空间 · 按住标签向下拖可拆出`;
   dom.browserTabList.replaceChildren();
-  for (const tab of snapshot.tabs) {
+  const appendBrowserTab = (tab, target) => {
     const item = document.createElement("div");
     item.className = "browser-tab";
     item.dataset.browserTabId = tab.tabId;
@@ -1576,6 +1900,7 @@ function renderBrowserTabs(value = browserSnapshot) {
       item.classList.add("is-dragging");
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", tab.tabId);
+      event.dataTransfer.setData("application/x-site-nest-tab", tab.tabId);
     });
     item.addEventListener("drag", (event) => {
       if (!browserTabDrag || browserTabDrag.tabId !== tab.tabId) return;
@@ -1593,6 +1918,7 @@ function renderBrowserTabs(value = browserSnapshot) {
       const drag = browserTabDrag;
       browserTabDrag = null;
       if (!drag || drag.tabId !== tab.tabId || drag.detached) return;
+      if (drag.droppedInside) return;
       const endScreenX = Number(event.screenX) !== 0
         ? Number(event.screenX)
         : Number(drag.lastScreenX ?? drag.startScreenX);
@@ -1619,8 +1945,143 @@ function renderBrowserTabs(value = browserSnapshot) {
         void detachBrowserTabToWindow(tab.tabId, { screenX: endScreenX, screenY: endScreenY });
       }
     });
-    dom.browserTabList.appendChild(item);
+    item.addEventListener("dragover", (event) => {
+      const draggedTabId = event.dataTransfer.getData("application/x-site-nest-tab") || browserTabDrag?.tabId;
+      if (!draggedTabId || draggedTabId === tab.tabId) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+    });
+    item.addEventListener("drop", async (event) => {
+      const draggedTabId = event.dataTransfer.getData("application/x-site-nest-tab") || browserTabDrag?.tabId;
+      if (!draggedTabId || draggedTabId === tab.tabId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (browserTabDrag) browserTabDrag.droppedInside = true;
+      const dragged = snapshot.tabs.find((candidate) => candidate.tabId === draggedTabId);
+      if (!dragged) return;
+      try {
+        if ((dragged.tabGroupId || null) !== (tab.tabGroupId || null)) {
+          commitTabOrganizationResult(await window.siteNest.assignTabsToGroup(
+            snapshot.workspaceId,
+            [draggedTabId],
+            tab.tabGroupId || null,
+          ));
+        }
+        const orderedIds = snapshot.tabs.map((candidate) => candidate.tabId).filter((id) => id !== draggedTabId);
+        const targetIndex = orderedIds.indexOf(tab.tabId);
+        const rect = item.getBoundingClientRect();
+        const insertAfter = event.clientX > rect.left + rect.width / 2;
+        orderedIds.splice(targetIndex + (insertAfter ? 1 : 0), 0, draggedTabId);
+        commitTabOrganizationResult(await window.siteNest.reorderBrowserTabs(snapshot.workspaceId, orderedIds));
+      } catch (error) {
+        showToast("无法移动页签", error?.message || "请稍后重试", "error");
+      }
+    });
+    target.appendChild(item);
+  };
+
+  const groupedTabIds = new Set();
+  const groups = snapshot.tabGroups || [];
+  for (const group of groups) {
+    const tabs = snapshot.tabs
+      .filter((tab) => tab.tabGroupId === group.id)
+      .sort((left, right) => left.groupSortOrder - right.groupSortOrder);
+    tabs.forEach((tab) => groupedTabIds.add(tab.tabId));
+    const wrapper = document.createElement("div");
+    wrapper.className = `browser-tab-group color-${group.colorKey}${group.collapsed ? " is-collapsed" : ""}`;
+    wrapper.dataset.tabGroupId = group.id;
+    const label = document.createElement("button");
+    label.type = "button";
+    label.className = "browser-tab-group-label";
+    label.draggable = true;
+    const activeTab = tabs.find((tab) => tab.tabId === snapshot.activeTabId || tab.active);
+    label.classList.toggle("is-active", Boolean(activeTab));
+    label.title = activeTab
+      ? `${group.name} · 当前：${activeTab.title || hostFromUrl(activeTab.url)}`
+      : `${group.name} · ${tabs.length} 个页签`;
+    label.append(
+      createIconElement(group.iconKey || "folder"),
+      document.createTextNode(group.name),
+    );
+    const count = document.createElement("span");
+    count.textContent = String(tabs.length);
+    label.append(count, createIconElement(group.collapsed ? "chevron-right" : "chevron-down"));
+    label.addEventListener("click", () => void toggleTabGroup(group));
+    label.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void openTopTabGroupContextMenu(group);
+    });
+    label.addEventListener("dragstart", (event) => {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("application/x-site-nest-tab-group", group.id);
+    });
+    label.addEventListener("dragover", (event) => {
+      const tabId = event.dataTransfer.getData("application/x-site-nest-tab") || browserTabDrag?.tabId;
+      const groupId = event.dataTransfer.getData("application/x-site-nest-tab-group");
+      if (tabId || (groupId && groupId !== group.id)) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+      }
+    });
+    label.addEventListener("drop", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const tabId = event.dataTransfer.getData("application/x-site-nest-tab") || browserTabDrag?.tabId;
+      if (tabId) {
+        if (browserTabDrag) browserTabDrag.droppedInside = true;
+        try {
+          commitTabOrganizationResult(await window.siteNest.assignTabsToGroup(snapshot.workspaceId, [tabId], group.id));
+        } catch (error) {
+          showToast("无法加入分组", error?.message || "请稍后重试", "error");
+        }
+        return;
+      }
+      const sourceGroupId = event.dataTransfer.getData("application/x-site-nest-tab-group");
+      const sourceGroup = groups.find((candidate) => candidate.id === sourceGroupId);
+      if (!sourceGroup || sourceGroup.id === group.id) return;
+      const rect = label.getBoundingClientRect();
+      const ratio = (event.clientX - rect.left) / Math.max(1, rect.width);
+      if (ratio > 0.25 && ratio < 0.75) {
+        await mergeTabGroupWith(sourceGroup, group);
+        return;
+      }
+      const orderedGroupIds = groups.map((candidate) => candidate.id).filter((id) => id !== sourceGroup.id);
+      const targetIndex = orderedGroupIds.indexOf(group.id);
+      orderedGroupIds.splice(targetIndex + (ratio >= 0.75 ? 1 : 0), 0, sourceGroup.id);
+      try {
+        commitTabOrganizationResult(await window.siteNest.reorderTabGroups(snapshot.workspaceId, orderedGroupIds));
+      } catch (error) {
+        showToast("无法调整分组顺序", error?.message || "请稍后重试", "error");
+      }
+    });
+    const tabContainer = document.createElement("div");
+    tabContainer.className = "browser-tab-group-tabs";
+    if (!group.collapsed) tabs.forEach((tab) => appendBrowserTab(tab, tabContainer));
+    wrapper.append(label, tabContainer);
+    dom.browserTabList.appendChild(wrapper);
   }
+  snapshot.tabs
+    .filter((tab) => !groupedTabIds.has(tab.tabId))
+    .forEach((tab) => appendBrowserTab(tab, dom.browserTabList));
+
+  dom.browserTabList.ondragover = (event) => {
+    if (!event.target.closest(".browser-tab, .browser-tab-group-label") && (browserTabDrag?.tabId || event.dataTransfer.getData("application/x-site-nest-tab"))) {
+      event.preventDefault();
+    }
+  };
+  dom.browserTabList.ondrop = async (event) => {
+    if (event.target.closest(".browser-tab, .browser-tab-group-label")) return;
+    const tabId = event.dataTransfer.getData("application/x-site-nest-tab") || browserTabDrag?.tabId;
+    if (!tabId) return;
+    event.preventDefault();
+    if (browserTabDrag) browserTabDrag.droppedInside = true;
+    try {
+      commitTabOrganizationResult(await window.siteNest.assignTabsToGroup(snapshot.workspaceId, [tabId], null));
+    } catch (error) {
+      showToast("无法移出分组", error?.message || "请稍后重试", "error");
+    }
+  };
   updateBrowserTabContentState(snapshot);
   requestAnimationFrame(() => {
     dom.browserTabList.querySelector(".browser-tab.is-active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -1659,6 +2120,23 @@ async function closeBrowserTab(tabId) {
     commitBrowserTabResult(result);
   } catch (error) {
     showToast("无法关闭标签", error?.message || "请稍后重试", "error");
+  }
+}
+
+async function restoreRecentlyClosedBrowserTab(closedId = null) {
+  if (typeof window.siteNest?.restoreRecentlyClosedBrowserTab !== "function") {
+    showToast("页签恢复尚未配置", "桌面端未提供最近关闭页签恢复接口", "error");
+    return;
+  }
+  try {
+    const result = await window.siteNest.restoreRecentlyClosedBrowserTab(closedId, browserBounds());
+    commitBrowserTabResult(result);
+    showToast(
+      "已恢复最近关闭的页签",
+      result?.restoredToOriginalGroup ? "已放回原页签组" : "原页签组不存在，已恢复为未分组",
+    );
+  } catch (error) {
+    showToast("无法恢复页签", error?.message || "没有可恢复的最近关闭页签", "error");
   }
 }
 
@@ -2709,6 +3187,19 @@ async function executeSessionContextAction(session, action) {
     browserLifecycleState = await window.siteNest.suspendBrowserTab(session.tabId);
     renderBrowserMemorySettings();
     showToast("页签已休眠", "再次选择时会恢复原地址和登录身份");
+  } else if (action === "new-group") {
+    openTabGroupModal({ workspaceId: session.workspaceId, tabIds: [session.tabId] });
+  } else if (action.startsWith("assign-group:")) {
+    const groupId = action.slice("assign-group:".length);
+    commitTabOrganizationResult(await window.siteNest.assignTabsToGroup(session.workspaceId, [session.tabId], groupId));
+  } else if (action === "remove-group") {
+    commitTabOrganizationResult(await window.siteNest.assignTabsToGroup(session.workspaceId, [session.tabId], null));
+  } else if (action === "suggest-site-group") {
+    await openSiteGroupSuggestion(session);
+  } else if (action === "organize-duplicates") {
+    await openDuplicateTabsDialog(session.workspaceId);
+  } else if (action === "restore-recently-closed") {
+    await restoreRecentlyClosedBrowserTab();
   } else if (action === "close") {
     await closeSessionFromSidebar(session);
   }
@@ -2743,7 +3234,18 @@ function openSessionContextMenu(session, anchor = {}) {
     contextMenuButton("在外部浏览器打开", "external", () => executeSessionContextAction(session, "open-external")),
     contextMenuButton(session.keepRunning ? "取消保持运行" : "保持运行", "window", () => executeSessionContextAction(session, session.keepRunning ? "allow-sleep" : "keep-running")),
     contextMenuButton("立即休眠", "clock", () => executeSessionContextAction(session, "suspend")),
+    divider.cloneNode(),
+    contextMenuButton("添加到新分组", "folder", () => executeSessionContextAction(session, "new-group")),
+    ...tabGroupsForWorkspaceState(session.workspaceId)
+      .filter((group) => group.id !== session.tabGroupId)
+      .map((group) => contextMenuButton(`添加到“${group.name}”`, "folder", () => executeSessionContextAction(session, `assign-group:${group.id}`))),
+    ...(session.tabGroupId
+      ? [contextMenuButton("从分组移除", "route", () => executeSessionContextAction(session, "remove-group"))]
+      : []),
+    contextMenuButton("将相同站点页签分组", "grid", () => executeSessionContextAction(session, "suggest-site-group")),
+    contextMenuButton("整理重复页签", "copy", () => executeSessionContextAction(session, "organize-duplicates")),
     divider,
+    contextMenuButton("恢复最近关闭的页签", "arrow-left", () => executeSessionContextAction(session, "restore-recently-closed")),
     contextMenuButton("关闭页签", "close", () => executeSessionContextAction(session, "close"), { danger: true }),
   );
   dom.appContextMenu.hidden = false;
@@ -2814,6 +3316,27 @@ async function showSession(session) {
   }
 }
 
+async function showTabGroup(group) {
+  const sessions = allCurrentSessions()
+    .filter((session) => session.workspaceId === group.workspaceId && session.tabGroupId === group.id)
+    .sort((left, right) => Date.parse(right.lastActiveAt || 0) - Date.parse(left.lastActiveAt || 0));
+  if (!sessions.length) {
+    if (group.collapsed) await toggleTabGroup(group);
+    showToast("这个分组目前没有页签", group.name);
+    return;
+  }
+  if (group.collapsed) {
+    try {
+      commitTabOrganizationResult(await window.siteNest.updateTabGroup(group.id, { collapsed: false }));
+    } catch (error) {
+      showToast("无法展开分组", error?.message || "请稍后重试", "error");
+      return;
+    }
+  }
+  const preferred = sessions.find((session) => session.tabId === group.lastActiveSessionId) || sessions[0];
+  await showSession(preferred);
+}
+
 async function closeSessionFromSidebar(session) {
   try {
     setPageActionPanelOpen(false);
@@ -2849,7 +3372,7 @@ function renderCurrentSessions() {
     dom.currentSessionList.appendChild(empty);
     return;
   }
-  for (const session of sessions) {
+  const appendSessionItem = (session, target) => {
     const item = document.createElement("div");
     item.className = `current-session-item${session.active ? " is-active" : ""}`;
     item.dataset.sessionId = session.tabId;
@@ -2920,8 +3443,46 @@ function renderCurrentSessions() {
         element: item,
       });
     });
-    dom.currentSessionList.appendChild(item);
+    target.appendChild(item);
+  };
+
+  const groupedSessionIds = new Set();
+  for (const workspace of workspaces()) {
+    const workspaceSessions = sessions.filter((session) => session.workspaceId === workspace.id);
+    for (const group of tabGroupsForWorkspaceState(workspace.id)) {
+      const groupSessions = workspaceSessions.filter((session) => session.tabGroupId === group.id);
+      if (!groupSessions.length) continue;
+      groupSessions.forEach((session) => groupedSessionIds.add(session.tabId));
+      const section = document.createElement("section");
+      section.className = "current-session-group";
+      section.dataset.tabGroupId = group.id;
+      const label = document.createElement("button");
+      label.type = "button";
+      label.className = "current-session-group-label";
+      label.classList.toggle("is-active", groupSessions.some((session) => session.active));
+      label.title = `${workspace.name} · ${group.name}`;
+      label.append(
+        createIconElement(group.collapsed ? "chevron-right" : "chevron-down"),
+        createIconElement(group.iconKey || "folder"),
+        document.createTextNode(group.name),
+      );
+      const meta = document.createElement("small");
+      meta.textContent = `${workspace.name} · ${groupSessions.length}`;
+      label.appendChild(meta);
+      label.addEventListener("click", () => void toggleTabGroup(group));
+      label.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openTabGroupContextMenu(group, { clientX: event.clientX, clientY: event.clientY, element: label });
+      });
+      section.appendChild(label);
+      if (!group.collapsed) groupSessions.forEach((session) => appendSessionItem(session, section));
+      dom.currentSessionList.appendChild(section);
+    }
   }
+  sessions
+    .filter((session) => !groupedSessionIds.has(session.tabId))
+    .forEach((session) => appendSessionItem(session, dom.currentSessionList));
 }
 
 const POPUP_MODE_LABELS = {
@@ -5997,6 +6558,10 @@ function handleBrowserState(next = {}) {
   const normalized = normalizeWorkspaceBrowserState(next, nextWorkspaceId);
   const previousUrl = browserSnapshot.url;
   browserSnapshot = { ...browserSnapshot, ...normalized };
+  appState.tabGroups = [
+    ...(appState.tabGroups || []).filter((group) => group.workspaceId !== nextWorkspaceId),
+    ...normalized.tabGroups,
+  ];
   if (previousUrl && normalized.url && previousUrl !== normalized.url) {
     renderPageResources({ items: [], detecting: false });
   }
@@ -6585,6 +7150,67 @@ function bindEvents() {
     workspaceId: activeWorkspaceId(),
     siteKind: defaultSiteKind(),
   }));
+  dom.browserOrganizeTabs.addEventListener("click", () => void openDuplicateTabsDialog(activeWorkspaceId()));
+  dom.tabGroupForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const groupId = dom.tabGroupId.value;
+    const name = dom.tabGroupName.value.trim();
+    if (!name) return;
+    try {
+      if (groupId) {
+        commitTabOrganizationResult(await window.siteNest.updateTabGroup(groupId, {
+          name,
+          colorKey: dom.tabGroupColor.value,
+          iconKey: dom.tabGroupIcon.value,
+        }));
+      } else {
+        let tabIds = [];
+        try {
+          tabIds = JSON.parse(dom.tabGroupTabIds.value || "[]");
+        } catch {
+          tabIds = [];
+        }
+        commitTabOrganizationResult(await window.siteNest.createTabGroup({
+          workspaceId: dom.tabGroupWorkspaceId.value || activeWorkspaceId(),
+          name,
+          colorKey: dom.tabGroupColor.value,
+          iconKey: dom.tabGroupIcon.value,
+          tabIds,
+        }));
+      }
+      closeModal(dom.tabGroupModal);
+      showToast(groupId ? "页签组已更新" : "页签组已创建", "网页不会重新加载");
+    } catch (error) {
+      showToast("无法保存页签组", error?.message || "请稍后重试", "error");
+    }
+  });
+  dom.duplicateTabsForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const report = duplicateTabsCurrentReport;
+    if (!report?.exact?.length) return;
+    let totalClosed = 0;
+    for (const [index, group] of report.exact.entries()) {
+      const keeper = dom.duplicateTabsForm.querySelector(`input[name="duplicate-keeper-${index}"]:checked`)?.value;
+      if (!keeper) continue;
+      const closeTabIds = group.tabs.map((tab) => tab.tabId).filter((tabId) => tabId !== keeper);
+      try {
+        const result = await window.siteNest.resolveDuplicateTabs(keeper, closeTabIds);
+        commitTabOrganizationResult(result);
+        totalClosed += result.closedTabIds?.length || 0;
+        if (!result.ok) {
+          showToast("重复页签整理已停止", result.blocked?.reason || "页签可能有未保存内容", "error");
+          duplicateTabsCurrentReport = await window.siteNest.detectDuplicateTabs(report.workspaceId);
+          renderDuplicateTabsReport(duplicateTabsCurrentReport);
+          return;
+        }
+      } catch (error) {
+        showToast("无法关闭重复页签", error?.message || "请稍后重试", "error");
+        return;
+      }
+    }
+    closeModal(dom.duplicateTabsModal);
+    showToast("重复页签已整理", `已关闭 ${totalClosed} 个经确认的完全重复页签`);
+  });
 
   document.querySelectorAll(".modal-backdrop").forEach((modal) => {
     modal.addEventListener("mousedown", (event) => {
@@ -7010,6 +7636,15 @@ function bindEvents() {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
       event.preventDefault();
       openGlobalSearchPalette();
+      return;
+    }
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      event.shiftKey &&
+      event.key.toLowerCase() === "t"
+    ) {
+      event.preventDefault();
+      void restoreRecentlyClosedBrowserTab();
       return;
     }
     if (event.key === "Escape") {

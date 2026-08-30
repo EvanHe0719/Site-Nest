@@ -7,6 +7,18 @@ const {
   normalizeSearchSettings,
   recordSearchHistory,
 } = require("../../electron/browser/search-service.cjs");
+const {
+  SiteFamilyRegistry,
+  assignTabsToGroup,
+  createTabGroup,
+  detectDuplicateTabs,
+  mergeTabGroups,
+  normalizeComparableTabUrl,
+  reorderGroups,
+  reorderTabs,
+  undoTabGroupMerge,
+  updateTabGroup,
+} = require("../../electron/browser/tab-organization.cjs");
 
 const scenario = process.env.QIYE_WORKSPACE_HARNESS_SCENARIO || "isolation";
 const width = Number(process.env.QIYE_WORKSPACE_HARNESS_WIDTH) || 1480;
@@ -93,6 +105,7 @@ const state = {
   workspaces,
   activeWorkspaceId: "personal",
   sites,
+  tabGroups: [],
   bookmarks: [
     { id: "bookmark-one", name: "示例书签", url: "https://bookmark.example.test/one", folder: "测试", sourceProfile: "Evan" },
     { id: "bookmark-two", name: "工作书签", url: "https://bookmark.example.test/two", folder: "工作", sourceProfile: "Evan" },
@@ -221,6 +234,7 @@ const webContentsIds = new Map();
 let tabSequence = 0;
 let webContentsSequence = 7000;
 let nextTabContextMenuAction = null;
+let lastHarnessGroupMergeUndo = null;
 
 function siteForWorkspace(workspaceId, siteId) {
   return state.sites.find(
@@ -270,6 +284,8 @@ function createPersistedTab(workspaceId, site, url, options = {}) {
     lastActiveAt: new Date().toISOString(),
     loadingState: "idle",
     errorState: null,
+    tabGroupId: options.tabGroupId || null,
+    groupSortOrder: Number(options.groupSortOrder) || 0,
     updatedAt: new Date().toISOString(),
   };
   if (options.allowDuplicate) tab.allowDuplicate = true;
@@ -285,7 +301,8 @@ function compactBrowserState(workspaceId) {
     : null;
   const hasOpenPage = Boolean(activeTab?.url && !activeDetached);
   const tabs = persisted.tabs.map((tab) => ({
-    tabId: tab.tabId,
+               tabId: tab.tabId,
+               sessionId: tab.sessionId || tab.tabId,
     sessionId: tab.sessionId || tab.tabId,
     workspaceId,
     siteId: tab.siteId || null,
@@ -302,12 +319,17 @@ function compactBrowserState(workspaceId) {
     detached: detachedTabIds.has(tab.tabId),
     active: tab.tabId === persisted.activeTabId,
     allowDuplicate: tab.allowDuplicate === true,
+    tabGroupId: tab.tabGroupId || null,
+    groupSortOrder: Number(tab.groupSortOrder) || 0,
     webContentsId: webContentsIdForTab(tab.tabId),
   }));
   return {
     workspaceId,
     activeTabId: persisted.activeTabId,
     tabs,
+    tabGroups: state.tabGroups
+      .filter((group) => group.workspaceId === workspaceId && !group.deletedAt)
+      .sort((left, right) => left.sortOrder - right.sortOrder),
     siteId: hasOpenPage ? activeTab.siteId || null : null,
     activeSiteId: hasOpenPage ? activeTab.siteId || null : null,
     hasOpenPage,
@@ -350,6 +372,29 @@ function workspaceResponseSnapshot(workspaceId) {
   const snapshot = clone(state);
   snapshot.activeWorkspaceId = workspaceId;
   return snapshot;
+}
+
+function tabOrganizationResponse(workspaceId, extra = {}) {
+  updatePersistedAliases(workspaceId);
+  return {
+    ...extra,
+    browserState: clone(setMountedFromWorkspace(workspaceId)),
+  };
+}
+
+function activeHarnessGroup(groupId) {
+  return state.tabGroups.find((group) => group.id === String(groupId || "") && !group.deletedAt) || null;
+}
+
+function harnessWorkspaceTabs(workspaceId) {
+  return updatePersistedAliases(workspaceId).tabs;
+}
+
+function replaceHarnessWorkspaceTabs(workspaceId, tabs) {
+  const persisted = updatePersistedAliases(workspaceId);
+  persisted.tabs = tabs;
+  updatePersistedAliases(workspaceId);
+  return persisted;
 }
 
 function delayForWorkspace(workspaceId) {
@@ -473,6 +518,205 @@ function registerHarnessIpc() {
     nextTabContextMenuAction = null;
     trace.nativeTabContextMenus.push({ tabId: payload.tabId, action });
     return { tabId: payload.tabId, action };
+  });
+  ipcMain.handle("workspace-harness:tab-groups-create", (_event, payload = {}) => {
+    const workspaceId = String(payload.workspaceId || state.activeWorkspaceId);
+    if (!state.workspaceBrowserStates[workspaceId]) throw new Error("WORKSPACE_NOT_FOUND");
+    const group = createTabGroup(state.tabGroups, {
+      workspaceId,
+      name: payload.name,
+      colorKey: payload.colorKey,
+      iconKey: payload.iconKey,
+    });
+    state.tabGroups.push(group);
+    const tabIds = (Array.isArray(payload.tabIds) ? payload.tabIds : []).map(String);
+    if (tabIds.length) {
+      const tabs = harnessWorkspaceTabs(workspaceId);
+      if (tabIds.some((tabId) => !tabs.some((tab) => tab.tabId === tabId))) {
+        throw new Error("BROWSER_TAB_NOT_FOUND");
+      }
+      replaceHarnessWorkspaceTabs(workspaceId, assignTabsToGroup(tabs, tabIds, group.id));
+      group.lastActiveSessionId = tabIds.includes(state.workspaceBrowserStates[workspaceId].activeTabId)
+        ? state.workspaceBrowserStates[workspaceId].activeTabId
+        : tabIds[0];
+    }
+    return tabOrganizationResponse(workspaceId, { group: clone(group) });
+  });
+  ipcMain.handle("workspace-harness:tab-groups-update", (_event, payload = {}) => {
+    const group = activeHarnessGroup(payload.groupId);
+    if (!group) throw new Error("TAB_GROUP_NOT_FOUND");
+    state.tabGroups = updateTabGroup(state.tabGroups, group.id, payload.patch || {});
+    return tabOrganizationResponse(group.workspaceId, {
+      group: clone(activeHarnessGroup(group.id)),
+    });
+  });
+  ipcMain.handle("workspace-harness:tab-groups-assign", (_event, payload = {}) => {
+    const workspaceId = String(payload.workspaceId || state.activeWorkspaceId);
+    const tabs = harnessWorkspaceTabs(workspaceId);
+    const tabIds = (Array.isArray(payload.tabIds) ? payload.tabIds : [payload.tabId])
+      .filter(Boolean)
+      .map(String);
+    if (!tabIds.length || tabIds.some((tabId) => !tabs.some((tab) => tab.tabId === tabId))) {
+      throw new Error("BROWSER_TAB_NOT_FOUND");
+    }
+    const groupId = payload.groupId ? String(payload.groupId) : null;
+    const group = groupId ? activeHarnessGroup(groupId) : null;
+    if (groupId && (!group || group.workspaceId !== workspaceId)) throw new Error("TAB_GROUP_WORKSPACE_MISMATCH");
+    replaceHarnessWorkspaceTabs(workspaceId, assignTabsToGroup(tabs, tabIds, groupId));
+    if (group) {
+      state.tabGroups = updateTabGroup(state.tabGroups, group.id, {
+        lastActiveSessionId: tabIds.includes(state.workspaceBrowserStates[workspaceId].activeTabId)
+          ? state.workspaceBrowserStates[workspaceId].activeTabId
+          : tabIds[0],
+      });
+    }
+    return tabOrganizationResponse(workspaceId);
+  });
+  ipcMain.handle("workspace-harness:tab-groups-reorder-tabs", (_event, payload = {}) => {
+    const workspaceId = String(payload.workspaceId || state.activeWorkspaceId);
+    const tabs = harnessWorkspaceTabs(workspaceId);
+    const tabIds = (Array.isArray(payload.tabIds) ? payload.tabIds : []).map(String);
+    if (tabIds.length !== tabs.length || tabIds.some((tabId) => !tabs.some((tab) => tab.tabId === tabId))) {
+      throw new Error("TAB_ORDER_INCOMPLETE");
+    }
+    replaceHarnessWorkspaceTabs(workspaceId, reorderTabs(tabs, tabIds));
+    return tabOrganizationResponse(workspaceId);
+  });
+  ipcMain.handle("workspace-harness:tab-groups-reorder-groups", (_event, payload = {}) => {
+    const workspaceId = String(payload.workspaceId || state.activeWorkspaceId);
+    const activeIds = state.tabGroups
+      .filter((group) => group.workspaceId === workspaceId && !group.deletedAt)
+      .map((group) => group.id);
+    const groupIds = (Array.isArray(payload.groupIds) ? payload.groupIds : []).map(String);
+    if (groupIds.length !== activeIds.length || activeIds.some((groupId) => !groupIds.includes(groupId))) {
+      throw new Error("TAB_GROUP_ORDER_INCOMPLETE");
+    }
+    state.tabGroups = reorderGroups(state.tabGroups, workspaceId, groupIds);
+    return tabOrganizationResponse(workspaceId);
+  });
+  ipcMain.handle("workspace-harness:tab-groups-merge", (_event, payload = {}) => {
+    const source = activeHarnessGroup(payload.sourceGroupId);
+    const target = activeHarnessGroup(payload.targetGroupId);
+    if (!source || !target) throw new Error("TAB_GROUP_NOT_FOUND");
+    const result = mergeTabGroups(
+      state.tabGroups,
+      harnessWorkspaceTabs(source.workspaceId),
+      source.id,
+      target.id,
+    );
+    state.tabGroups = result.groups;
+    replaceHarnessWorkspaceTabs(source.workspaceId, result.tabs);
+    lastHarnessGroupMergeUndo = result.undo;
+    return tabOrganizationResponse(source.workspaceId, { canUndo: true });
+  });
+  ipcMain.handle("workspace-harness:tab-groups-undo", () => {
+    if (!lastHarnessGroupMergeUndo) throw new Error("TAB_GROUP_UNDO_UNAVAILABLE");
+    const workspaceId = lastHarnessGroupMergeUndo.workspaceId;
+    const result = undoTabGroupMerge(
+      state.tabGroups,
+      harnessWorkspaceTabs(workspaceId),
+      lastHarnessGroupMergeUndo,
+    );
+    state.tabGroups = result.groups;
+    replaceHarnessWorkspaceTabs(workspaceId, result.tabs);
+    lastHarnessGroupMergeUndo = null;
+    return tabOrganizationResponse(workspaceId);
+  });
+  ipcMain.handle("workspace-harness:tab-groups-ungroup", (_event, payload = {}) => {
+    const group = activeHarnessGroup(payload.groupId);
+    if (!group) throw new Error("TAB_GROUP_NOT_FOUND");
+    const tabs = harnessWorkspaceTabs(group.workspaceId);
+    const tabIds = tabs.filter((tab) => tab.tabGroupId === group.id).map((tab) => tab.tabId);
+    replaceHarnessWorkspaceTabs(group.workspaceId, assignTabsToGroup(tabs, tabIds, null));
+    return tabOrganizationResponse(group.workspaceId);
+  });
+  ipcMain.handle("workspace-harness:tab-groups-delete-empty", (_event, payload = {}) => {
+    const group = activeHarnessGroup(payload.groupId);
+    if (!group) throw new Error("TAB_GROUP_NOT_FOUND");
+    if (harnessWorkspaceTabs(group.workspaceId).some((tab) => tab.tabGroupId === group.id)) {
+      throw new Error("TAB_GROUP_NOT_EMPTY");
+    }
+    const now = new Date().toISOString();
+    state.tabGroups = state.tabGroups.map((candidate) => candidate.id === group.id
+      ? { ...candidate, deletedAt: now, updatedAt: now }
+      : candidate);
+    return tabOrganizationResponse(group.workspaceId);
+  });
+  ipcMain.handle("workspace-harness:tab-groups-close", (_event, payload = {}) => {
+    const group = activeHarnessGroup(payload.groupId);
+    if (!group) throw new Error("TAB_GROUP_NOT_FOUND");
+    const persisted = updatePersistedAliases(group.workspaceId);
+    const candidates = persisted.tabs.filter((tab) => tab.tabGroupId === group.id);
+    const closedTabIds = [];
+    for (const tab of candidates) {
+      if (tab.unsavedRisk || tab.downloading || tab.uploading || tab.audible || tab.loginPopup) {
+        return tabOrganizationResponse(group.workspaceId, {
+          ok: false,
+          closedTabIds,
+          blocked: { tabId: tab.tabId, reason: tab.protectionReason || "页签受到保护" },
+        });
+      }
+      persisted.tabs = persisted.tabs.filter((candidate) => candidate.tabId !== tab.tabId);
+      closedTabIds.push(tab.tabId);
+    }
+    if (closedTabIds.includes(persisted.activeTabId)) persisted.activeTabId = persisted.tabs[0]?.tabId || null;
+    const now = new Date().toISOString();
+    state.tabGroups = state.tabGroups.map((candidate) => candidate.id === group.id
+      ? { ...candidate, deletedAt: now, updatedAt: now }
+      : candidate);
+    return tabOrganizationResponse(group.workspaceId, { ok: true, closedTabIds });
+  });
+  ipcMain.handle("workspace-harness:tab-groups-suggest-sites", (_event, payload = {}) => {
+    const workspaceId = String(payload.workspaceId || state.activeWorkspaceId);
+    return {
+      workspaceId,
+      suggestions: new SiteFamilyRegistry().suggestions(harnessWorkspaceTabs(workspaceId)),
+    };
+  });
+  ipcMain.handle("workspace-harness:tab-groups-detect-duplicates", (_event, payload = {}) => {
+    const workspaceId = String(payload.workspaceId || state.activeWorkspaceId);
+    const persisted = updatePersistedAliases(workspaceId);
+    const groupsById = new Map(state.tabGroups.map((group) => [group.id, group]));
+    const report = detectDuplicateTabs(persisted.tabs, { activeTabId: persisted.activeTabId });
+    report.exact = report.exact.map((duplicateGroup) => ({
+      ...duplicateGroup,
+      tabs: duplicateGroup.tabs.map((tab) => ({
+        ...tab,
+        groupName: groupsById.get(tab.tabGroupId)?.name || "未分组",
+        audible: Boolean(tab.audible),
+        downloading: Boolean(tab.downloading),
+        unsavedRisk: Boolean(tab.unsavedRisk || tab.uploading || tab.audible || tab.loginPopup),
+        protectionReason: tab.protectionReason || "",
+      })),
+    }));
+    return { workspaceId, ...report };
+  });
+  ipcMain.handle("workspace-harness:tab-groups-resolve-duplicates", (_event, payload = {}) => {
+    const keeperId = String(payload.keeperTabId || "");
+    const workspaceId = Object.keys(state.workspaceBrowserStates).find((candidate) =>
+      state.workspaceBrowserStates[candidate].tabs.some((tab) => tab.tabId === keeperId));
+    if (!workspaceId) throw new Error("BROWSER_TAB_NOT_FOUND");
+    const persisted = updatePersistedAliases(workspaceId);
+    const keeper = persisted.tabs.find((tab) => tab.tabId === keeperId);
+    const keeperUrl = normalizeComparableTabUrl(keeper.url);
+    const closedTabIds = [];
+    for (const tabId of (Array.isArray(payload.closeTabIds) ? payload.closeTabIds : []).map(String)) {
+      const target = persisted.tabs.find((tab) => tab.tabId === tabId);
+      if (!target || normalizeComparableTabUrl(target.url) !== keeperUrl) {
+        throw new Error("TAB_NOT_EXACT_DUPLICATE");
+      }
+      if (target.unsavedRisk || target.downloading || target.uploading || target.audible || target.loginPopup) {
+        return tabOrganizationResponse(workspaceId, {
+          ok: false,
+          closedTabIds,
+          blocked: { tabId, reason: target.protectionReason || "页签受到保护" },
+        });
+      }
+      persisted.tabs = persisted.tabs.filter((tab) => tab.tabId !== tabId);
+      closedTabIds.push(tabId);
+    }
+    if (closedTabIds.includes(persisted.activeTabId)) persisted.activeTabId = keeperId;
+    return tabOrganizationResponse(workspaceId, { ok: true, closedTabIds });
   });
   ipcMain.handle("workspace-harness:update-ui-settings", (_event, patch = {}) => {
     if (patch.sessionVisibility === "all" || patch.sessionVisibility === "workspace") {
@@ -707,6 +951,8 @@ function registerHarnessIpc() {
     const copy = createPersistedTab(workspaceId, site, source.url, {
       allowDuplicate: true,
       browserProfileId: source.browserProfileId,
+      tabGroupId: source.tabGroupId,
+      groupSortOrder: Number(source.groupSortOrder) + 0.5,
     });
     copy.title = source.title;
     copy.homeURL = source.homeURL;
@@ -823,24 +1069,50 @@ function browserUiSnapshotScript(label) {
               title: tab.title || '',
               url: tab.url || '',
               loading: Boolean(tab.loading),
-              detached: Boolean(tab.detached),
-              active: Boolean(tab.active),
-              allowDuplicate: tab.allowDuplicate === true,
-            }))
-          : [],
+               detached: Boolean(tab.detached),
+               active: Boolean(tab.active),
+               allowDuplicate: tab.allowDuplicate === true,
+               webContentsId: tab.webContentsId || null,
+               tabGroupId: tab.tabGroupId || null,
+               groupSortOrder: Number(tab.groupSortOrder) || 0,
+             }))
+           : [],
+         tabGroups: Array.isArray(browserSnapshot.tabGroups)
+           ? browserSnapshot.tabGroups.map((group) => ({
+               id: group.id,
+               name: group.name,
+               workspaceId: group.workspaceId,
+               collapsed: Boolean(group.collapsed),
+               sortOrder: Number(group.sortOrder) || 0,
+               lastActiveSessionId: group.lastActiveSessionId || null,
+             }))
+           : [],
         siteId: browserSnapshot.siteId || browserSnapshot.activeSiteId || null,
         hasOpenPage: Boolean(browserSnapshot.hasOpenPage),
         url: browserSnapshot.url || '',
       },
-      tabDom: Array.from(dom.browserTabList?.querySelectorAll('[data-browser-tab-id]') || [])
+       tabDom: Array.from(dom.browserTabList?.querySelectorAll('[data-browser-tab-id]') || [])
         .map((tab) => ({
           tabId: tab.dataset.browserTabId,
           active: tab.classList.contains('is-active'),
           detached: tab.classList.contains('is-detached'),
           mainAction: tab.querySelector('.browser-tab-main')?.dataset.tabAction || '',
           windowAction: tab.querySelector('.browser-tab-actions [data-tab-action]')?.dataset.tabAction || '',
-          text: tab.textContent,
-        })),
+           text: tab.textContent,
+         })),
+       tabGroupDom: Array.from(dom.browserTabList?.querySelectorAll('.browser-tab-group') || [])
+         .map((group) => ({
+           groupId: group.dataset.tabGroupId,
+           collapsed: group.classList.contains('is-collapsed'),
+           label: group.querySelector('.browser-tab-group-label')?.textContent.trim() || '',
+           tabIds: Array.from(group.querySelectorAll('[data-browser-tab-id]')).map((tab) => tab.dataset.browserTabId),
+         })),
+       sessionGroupDom: Array.from(dom.currentSessionList?.querySelectorAll('.current-session-group') || [])
+         .map((group) => ({
+           groupId: group.dataset.tabGroupId,
+           label: group.querySelector('.current-session-group-label')?.textContent.trim() || '',
+           tabIds: Array.from(group.querySelectorAll('[data-session-id]')).map((session) => session.dataset.sessionId),
+         })),
       noAttachedTab: dom.browserPage.classList.contains('has-no-attached-tab'),
       placeholderTitle: dom.webviewPlaceholderTitle?.textContent || '',
       toasts: Array.from(dom.toastStack.children).map((toast) => toast.textContent),
@@ -1331,6 +1603,144 @@ async function runTabsCopyUiScenario(window) {
     };
   })()`);
   return { menu, afterTopCopy, leftMenu, afterLeftCopy, afterCloseCopy, chrome, pageActions, trace: clone(trace) };
+}
+
+async function runTabGroupsUiScenario(window) {
+  await window.webContents.executeJavaScript(
+    "showSite(appState.sites.find((site) => site.id === 'personal-site'))",
+  );
+  await window.webContents.executeJavaScript(
+    "showSite(appState.sites.find((site) => site.id === 'personal-site-two'))",
+  );
+  const initial = await window.webContents.executeJavaScript(
+    browserUiSnapshotScript("tab-groups-initial"),
+  );
+  const created = await window.webContents.executeJavaScript(`(async () => {
+    const first = browserSnapshot.tabs.find((tab) => tab.siteId === 'personal-site');
+    const second = browserSnapshot.tabs.find((tab) => tab.siteId === 'personal-site-two');
+    let result = await window.siteNest.createTabGroup({
+      workspaceId: 'personal',
+      name: 'SAP',
+      colorKey: 'pine',
+      tabIds: [first.tabId],
+    });
+    commitTabOrganizationResult(result);
+    const sapGroupId = result.group.id;
+    result = await window.siteNest.createTabGroup({
+      workspaceId: 'personal',
+      name: 'AI',
+      colorKey: 'violet',
+      tabIds: [second.tabId],
+    });
+    commitTabOrganizationResult(result);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return { firstTabId: first.tabId, secondTabId: second.tabId, sapGroupId, aiGroupId: result.group.id };
+  })()`);
+  const grouped = await window.webContents.executeJavaScript(
+    browserUiSnapshotScript("tab-groups-created"),
+  );
+
+  await window.webContents.executeJavaScript(`(async () => {
+    const source = dom.browserTabList.querySelector('[data-browser-tab-id="${created.secondTabId}"]');
+    const target = dom.browserTabList.querySelector('[data-tab-group-id="${created.sapGroupId}"] .browser-tab-group-label');
+    const transfer = new DataTransfer();
+    source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    await new Promise((resolve, reject) => {
+      const deadline = performance.now() + 3000;
+      const check = () => {
+        if (browserSnapshot.tabs.find((tab) => tab.tabId === '${created.secondTabId}')?.tabGroupId === '${created.sapGroupId}') return resolve();
+        if (performance.now() >= deadline) return reject(new Error('tab drag into group did not settle'));
+        setTimeout(check, 20);
+      };
+      check();
+    });
+  })()`);
+  const afterDragIntoGroup = await window.webContents.executeJavaScript(
+    browserUiSnapshotScript("tab-groups-after-drag-in"),
+  );
+
+  await window.webContents.executeJavaScript(`(async () => {
+    const source = dom.browserTabList.querySelector('[data-browser-tab-id="${created.secondTabId}"]');
+    const transfer = new DataTransfer();
+    source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    dom.browserTabList.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    dom.browserTabList.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    await new Promise((resolve, reject) => {
+      const deadline = performance.now() + 3000;
+      const check = () => {
+        if (!browserSnapshot.tabs.find((tab) => tab.tabId === '${created.secondTabId}')?.tabGroupId) return resolve();
+        if (performance.now() >= deadline) return reject(new Error('tab drag out of group did not settle'));
+        setTimeout(check, 20);
+      };
+      check();
+    });
+  })()`);
+  const afterDragOut = await window.webContents.executeJavaScript(
+    browserUiSnapshotScript("tab-groups-after-drag-out"),
+  );
+
+  await window.webContents.executeJavaScript(`(async () => {
+    commitTabOrganizationResult(await window.siteNest.assignTabsToGroup('personal', ['${created.secondTabId}'], '${created.aiGroupId}'));
+    const label = dom.browserTabList.querySelector('[data-tab-group-id="${created.sapGroupId}"] .browser-tab-group-label');
+    label.click();
+    await new Promise((resolve, reject) => {
+      const deadline = performance.now() + 3000;
+      const check = () => {
+        if (browserSnapshot.tabGroups.find((group) => group.id === '${created.sapGroupId}')?.collapsed) return resolve();
+        if (performance.now() >= deadline) return reject(new Error('tab group collapse did not settle'));
+        setTimeout(check, 20);
+      };
+      check();
+    });
+  })()`);
+  const collapsed = await window.webContents.executeJavaScript(
+    browserUiSnapshotScript("tab-groups-collapsed"),
+  );
+
+  await window.webContents.executeJavaScript(`(async () => {
+    const label = dom.browserTabList.querySelector('[data-tab-group-id="${created.sapGroupId}"] .browser-tab-group-label');
+    label.click();
+    await new Promise((resolve, reject) => {
+      const deadline = performance.now() + 3000;
+      const check = () => {
+        if (!browserSnapshot.tabGroups.find((group) => group.id === '${created.sapGroupId}')?.collapsed) return resolve();
+        if (performance.now() >= deadline) return reject(new Error('tab group expand did not settle'));
+        setTimeout(check, 20);
+      };
+      check();
+    });
+    commitTabOrganizationResult(await window.siteNest.mergeTabGroups('${created.aiGroupId}', '${created.sapGroupId}'));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  })()`);
+  const merged = await window.webContents.executeJavaScript(
+    browserUiSnapshotScript("tab-groups-merged"),
+  );
+  const search = await window.webContents.executeJavaScript(`(() => localSearchMatches('SAP')
+    .filter((item) => item.group === '页签分组')
+    .map((item) => ({ group: item.group, title: item.title, detail: item.detail, id: item.id })))()`);
+
+  await window.webContents.executeJavaScript(`(async () => {
+    commitTabOrganizationResult(await window.siteNest.undoTabGroupMerge());
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  })()`);
+  const undone = await window.webContents.executeJavaScript(
+    browserUiSnapshotScript("tab-groups-undo"),
+  );
+  return {
+    created,
+    initial,
+    grouped,
+    afterDragIntoGroup,
+    afterDragOut,
+    collapsed,
+    merged,
+    search,
+    undone,
+    trace: clone(trace),
+    persisted: clone(state),
+  };
 }
 
 async function runTabsDragFallbackScenario(window) {
@@ -2025,6 +2435,7 @@ async function runScenario(window) {
   if (scenario === "tabs-workspace-isolation") return runTabsWorkspaceIsolationScenario(window);
   if (scenario === "tabs-detach") return runTabsDetachScenario(window);
   if (scenario === "tabs-copy-ui") return runTabsCopyUiScenario(window);
+  if (scenario === "tab-groups-ui") return runTabGroupsUiScenario(window);
   if (scenario === "tabs-drag-fallback") return runTabsDragFallbackScenario(window);
   if (scenario === "tabs-visual") return runTabsVisualScenario(window);
   if (scenario === "page-actions-visual") return runPageActionsVisualScenario(window);

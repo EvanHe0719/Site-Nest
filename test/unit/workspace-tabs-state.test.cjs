@@ -78,6 +78,8 @@ test("legacy single-page workspace snapshot migrates to one stable tab and remai
     errorState: null,
     reliableContext: null,
     keepRunning: false,
+    tabGroupId: null,
+    groupSortOrder: 0,
     updatedAt: legacyUpdatedAt,
   });
   assert.equal(snapshot.activeSiteId, "legacy-site");
@@ -90,7 +92,7 @@ test("legacy single-page workspace snapshot migrates to one stable tab and remai
   assert.deepEqual(again.state, migrated.state);
 });
 
-test("restart normalization drops detached/loading runtime flags and canonicalizes duplicate same-site tabs", () => {
+test("restart normalization drops runtime flags but preserves duplicate same-site tabs for user review", () => {
   let state = createInitialState({ now: NOW });
   state = addSite(
     state,
@@ -124,15 +126,17 @@ test("restart normalization drops detached/loading runtime flags and canonicaliz
   };
 
   const snapshot = migrateState(raw, { now: NOW }).state.workspaceBrowserStates.personal;
-  assert.equal(snapshot.tabs.length, 1);
+  assert.equal(snapshot.tabs.length, 2);
   assert.equal(snapshot.tabs[0].tabId, "kept-tab");
-  assert.equal(snapshot.activeTabId, "kept-tab");
+  assert.equal(snapshot.tabs[1].tabId, "duplicate-tab");
+  assert.equal(snapshot.tabs[1].allowDuplicate, true);
+  assert.equal(snapshot.activeTabId, "duplicate-tab");
   assert.notEqual(snapshot.tabs[0].detached, true);
   assert.notEqual(snapshot.tabs[0].loading, true);
   assert.equal(Object.hasOwn(snapshot.tabs[0], "active"), false);
 });
 
-test("anonymous tabs deduplicate by normalized exact URL but keep distinct query and hash URLs", () => {
+test("anonymous duplicate URLs survive restart for explicit user review", () => {
   const state = createInitialState({ now: NOW });
   const raw = {
     ...state,
@@ -153,9 +157,10 @@ test("anonymous tabs deduplicate by normalized exact URL but keep distinct query
   const snapshot = migrateState(raw, { now: NOW }).state.workspaceBrowserStates.research;
   assert.deepEqual(
     snapshot.tabs.map((item) => item.tabId),
-    ["base-url", "query-url", "hash-url"],
+    ["base-url", "duplicate-url", "query-url", "hash-url"],
   );
-  assert.equal(snapshot.activeTabId, "base-url");
+  assert.equal(snapshot.activeTabId, "duplicate-url");
+  assert.equal(snapshot.tabs[1].allowDuplicate, true);
 
   assert.throws(
     () =>

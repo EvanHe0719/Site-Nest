@@ -32,11 +32,26 @@ test("tab controls are exposed through narrow preload methods and registered IPC
     ["copyBrowserTabUrl", "browser:copy-tab-url"],
     ["openBrowserTabExternal", "browser:open-tab-external"],
     ["showBrowserTabContextMenu", "browser:show-tab-context-menu"],
+    ["showBrowserTabGroupContextMenu", "browser:show-tab-group-context-menu"],
     ["duplicateSiteTab", "sites:duplicate-tab"],
     ["closeBrowserTab", "browser:close-tab"],
+    ["restoreRecentlyClosedBrowserTab", "browser:restore-closed-tab"],
     ["detachBrowserTab", "browser:detach-tab"],
     ["reattachBrowserTab", "browser:reattach-tab"],
     ["focusDetachedBrowserTab", "browser:focus-detached-tab"],
+    ["createTabGroup", "tab-groups:create"],
+    ["updateTabGroup", "tab-groups:update"],
+    ["assignTabsToGroup", "tab-groups:assign-tabs"],
+    ["reorderBrowserTabs", "tab-groups:reorder-tabs"],
+    ["reorderTabGroups", "tab-groups:reorder-groups"],
+    ["mergeTabGroups", "tab-groups:merge"],
+    ["undoTabGroupMerge", "tab-groups:undo-merge"],
+    ["ungroupTabGroup", "tab-groups:ungroup"],
+    ["deleteEmptyTabGroup", "tab-groups:delete-empty"],
+    ["closeTabGroup", "tab-groups:close"],
+    ["suggestSiteTabGroups", "tab-groups:suggest-sites"],
+    ["detectDuplicateTabs", "tab-groups:detect-duplicates"],
+    ["resolveDuplicateTabs", "tab-groups:resolve-duplicates"],
   ];
 
   for (const [method, channel] of contracts) {
@@ -59,8 +74,64 @@ test("top tab context menu is native so WebContentsView cannot cover it", () => 
   assert.match(nativeMenu, /label:\s*["']复制页面链接["']/);
   assert.match(nativeMenu, /label:\s*["']在外部浏览器打开["']/);
   assert.match(nativeMenu, /label:\s*["']关闭页签["']/);
+  assert.match(nativeMenu, /label:\s*["']添加到分组["']/);
+  assert.match(nativeMenu, /label:\s*["']将相同站点页签分组…?["']/);
+  assert.match(nativeMenu, /label:\s*["']整理重复页签…?["']/);
+  assert.match(nativeMenu, /label:\s*["']恢复最近关闭的页签["']/);
   assert.match(nativeMenu, /BrowserWindow\.fromWebContents\(event\.sender\)/);
   assert.match(nativeMenu, /menu\.popup\(/);
+  assert.match(nativeMenu, /function showBrowserTabGroupContextMenu/);
+  assert.match(nativeMenu, /label:\s*["']重命名与修改标识…?["']/);
+  assert.match(nativeMenu, /label:\s*["']合并到其他分组["']/);
+  assert.match(nativeMenu, /label:\s*["']关闭分组中的页签["']/);
+});
+
+test("recently closed tabs are persisted and restored into an existing original group", () => {
+  const close = sourceBetween(
+    "async function closeBrowserTab",
+    "function rememberRecentlyClosedBrowserTab",
+  );
+  const restore = sourceBetween(
+    "async function restoreRecentlyClosedBrowserTab",
+    "function detachedTabForSender",
+  );
+  assert.match(close, /rememberRecentlyClosedBrowserTab\(workspace, tab, closedIndex\)/);
+  assert.match(restore, /candidate\.id === record\.tabGroupId/);
+  assert.match(restore, /!candidate\.deletedAt/);
+  assert.match(restore, /tabGroupId:\s*group\?\.id \|\| null/);
+  assert.match(restore, /browserProfileId:\s*record\.browserProfileId/);
+  assert.match(restore, /allowDuplicate:\s*true/);
+  assert.match(restore, /cachedState\.recentlyClosedTabs = records\.filter/);
+});
+
+test("group merge mutates metadata only and duplicate cleanup is explicit and protection-aware", () => {
+  const merge = sourceBetween(
+    "async function mergeTabGroupsOperation",
+    "async function undoTabGroupMergeOperation",
+  );
+  const protection = sourceBetween(
+    "async function runtimeTabProtection",
+    "async function suspendRuntimeTab",
+  );
+  const resolveDuplicates = sourceBetween(
+    "async function resolveDuplicateTabsOperation",
+    "function showBrowserTabContextMenu",
+  );
+
+  assert.match(merge, /mergeTabGroups\(/);
+  assert.match(merge, /applyOrganizationTabRecords\(workspace, result\.tabs\)/);
+  assert.match(merge, /lastTabGroupMergeUndo = result\.undo/);
+  assert.doesNotMatch(merge, /new WebContentsView|loadURL|destroySiteView|createRuntimeBrowserTab/);
+
+  assert.match(protection, /isCurrentlyAudible/);
+  assert.match(protection, /hasActiveDownload/);
+  assert.match(protection, /input\[type=["']file["']\]/);
+  assert.match(protection, /beforeunload/);
+  assert.match(protection, /hasZohoDraft/);
+  assert.match(resolveDuplicates, /normalizeComparableTabUrl/);
+  assert.match(resolveDuplicates, /await runtimeTabProtection\(found\.tab\)/);
+  assert.match(resolveDuplicates, /await closeBrowserTab\(\{ tabId, force: true \}\)/);
+  assert.doesNotMatch(resolveDuplicates, /setInterval|setTimeout|auto/i);
 });
 
 test("search IPC stays narrow and reuses the current workspace tab model and browser profile", () => {
@@ -162,7 +233,7 @@ test("transient popup dedupe is scoped to one workspace and uses an exact normal
   assert.doesNotMatch(transientOpen, /for \(const .*workspaceBrowserContexts/);
 });
 
-test("tabs that later navigate to one URL are reconciled before persistence without throwing from navigation events", () => {
+test("tabs that later navigate to one URL are marked as duplicate candidates without background closing", () => {
   const reconcile = sourceBetween(
     "function reconcileRuntimeDuplicateTabs",
     "function persistWorkspaceBrowserContext",
@@ -176,8 +247,9 @@ test("tabs that later navigate to one URL are reconciled before persistence with
   assert.match(reconcile, /\.\.\.\(activeTab \? \[activeTab\] : \[\]\)/);
   assert.match(reconcile, /if \(tab\.allowDuplicate\) continue/);
   assert.match(reconcile, /tab\.currentSiteId \? `site:\$\{tab\.currentSiteId\}` : `url:\$\{url\}`/);
-  assert.match(reconcile, /workspace\.tabs\.delete\(tab\.tabId\)/);
-  assert.match(reconcile, /destroySiteView\(tab\)/);
+  assert.match(reconcile, /tab\.allowDuplicate = true/);
+  assert.doesNotMatch(reconcile, /workspace\.tabs\.delete\(tab\.tabId\)/);
+  assert.doesNotMatch(reconcile, /destroySiteView\(tab\)/);
 
   const reconcileAt = persist.indexOf("reconcileRuntimeDuplicateTabs(workspace)");
   const mutationAt = persist.indexOf("setWorkspaceBrowserTabsInState(");

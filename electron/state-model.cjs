@@ -25,8 +25,12 @@ const {
   normalizeUserScripts,
   normalizeValues: normalizeUserScriptValues,
 } = require("./userscripts/model.cjs");
+const {
+  normalizeTabGroups,
+} = require("./browser/tab-organization.cjs");
 
-const CURRENT_SCHEMA_VERSION = 11;
+const CURRENT_SCHEMA_VERSION = 12;
+const MAX_RECENTLY_CLOSED_TABS = 50;
 const DEFAULT_WORKSPACE_ID = "personal";
 const DEFAULT_BROWSER_PROFILE_ID = "default";
 const SAP_BROWSER_PROFILE_ID = "sap-support";
@@ -531,12 +535,105 @@ function browserSnapshotFromTabs(tabs, requestedActiveTabId = null) {
   };
 }
 
-function normalizeWorkspaceBrowserStates(value, workspaces, sites, browserProfileIds = new Set([DEFAULT_BROWSER_PROFILE_ID])) {
+function normalizeRecentlyClosedTabs(
+  value,
+  workspaces,
+  sites,
+  browserProfileIds = new Set([DEFAULT_BROWSER_PROFILE_ID]),
+  tabGroups = [],
+  options = {},
+) {
+  const now = isoNow(options.now);
+  const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
+  const activeGroups = new Map(
+    tabGroups
+      .filter((group) => !group.deletedAt)
+      .map((group) => [group.id, group]),
+  );
+  const seenIds = new Set();
+  const records = [];
+  for (const [index, candidate] of (Array.isArray(value) ? value : []).entries()) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const workspaceId = String(candidate.workspaceId || "").trim().slice(0, 120);
+    const url = safeOptionalHttpUrl(candidate.url ?? candidate.currentURL);
+    const tabId = String(candidate.tabId || candidate.sessionId || "")
+      .trim()
+      .slice(0, 120);
+    if (!workspaceIds.has(workspaceId) || !url || !tabId) continue;
+    const closedAt = typeof candidate.closedAt === "string" && !Number.isNaN(Date.parse(candidate.closedAt))
+      ? candidate.closedAt
+      : now;
+    const fallbackId = `closed-${createHash("sha256")
+      .update(`${workspaceId}\n${tabId}\n${closedAt}\n${index}`)
+      .digest("hex")
+      .slice(0, 32)}`;
+    const id = String(candidate.id || fallbackId).trim().slice(0, 120) || fallbackId;
+    if (seenIds.has(id)) continue;
+    seenIds.add(id);
+    const requestedSiteId = String(candidate.siteId || "").trim();
+    const site = requestedSiteId
+      ? sites.find((item) => item.id === requestedSiteId && item.workspaceId === workspaceId)
+      : null;
+    const homeURL = safeOptionalHttpUrl(candidate.homeURL ?? candidate.homeUrl) || site?.url || url;
+    const requestedBrowserProfileId = String(candidate.browserProfileId || "").trim();
+    const browserProfileId = isSapSessionUrl(url) || isSapSessionUrl(homeURL)
+      ? SAP_BROWSER_PROFILE_ID
+      : browserProfileIds.has(requestedBrowserProfileId)
+        ? requestedBrowserProfileId
+        : site?.browserProfileId || DEFAULT_BROWSER_PROFILE_ID;
+    const requestedGroupId = String(candidate.tabGroupId || "").trim();
+    const group = activeGroups.get(requestedGroupId);
+    records.push({
+      id,
+      workspaceId,
+      tabId,
+      siteId: site?.id || null,
+      browserProfileId,
+      title: String(candidate.title || site?.name || "").trim().slice(0, 200),
+      url,
+      normalizedUrl: url,
+      homeURL,
+      favicon: safeOptionalHttpUrl(candidate.favicon),
+      createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : closedAt,
+      lastActiveAt: typeof candidate.lastActiveAt === "string" ? candidate.lastActiveAt : closedAt,
+      reliableContext:
+        candidate.reliableContext && typeof candidate.reliableContext === "object"
+          ? sanitizePublicConfig(candidate.reliableContext)
+          : null,
+      keepRunning: candidate.keepRunning === true,
+      tabGroupId: group?.workspaceId === workspaceId ? requestedGroupId : null,
+      groupSortOrder: Number.isFinite(Number(candidate.groupSortOrder))
+        ? Number(candidate.groupSortOrder)
+        : 0,
+      closedIndex: Number.isInteger(Number(candidate.closedIndex))
+        ? Math.max(0, Number(candidate.closedIndex))
+        : 0,
+      allowDuplicate: candidate.allowDuplicate === true,
+      closedAt,
+    });
+  }
+  return records
+    .sort((left, right) => Date.parse(right.closedAt) - Date.parse(left.closedAt))
+    .slice(0, MAX_RECENTLY_CLOSED_TABS);
+}
+
+function normalizeWorkspaceBrowserStates(
+  value,
+  workspaces,
+  sites,
+  browserProfileIds = new Set([DEFAULT_BROWSER_PROFILE_ID]),
+  tabGroups = [],
+) {
   const input = value && typeof value === "object" && !Array.isArray(value)
     ? value
     : {};
   const result = {};
   for (const workspace of workspaces) {
+    const validGroupIds = new Set(
+      tabGroups
+        .filter((group) => group.workspaceId === workspace.id && !group.deletedAt)
+        .map((group) => group.id),
+    );
     const raw = input[workspace.id] && typeof input[workspace.id] === "object"
       ? input[workspace.id]
       : {};
@@ -597,11 +694,13 @@ function normalizeWorkspaceBrowserStates(value, workspaces, sites, browserProfil
         : browserProfileIds.has(requestedBrowserProfileId)
           ? requestedBrowserProfileId
           : site?.browserProfileId || DEFAULT_BROWSER_PROFILE_ID;
-      const allowDuplicate = candidate.allowDuplicate === true;
-      if (!allowDuplicate && site && seenSiteIds.has(site.id)) return;
+      const convergedDuplicate = site
+        ? seenSiteIds.has(site.id)
+        : seenAnonymousUrls.has(url);
+      const allowDuplicate = candidate.allowDuplicate === true || convergedDuplicate;
       if (!allowDuplicate && site) seenSiteIds.add(site.id);
-      if (!allowDuplicate && !site && seenAnonymousUrls.has(url)) return;
       if (!allowDuplicate && !site) seenAnonymousUrls.add(url);
+      const requestedTabGroupId = String(candidate.tabGroupId || "").trim();
       tabs.push({
         tabId,
         sessionId: tabId,
@@ -635,6 +734,10 @@ function normalizeWorkspaceBrowserStates(value, workspaces, sites, browserProfil
             ? sanitizePublicConfig(candidate.reliableContext)
             : null,
         keepRunning: candidate.keepRunning === true,
+        tabGroupId: validGroupIds.has(requestedTabGroupId) ? requestedTabGroupId : null,
+        groupSortOrder: Number.isFinite(Number(candidate.groupSortOrder))
+          ? Number(candidate.groupSortOrder)
+          : index,
         ...(allowDuplicate ? { allowDuplicate: true } : {}),
         updatedAt:
           typeof candidate.updatedAt === "string" ? candidate.updatedAt : null,
@@ -814,11 +917,13 @@ function createInitialState(options = {}) {
       normalizeStoredSite(site, index, workspaceIds, browserProfileIds, now),
     ),
   );
+  const tabGroups = normalizeTabGroups([], workspaceIds, { now });
   const workspaceBrowserStates = normalizeWorkspaceBrowserStates(
     {},
     workspaces,
     sites,
     browserProfileIds,
+    tabGroups,
   );
   const timelineTracks = normalizeTimelineTracks([], { now });
   return {
@@ -826,6 +931,8 @@ function createInitialState(options = {}) {
     workspaces,
     activeWorkspaceId: DEFAULT_WORKSPACE_ID,
     browserProfiles,
+    tabGroups,
+    recentlyClosedTabs: [],
     workspaceBrowserStates,
     sites,
     bookmarks: [],
@@ -913,11 +1020,21 @@ function normalizeStateV4(value, options = {}) {
   const activeWorkspaceId = workspaceIds.has(String(input.activeWorkspaceId || ""))
     ? String(input.activeWorkspaceId)
     : DEFAULT_WORKSPACE_ID;
+  const tabGroups = normalizeTabGroups(input.tabGroups, workspaceIds, { now });
+  const recentlyClosedTabs = normalizeRecentlyClosedTabs(
+    input.recentlyClosedTabs,
+    workspaces,
+    sites,
+    browserProfileIds,
+    tabGroups,
+    { now },
+  );
   const workspaceBrowserStates = normalizeWorkspaceBrowserStates(
     input.workspaceBrowserStates,
     workspaces,
     sites,
     browserProfileIds,
+    tabGroups,
   );
   let migrationQuarantine = appendQuarantine(
     input.migrationQuarantine,
@@ -962,6 +1079,8 @@ function normalizeStateV4(value, options = {}) {
     workspaces,
     activeWorkspaceId,
     browserProfiles,
+    tabGroups,
+    recentlyClosedTabs,
     workspaceBrowserStates,
     sites,
     bookmarks,
@@ -1161,6 +1280,15 @@ function normalizeBrowserTabsForMutation(state, workspaceId, tabs, now) {
       );
     }
     if (!allowDuplicate && !site) seenAnonymousUrls.add(url);
+    const requestedTabGroupId = String(candidate.tabGroupId || "").trim();
+    const tabGroupId = state.tabGroups.some(
+      (group) =>
+        group.id === requestedTabGroupId &&
+        group.workspaceId === workspaceId &&
+        !group.deletedAt,
+    )
+      ? requestedTabGroupId
+      : null;
     return {
       tabId,
       sessionId: tabId,
@@ -1190,6 +1318,10 @@ function normalizeBrowserTabsForMutation(state, workspaceId, tabs, now) {
           ? sanitizePublicConfig(candidate.reliableContext)
           : null,
       keepRunning: candidate.keepRunning === true,
+      tabGroupId,
+      groupSortOrder: Number.isFinite(Number(candidate.groupSortOrder))
+        ? Number(candidate.groupSortOrder)
+        : index,
       ...(allowDuplicate ? { allowDuplicate: true } : {}),
       updatedAt:
         typeof candidate.updatedAt === "string" ? candidate.updatedAt : now,
@@ -1684,9 +1816,11 @@ const normalizeStateV8 = normalizeStateV4;
 const normalizeStateV9 = normalizeStateV4;
 const normalizeStateV10 = normalizeStateV4;
 const normalizeStateV11 = normalizeStateV4;
+const normalizeStateV12 = normalizeStateV4;
 
 module.exports = {
   CURRENT_SCHEMA_VERSION,
+  MAX_RECENTLY_CLOSED_TABS,
   DEFAULT_ASSISTANT_SETTINGS,
   DEFAULT_BROWSER_PROFILE,
   DEFAULT_BROWSER_PROFILE_ID,
@@ -1709,6 +1843,7 @@ module.exports = {
   normalizeAssistantExecutionLogs,
   normalizeAssistantSettings,
   normalizeSiteOrders,
+  normalizeRecentlyClosedTabs,
   normalizeStateV3,
   normalizeStateV4,
   normalizeStateV5,
@@ -1718,6 +1853,7 @@ module.exports = {
   normalizeStateV9,
   normalizeStateV10,
   normalizeStateV11,
+  normalizeStateV12,
   updateUiSettingsInState,
   upsertConnectorConnectionInState,
   appendConnectorExecutionInState,

@@ -28,7 +28,7 @@ JSON 顶层固定为：
   "exportVersion": "timeline-export-v1",
   "exportedAt": "ISO-8601",
   "appVersion": "0.5.5",
-  "schemaVersion": 11,
+  "schemaVersion": 12,
   "year": 2026,
   "tracks": [],
   "events": []

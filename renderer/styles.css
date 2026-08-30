@@ -2442,6 +2442,83 @@ svg {
   display: none;
 }
 
+.browser-tabbar-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border: 1px solid #d9dedb;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.68);
+  color: #64736d;
+  cursor: pointer;
+}
+
+.browser-tabbar-tool:hover { background: #fff; color: var(--accent); }
+.browser-tabbar-tool [data-icon] { width: 13px; height: 13px; }
+
+.browser-tab-group {
+  --tab-group-color: #2f8067;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.browser-tab-group.color-blue { --tab-group-color: #4d77a8; }
+.browser-tab-group.color-violet { --tab-group-color: #7962a7; }
+.browser-tab-group.color-amber { --tab-group-color: #a0712f; }
+.browser-tab-group.color-rose { --tab-group-color: #a45d6f; }
+.browser-tab-group.color-slate { --tab-group-color: #687570; }
+
+.browser-tab-group-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 29px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--tab-group-color) 28%, #d8dedb);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--tab-group-color) 8%, #fff);
+  color: var(--tab-group-color);
+  font-size: 9px;
+  font-weight: 740;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.browser-tab-group-label.is-active {
+  border-color: color-mix(in srgb, var(--tab-group-color) 55%, #fff);
+  box-shadow: inset 3px 0 0 var(--tab-group-color);
+}
+
+.browser-tab-group-label > [data-icon] { width: 12px; height: 12px; }
+.browser-tab-group-label > span {
+  min-width: 17px;
+  padding: 1px 5px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 8px;
+  text-align: center;
+}
+
+.browser-tab-group-tabs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.browser-tab-group-tabs .browser-tab {
+  width: 156px;
+  flex: 0 1 156px;
+}
+
+.browser-tab-group.is-collapsed .browser-tab-group-tabs { display: none; }
+
 .browser-tab {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -3501,6 +3578,47 @@ svg {
   scrollbar-width: thin;
   scrollbar-color: #d7d9d4 transparent;
 }
+
+.current-session-group {
+  display: grid;
+  gap: 2px;
+}
+
+.current-session-group-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 27px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 8px;
+  background: #f0f2ef;
+  color: #63716b;
+  font-size: 8.5px;
+  font-weight: 730;
+  text-align: left;
+  cursor: pointer;
+}
+
+.current-session-group-label.is-active { color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.current-session-group-label [data-icon] { width: 11px; height: 11px; }
+.current-session-group-label small { margin-left: auto; color: #8b9691; font-size: 8px; }
+
+.tab-group-modal-card { width: min(500px, calc(100vw - 40px)); }
+.duplicate-tabs-modal-card { width: min(760px, calc(100vw - 40px)); max-height: min(780px, calc(100vh - 36px)); }
+.duplicate-tabs-groups { display: grid; gap: 12px; max-height: 470px; overflow-y: auto; padding-right: 3px; }
+.duplicate-tabs-group { display: grid; gap: 6px; margin: 0; padding: 11px; border: 1px solid #dfe4e1; border-radius: 12px; }
+.duplicate-tabs-group legend { padding: 0 5px; color: #5f6d67; font-size: 9px; font-weight: 760; }
+.duplicate-tab-choice { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; align-items: start; padding: 8px; border: 1px solid transparent; border-radius: 9px; cursor: pointer; }
+.duplicate-tab-choice:hover { background: #f5f7f5; }
+.duplicate-tab-choice.has-risk { border-color: #ead8bd; background: #fffaf1; }
+.duplicate-tab-choice span { min-width: 0; }
+.duplicate-tab-choice strong,
+.duplicate-tab-choice small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.duplicate-tab-choice strong { color: #34413c; font-size: 10px; }
+.duplicate-tab-choice small { margin-top: 3px; color: #84908b; font-size: 8px; }
+.duplicate-tabs-empty { padding: 28px; border: 1px dashed #d8dfdb; border-radius: 12px; color: #89948f; text-align: center; }
+.duplicate-tabs-similar { display: grid; gap: 5px; margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: #f4f6f4; color: #78847f; font-size: 8.5px; }
 
 .current-session-empty {
   padding: 9px 10px 12px;

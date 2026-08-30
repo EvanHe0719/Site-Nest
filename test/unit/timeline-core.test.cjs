@@ -39,9 +39,9 @@ function event(overrides = {}) {
   };
 }
 
-test("schema v11 creates work and personal timeline tracks exactly once", () => {
+test("schema v12 creates work and personal timeline tracks exactly once", () => {
   const initial = state();
-  assert.equal(CURRENT_SCHEMA_VERSION, 11);
+  assert.equal(CURRENT_SCHEMA_VERSION, 12);
   assert.deepEqual(initial.timelineTracks.map((track) => track.id), ["work", "personal"]);
   assert.deepEqual(initial.timelineEvents, []);
   assert.equal(initial.timelineUiSettings.selectedYear, 2026);
@@ -214,7 +214,7 @@ test("timeline-export-v1 is stable and strips executable presentation content", 
   });
   assert.equal(exported.exportVersion, "timeline-export-v1");
   assert.equal(exported.appVersion, "0.5.5");
-  assert.equal(exported.schemaVersion, 11);
+  assert.equal(exported.schemaVersion, 12);
   assert.equal(exported.events[0].title, "alert(1)安全复盘");
   assert.equal(exported.events[0].summary, "纯文本");
   assert.deepEqual(Object.keys(exported.events[0].presentation), ["iconKey", "accentKey", "emphasis"]);

@@ -273,6 +273,10 @@ test("top and sidebar session menus share duplicate behavior and target inactive
     "在外部浏览器打开",
     "保持运行",
     "立即休眠",
+    "添加到新分组",
+    "将相同站点页签分组",
+    "整理重复页签",
+    "恢复最近关闭的页签",
     "关闭页签",
   ]);
   assert.equal(result.afterLeftCopy.browserSnapshot.tabs.length, 4);
@@ -302,6 +306,73 @@ test("top and sidebar session menus share duplicate behavior and target inactive
   assert.equal(result.pageActions.closed.display, "none");
   assert.equal(result.pageActions.closed.ariaHidden, "true");
   assert.equal(result.pageActions.closed.expanded, "false");
+});
+
+test("tab groups stay consistent across top and sidebar UI while drag, collapse, merge and undo preserve live tab identity", async () => {
+  const result = await runHarness("tab-groups-ui");
+  const { firstTabId, secondTabId, sapGroupId, aiGroupId } = result.created;
+  const initialIdentity = new Map(result.initial.browserSnapshot.tabs.map((tab) => [tab.tabId, {
+    sessionId: tab.sessionId,
+    browserProfileId: tab.browserProfileId,
+    webContentsId: tab.webContentsId,
+  }]));
+
+  assert.equal(result.grouped.browserSnapshot.tabGroups.length, 2);
+  assert.deepEqual(
+    result.grouped.tabGroupDom.map((group) => group.groupId).sort(),
+    result.grouped.sessionGroupDom.map((group) => group.groupId).sort(),
+  );
+  assert.equal(
+    result.afterDragIntoGroup.browserSnapshot.tabs.find((tab) => tab.tabId === secondTabId).tabGroupId,
+    sapGroupId,
+  );
+  assert.equal(
+    result.afterDragOut.browserSnapshot.tabs.find((tab) => tab.tabId === secondTabId).tabGroupId,
+    null,
+  );
+
+  const collapsedTop = result.collapsed.tabGroupDom.find((group) => group.groupId === sapGroupId);
+  const collapsedSide = result.collapsed.sessionGroupDom.find((group) => group.groupId === sapGroupId);
+  assert.equal(collapsedTop.collapsed, true);
+  assert.deepEqual(collapsedTop.tabIds, []);
+  assert.deepEqual(collapsedSide.tabIds, []);
+  assert.equal(result.collapsed.browserSnapshot.tabs.length, 2, "collapsed groups keep their sessions alive");
+
+  assert.equal(result.merged.browserSnapshot.tabGroups.length, 1);
+  assert.equal(result.merged.browserSnapshot.tabGroups[0].id, sapGroupId);
+  assert.deepEqual(
+    result.merged.browserSnapshot.tabs.map((tab) => tab.tabGroupId),
+    [sapGroupId, sapGroupId],
+  );
+  const mergedTop = result.merged.tabGroupDom.find((group) => group.groupId === sapGroupId);
+  const mergedSide = result.merged.sessionGroupDom.find((group) => group.groupId === sapGroupId);
+  assert.deepEqual(mergedTop.tabIds.sort(), [firstTabId, secondTabId].sort());
+  assert.deepEqual(mergedSide.tabIds.sort(), [firstTabId, secondTabId].sort());
+  for (const tab of result.merged.browserSnapshot.tabs) {
+    assert.deepEqual({
+      sessionId: tab.sessionId,
+      browserProfileId: tab.browserProfileId,
+      webContentsId: tab.webContentsId,
+    }, initialIdentity.get(tab.tabId));
+  }
+  assert.equal(result.trace.showBrowser.length, 2, "organizing tabs must not navigate or reload them");
+  assert.equal(result.persisted.browserProfiles[0].partition, "persist:qiye-sites");
+  assert.deepEqual(result.search, [{
+    group: "页签分组",
+    title: "SAP",
+    detail: "个人 · 2 个页签",
+    id: `tab-group:${sapGroupId}`,
+  }]);
+
+  assert.equal(result.undone.browserSnapshot.tabGroups.length, 2);
+  assert.equal(
+    result.undone.browserSnapshot.tabs.find((tab) => tab.tabId === firstTabId).tabGroupId,
+    sapGroupId,
+  );
+  assert.equal(
+    result.undone.browserSnapshot.tabs.find((tab) => tab.tabId === secondTabId).tabGroupId,
+    aiGroupId,
+  );
 });
 
 test("current sessions stay cross-workspace, own the released sidebar height and keep the footer visible", async () => {

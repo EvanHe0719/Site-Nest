@@ -234,7 +234,7 @@ test(
 );
 
 test(
-  "real Electron reconciles anonymous tabs that later converge on one URL and keeps the active tab",
+  "real Electron preserves anonymous tabs that converge on one URL for explicit duplicate review",
   { timeout: 60000 },
   async (t) => {
     const server = http.createServer((request, response) => {
@@ -260,21 +260,85 @@ test(
 
     assert.equal(probe.before.tabCount, 2);
     assert.notEqual(probe.before.originalTabId, probe.before.popupTabId);
-    assert.equal(probe.converged.tabCount, 1);
+    assert.equal(probe.converged.tabCount, 2);
     assert.equal(probe.converged.activeTabId, probe.before.popupTabId);
-    assert.equal(probe.converged.keptTabId, probe.before.popupTabId);
-    assert.ok(Number.isInteger(probe.converged.keptWebContentsId));
+    assert.ok(Number.isInteger(probe.converged.activeWebContentsId));
     assert.equal(probe.converged.url, originURL);
+    assert.equal(probe.converged.exactDuplicateGroups, 1);
+    assert.deepEqual(new Set(probe.converged.exactDuplicateTabIds), new Set([
+      probe.before.originalTabId,
+      probe.before.popupTabId,
+    ]));
     assert.ok((await fsp.stat(result.capturePath)).size > 1000);
 
     const persisted = JSON.parse(
       await fsp.readFile(path.join(userData, "site-nest-data.json"), "utf8"),
     );
     const snapshot = persisted.workspaceBrowserStates.personal;
-    assert.equal(snapshot.tabs.length, 1);
+    assert.equal(snapshot.tabs.length, 2);
     assert.equal(snapshot.activeTabId, probe.before.popupTabId);
-    assert.equal(snapshot.tabs[0].tabId, probe.before.popupTabId);
-    assert.equal(snapshot.tabs[0].url, originURL);
+    assert.deepEqual(new Set(snapshot.tabs.map((tab) => tab.tabId)), new Set([
+      probe.before.originalTabId,
+      probe.before.popupTabId,
+    ]));
+    assert.ok(snapshot.tabs.every((tab) => tab.url === originURL));
+  },
+);
+
+test(
+  "real Electron groups and merges tabs without replacing WebContents and blocks unsafe duplicate closing",
+  { timeout: 60000 },
+  async (t) => {
+    const server = http.createServer((_request, response) => {
+      response.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+      });
+      response.end("<!doctype html><title>Grouped page</title><main>grouped</main>");
+    });
+    const address = await listen(server);
+    t.after(() => closeServer(server));
+    const baseURL = `http://127.0.0.1:${address.port}/`;
+    const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-tab-groups-"));
+    t.after(() => fsp.rm(userData, { recursive: true, force: true }));
+
+    const result = await runElectronProbe({ userData, baseURL, route: "tab-organization-probe" });
+    const probe = parseProbe(result.stdout, "tabOrganizationProbe");
+    assert.equal(probe.before.length, 2);
+    assert.deepEqual(probe.before.map((tab) => tab.webContentsId), [
+      probe.collapsedIdentity.original,
+      probe.collapsedIdentity.duplicate,
+    ]);
+    assert.deepEqual(probe.before.map((tab) => tab.webContentsId), [
+      probe.mergedIdentity.original,
+      probe.mergedIdentity.duplicate,
+    ]);
+    assert.equal(probe.closedRecord.tabGroupId, probe.targetGroupId);
+    assert.equal(probe.restoredIdentity.tabId, probe.closedIdentity.tabId);
+    assert.equal(probe.restoredIdentity.browserProfileId, probe.closedIdentity.browserProfileId);
+    assert.equal(probe.restoredIdentity.partition, probe.closedIdentity.partition);
+    assert.equal(probe.restoredIdentity.tabGroupId, probe.targetGroupId);
+    assert.equal(probe.restoredIdentity.restoredToOriginalGroup, true);
+    assert.equal(probe.restoredIdentity.historyConsumed, true);
+    assert.ok(probe.before.every((tab) => tab.partition === "persist:qiye-sites"));
+    assert.ok(probe.before.every((tab) => tab.browserProfileId === "default"));
+    assert.equal(probe.tabCount, 2);
+    assert.deepEqual(new Set(probe.tabIds), new Set(probe.before.map((tab) => tab.tabId)));
+    assert.ok(probe.mergedTabGroups.every((tab) => tab.tabGroupId === probe.targetGroupId));
+    assert.equal(probe.sourceGroup.deletedAt !== null, true);
+    assert.equal(probe.targetGroup.collapsed, true);
+    assert.equal(probe.exactDuplicateGroups, 1);
+    assert.equal(probe.guardedResolution.ok, false);
+    assert.equal(probe.guardedResolution.closedTabIds.length, 0);
+    assert.match(probe.guardedResolution.blocked.reason, /离开确认/);
+    assert.ok((await fsp.stat(result.capturePath)).size > 1000);
+
+    const persisted = JSON.parse(await fsp.readFile(path.join(userData, "site-nest-data.json"), "utf8"));
+    assert.equal(persisted.version, 12);
+    assert.equal(persisted.workspaceBrowserStates.personal.tabs.length, 2);
+    assert.ok(persisted.workspaceBrowserStates.personal.tabs.every((tab) => tab.tabGroupId === probe.targetGroupId));
+    assert.equal(persisted.tabGroups.find((group) => group.id === probe.sourceGroupId).deletedAt !== null, true);
+    assert.equal(persisted.recentlyClosedTabs.length, 0);
   },
 );
 

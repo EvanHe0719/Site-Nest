@@ -21,6 +21,7 @@ const os = require("node:os");
 const path = require("node:path");
 const {
   DEFAULT_BROWSER_PROFILE_ID,
+  MAX_RECENTLY_CLOSED_TABS,
   SAP_BROWSER_PROFILE_ID,
   addSiteToState,
   clearWorkspaceBrowserStateInState,
@@ -87,6 +88,19 @@ const {
   normalizeSearchSettings,
   recordSearchHistory,
 } = require("./browser/search-service.cjs");
+const {
+  SiteFamilyRegistry,
+  activeGroupsForWorkspace,
+  assignTabsToGroup,
+  createTabGroup,
+  detectDuplicateTabs,
+  mergeTabGroups,
+  normalizeComparableTabUrl,
+  reorderGroups,
+  reorderTabs,
+  undoTabGroupMerge,
+  updateTabGroup,
+} = require("./browser/tab-organization.cjs");
 const {
   OpenAICompatibleTranslationProvider,
   PageTextExtractor,
@@ -207,6 +221,7 @@ let activeBrowserWorkspaceId = null;
 let workspaceBrowserActivationSequence = 0;
 const workspaceBrowserContexts = new Map();
 let cachedState;
+let lastTabGroupMergeUndo = null;
 let stateLoadPromise;
 let stateStore;
 let writeQueue = Promise.resolve();
@@ -322,6 +337,16 @@ function browserProfileIdForUrl(rawUrl, fallback = DEFAULT_BROWSER_PROFILE_ID) {
   return isSapSessionUrl(rawUrl) ? SAP_BROWSER_PROFILE_ID : fallback;
 }
 
+function tabGroupsForWorkspace(workspaceId, options = {}) {
+  const groups = Array.isArray(cachedState?.tabGroups) ? cachedState.tabGroups : [];
+  return groups
+    .filter((group) =>
+      group.workspaceId === String(workspaceId || "") &&
+      (options.includeDeleted === true || !group.deletedAt),
+    )
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.createdAt.localeCompare(right.createdAt));
+}
+
 function emptyBrowserState(workspaceId, snapshot = {}) {
   const persistedTabs = Array.isArray(snapshot.tabs)
     ? snapshot.tabs
@@ -335,6 +360,8 @@ function emptyBrowserState(workspaceId, snapshot = {}) {
           loading: false,
           detached: false,
           active: false,
+          tabGroupId: tab.tabGroupId ? String(tab.tabGroupId) : null,
+          groupSortOrder: Number.isFinite(Number(tab.groupSortOrder)) ? Number(tab.groupSortOrder) : 0,
         }))
     : isSafeWebUrl(snapshot.currentURL)
       ? [
@@ -365,6 +392,7 @@ function emptyBrowserState(workspaceId, snapshot = {}) {
     workspaceId,
     activeTabId,
     tabs: persistedTabs,
+    tabGroups: tabGroupsForWorkspace(workspaceId),
     siteId: activeSiteId,
     activeSiteId,
     hasOpenPage: Boolean(currentURL),
@@ -419,6 +447,10 @@ function createRuntimeTab(workspaceId, persisted = {}) {
     detachedWindow: null,
     detachedCloseMode: "",
     allowDuplicate: persisted.allowDuplicate === true,
+    tabGroupId: persisted.tabGroupId ? String(persisted.tabGroupId) : null,
+    groupSortOrder: Number.isFinite(Number(persisted.groupSortOrder))
+      ? Number(persisted.groupSortOrder)
+      : 0,
     keepRunning: persisted.keepRunning === true,
     runtimeState: new SessionRuntimeState("suspended"),
     suspensionReason: "",
@@ -561,6 +593,8 @@ function tabSummary(tab, activeTabId) {
     ),
     detached: Boolean(tab.detached),
     allowDuplicate: Boolean(tab.allowDuplicate),
+    tabGroupId: tab.tabGroupId || null,
+    groupSortOrder: Number(tab.groupSortOrder) || 0,
     keepRunning: Boolean(tab.keepRunning),
     lifecycleState: tab.runtimeState?.state || (tab.view ? "warm" : "suspended"),
     active: tab.tabId === activeTabId,
@@ -581,6 +615,7 @@ function browserStateForWorkspace(workspace) {
     workspaceId: workspace.workspaceId,
     activeTabId: workspace.activeTabId,
     tabs,
+    tabGroups: tabGroupsForWorkspace(workspace.workspaceId),
     siteId: embeddedState?.siteId || null,
     activeSiteId: embeddedState?.activeSiteId || null,
     hasOpenPage: Boolean(embeddedState?.currentURL),
@@ -1847,7 +1882,7 @@ function reconcileRuntimeDuplicateTabs(workspace) {
     ...Array.from(workspace.tabs.values()).filter((tab) => tab !== activeTab),
   ];
   const seen = new Set();
-  const removed = [];
+  const marked = [];
   for (const tab of ordered) {
     if (tab.allowDuplicate) continue;
     const url = runtimeTabURL(tab);
@@ -1857,15 +1892,10 @@ function reconcileRuntimeDuplicateTabs(workspace) {
       seen.add(key);
       continue;
     }
-    workspace.tabs.delete(tab.tabId);
-    closeDetachedWindow(tab, "close");
-    destroySiteView(tab);
-    removed.push(tab.tabId);
+    tab.allowDuplicate = true;
+    marked.push(tab.tabId);
   }
-  if (workspace.activeTabId && !workspace.tabs.has(workspace.activeTabId)) {
-    workspace.activeTabId = workspace.tabs.keys().next().value || null;
-  }
-  return removed;
+  return marked;
 }
 
 function persistWorkspaceBrowserContext(context, patch = {}) {
@@ -1881,7 +1911,7 @@ function persistWorkspaceBrowserContext(context, patch = {}) {
   }
   const workspace = workspaceBrowserContexts.get(context.workspaceId);
   if (!workspace) return;
-  const removedDuplicateTabs = reconcileRuntimeDuplicateTabs(workspace);
+  const markedDuplicateTabs = reconcileRuntimeDuplicateTabs(workspace);
   const now = new Date().toISOString();
   const tabs = Array.from(workspace.tabs.values())
     .map((tab) => {
@@ -1917,6 +1947,8 @@ function persistWorkspaceBrowserContext(context, patch = {}) {
         errorState: tab.browserState.error || null,
         reliableContext: tab.reliableContext || null,
         keepRunning: tab.keepRunning === true,
+        tabGroupId: tab.tabGroupId || null,
+        groupSortOrder: Number(tab.groupSortOrder) || 0,
         ...(tab.allowDuplicate ? { allowDuplicate: true } : {}),
         updatedAt: now,
       };
@@ -1938,7 +1970,7 @@ function persistWorkspaceBrowserContext(context, patch = {}) {
     return;
   }
   cachedState = result.state;
-  if (removedDuplicateTabs.length) emitWorkspaceBrowserState(workspace);
+  if (markedDuplicateTabs.length) emitWorkspaceBrowserState(workspace);
   void persistState().catch((error) => {
     console.error("Unable to persist workspace browser state:", error?.message || error);
   });
@@ -2089,15 +2121,23 @@ async function runtimeTabProtection(tab) {
   if (contents.isCurrentlyAudible?.()) return { protected: true, reason: "页面正在播放媒体" };
   if (downloadManager?.hasActiveDownload(contents.id)) return { protected: true, reason: "页面正在下载" };
   try {
-    const activity = await contents.executeJavaScript(`(() => ({
-      hasSelectedUpload: Array.from(document.querySelectorAll('input[type="file"]')).some((input) => input.files?.length),
-      hasBeforeUnload: typeof window.onbeforeunload === 'function',
-      hasZohoDraft: /(^|\\.)desk\\.zoho|(^|\\.)desk\\.zohocloud/i.test(location.hostname) &&
-        Array.from(document.querySelectorAll('textarea, [contenteditable="true"]')).some((field) => {
-          const value = 'value' in field ? field.value : field.textContent;
-          return field.offsetParent !== null && String(value || '').trim().length > 0;
-        })
-    }))()`, true);
+    const activity = await contents.executeJavaScript(`(() => {
+      // Chromium exposes BeforeUnloadEvent but does not allow page code to
+      // construct it. A cancelable Event still exercises both onbeforeunload
+      // and addEventListener handlers without navigating the page.
+      const beforeUnloadEvent = new Event('beforeunload', { cancelable: true });
+      const initialReturnValue = beforeUnloadEvent.returnValue;
+      const dispatched = window.dispatchEvent(beforeUnloadEvent);
+      return {
+        hasSelectedUpload: Array.from(document.querySelectorAll('input[type="file"]')).some((input) => input.files?.length),
+        hasBeforeUnload: typeof window.onbeforeunload === 'function' || !dispatched || beforeUnloadEvent.defaultPrevented || beforeUnloadEvent.returnValue !== initialReturnValue,
+        hasZohoDraft: /(^|\\.)desk\\.zoho|(^|\\.)desk\\.zohocloud/i.test(location.hostname) &&
+          Array.from(document.querySelectorAll('textarea, [contenteditable="true"]')).some((field) => {
+            const value = 'value' in field ? field.value : field.textContent;
+            return field.offsetParent !== null && String(value || '').trim().length > 0;
+          })
+      };
+    })()`, true);
     if (activity?.hasSelectedUpload) return { protected: true, reason: "页面存在待上传文件" };
     if (activity?.hasBeforeUnload) return { protected: true, reason: "页面注册了离开确认" };
     if (activity?.hasZohoDraft) return { protected: true, reason: "Zoho 回复草稿尚未发送" };
@@ -2854,6 +2894,15 @@ async function selectBrowserTab(payload) {
   if (previous && previous !== tab) detachSiteView(previous);
   workspace.activeTabId = tab.tabId;
   tab.lastActiveAt = new Date().toISOString();
+  if (tab.tabGroupId) {
+    try {
+      cachedState.tabGroups = updateTabGroup(cachedState.tabGroups, tab.tabGroupId, {
+        lastActiveSessionId: tab.tabId,
+      });
+    } catch {
+      tab.tabGroupId = null;
+    }
+  }
   if (tab.detached) {
     tab.detachedWindow?.show();
     tab.detachedWindow?.focus();
@@ -2918,6 +2967,8 @@ async function createRuntimeBrowserTab(workspace, input = {}) {
     url,
     homeURL: input.homeURL || url,
     allowDuplicate: input.allowDuplicate === true,
+    tabGroupId: input.tabGroupId || null,
+    groupSortOrder: input.groupSortOrder,
     reliableContext: input.reliableContext || null,
     createdAt: input.createdAt,
     lastActiveAt: input.lastActiveAt,
@@ -3233,6 +3284,8 @@ async function duplicateBrowserTab(payload) {
     url,
     homeURL: source.currentHomeUrl || url,
     allowDuplicate: true,
+    tabGroupId: source.tabGroupId || null,
+    groupSortOrder: (Number(source.groupSortOrder) || 0) + 0.5,
     insertAfterTabId: source.tabId,
   });
   return selectBrowserTab({ tabId: tab.tabId, bounds: payload?.bounds });
@@ -3256,6 +3309,301 @@ async function openBrowserTabExternal(payload) {
   return { ok: true, url };
 }
 
+async function runtimeWorkspaceForOrganization(workspaceId) {
+  const state = await getState();
+  const id = String(workspaceId || state.activeWorkspaceId || "");
+  if (!state.workspaces.some((workspace) => workspace.id === id)) {
+    throw new Error("找不到工作空间");
+  }
+  return ensureWorkspaceBrowserContext(
+    id,
+    getWorkspaceBrowserState(state, id, { defaultSites: DEFAULT_SITES }),
+  );
+}
+
+function organizationTabRecords(workspace) {
+  return Array.from(workspace.tabs.values()).map((tab) => ({
+    ...tabSummary(tab, workspace.activeTabId),
+    groupSortOrder: Number(tab.groupSortOrder) || 0,
+  }));
+}
+
+function applyOrganizationTabRecords(workspace, records) {
+  const byId = new Map((records || []).map((record) => [String(record.tabId), record]));
+  const ordered = new Map();
+  for (const record of records || []) {
+    const runtime = workspace.tabs.get(String(record.tabId));
+    if (!runtime) continue;
+    runtime.tabGroupId = record.tabGroupId || null;
+    runtime.groupSortOrder = Number(record.groupSortOrder) || 0;
+    ordered.set(runtime.tabId, runtime);
+  }
+  for (const [tabId, runtime] of workspace.tabs) {
+    if (!byId.has(tabId)) ordered.set(tabId, runtime);
+  }
+  workspace.tabs = ordered;
+}
+
+async function persistTabOrganization(workspace) {
+  if (workspace.tabs.size) persistWorkspaceBrowserWorkspace(workspace);
+  else await persistState();
+  return emitWorkspaceBrowserState(workspace);
+}
+
+async function createTabGroupOperation(payload) {
+  const workspace = await runtimeWorkspaceForOrganization(payload?.workspaceId);
+  const tabIds = (Array.isArray(payload?.tabIds) ? payload.tabIds : [])
+    .map(String)
+    .filter((tabId) => workspace.tabs.has(tabId));
+  const group = createTabGroup(cachedState.tabGroups, {
+    workspaceId: workspace.workspaceId,
+    name: payload?.name,
+    colorKey: payload?.colorKey,
+    iconKey: payload?.iconKey,
+    lastActiveSessionId: tabIds.includes(workspace.activeTabId)
+      ? workspace.activeTabId
+      : tabIds[0] || null,
+  });
+  cachedState.tabGroups = [...cachedState.tabGroups, group];
+  if (tabIds.length) {
+    applyOrganizationTabRecords(
+      workspace,
+      assignTabsToGroup(organizationTabRecords(workspace), tabIds, group.id),
+    );
+  }
+  const browserState = await persistTabOrganization(workspace);
+  return { group, browserState };
+}
+
+async function updateTabGroupOperation(payload) {
+  await getState();
+  const groupId = String(payload?.groupId || "");
+  const group = cachedState?.tabGroups?.find((candidate) => candidate.id === groupId && !candidate.deletedAt);
+  if (!group) throw new Error("找不到页签组");
+  const workspace = await runtimeWorkspaceForOrganization(group.workspaceId);
+  cachedState.tabGroups = updateTabGroup(cachedState.tabGroups, groupId, payload?.patch || {});
+  const browserState = await persistTabOrganization(workspace);
+  return {
+    group: cachedState.tabGroups.find((candidate) => candidate.id === groupId),
+    browserState,
+  };
+}
+
+async function assignTabsToGroupOperation(payload) {
+  const workspace = await runtimeWorkspaceForOrganization(payload?.workspaceId);
+  const tabIds = (Array.isArray(payload?.tabIds) ? payload.tabIds : [payload?.tabId])
+    .filter(Boolean)
+    .map(String);
+  if (!tabIds.length || tabIds.some((tabId) => !workspace.tabs.has(tabId))) {
+    throw new Error("找不到要分组的页签");
+  }
+  const groupId = payload?.groupId ? String(payload.groupId) : null;
+  if (groupId && !tabGroupsForWorkspace(workspace.workspaceId).some((group) => group.id === groupId)) {
+    throw new Error("目标分组不属于当前空间");
+  }
+  applyOrganizationTabRecords(
+    workspace,
+    assignTabsToGroup(organizationTabRecords(workspace), tabIds, groupId),
+  );
+  if (groupId) {
+    cachedState.tabGroups = updateTabGroup(cachedState.tabGroups, groupId, {
+      lastActiveSessionId: tabIds.includes(workspace.activeTabId)
+        ? workspace.activeTabId
+        : tabIds[0],
+    });
+  }
+  return persistTabOrganization(workspace);
+}
+
+async function reorderBrowserTabsOperation(payload) {
+  const workspace = await runtimeWorkspaceForOrganization(payload?.workspaceId);
+  const requestedIds = Array.isArray(payload?.tabIds) ? payload.tabIds.map(String) : [];
+  if (requestedIds.length !== workspace.tabs.size || requestedIds.some((id) => !workspace.tabs.has(id))) {
+    throw new Error("页签排序数据不完整");
+  }
+  applyOrganizationTabRecords(
+    workspace,
+    reorderTabs(organizationTabRecords(workspace), requestedIds),
+  );
+  return persistTabOrganization(workspace);
+}
+
+async function reorderTabGroupsOperation(payload) {
+  const workspace = await runtimeWorkspaceForOrganization(payload?.workspaceId);
+  const currentIds = tabGroupsForWorkspace(workspace.workspaceId).map((group) => group.id);
+  const requestedIds = Array.isArray(payload?.groupIds) ? payload.groupIds.map(String) : [];
+  if (requestedIds.length !== currentIds.length || currentIds.some((id) => !requestedIds.includes(id))) {
+    throw new Error("分组排序数据不完整");
+  }
+  cachedState.tabGroups = reorderGroups(
+    cachedState.tabGroups,
+    workspace.workspaceId,
+    requestedIds,
+  );
+  return persistTabOrganization(workspace);
+}
+
+async function mergeTabGroupsOperation(payload) {
+  await getState();
+  const sourceGroupId = String(payload?.sourceGroupId || "");
+  const targetGroupId = String(payload?.targetGroupId || "");
+  const source = cachedState?.tabGroups?.find((group) => group.id === sourceGroupId && !group.deletedAt);
+  const target = cachedState?.tabGroups?.find((group) => group.id === targetGroupId && !group.deletedAt);
+  if (!source || !target) throw new Error("找不到要合并的分组");
+  if (source.workspaceId !== target.workspaceId) {
+    throw new Error("不同工作空间的分组不能直接合并；请先明确移动页签的目标空间");
+  }
+  const workspace = await runtimeWorkspaceForOrganization(source.workspaceId);
+  const result = mergeTabGroups(
+    cachedState.tabGroups,
+    organizationTabRecords(workspace),
+    sourceGroupId,
+    targetGroupId,
+  );
+  cachedState.tabGroups = result.groups;
+  applyOrganizationTabRecords(workspace, result.tabs);
+  lastTabGroupMergeUndo = result.undo;
+  return { browserState: await persistTabOrganization(workspace), canUndo: true };
+}
+
+async function undoTabGroupMergeOperation() {
+  await getState();
+  if (!lastTabGroupMergeUndo) throw new Error("没有可撤销的分组合并");
+  const workspace = await runtimeWorkspaceForOrganization(lastTabGroupMergeUndo.workspaceId);
+  const result = undoTabGroupMerge(
+    cachedState.tabGroups,
+    organizationTabRecords(workspace),
+    lastTabGroupMergeUndo,
+  );
+  cachedState.tabGroups = result.groups;
+  applyOrganizationTabRecords(workspace, result.tabs);
+  lastTabGroupMergeUndo = null;
+  return persistTabOrganization(workspace);
+}
+
+async function deleteEmptyTabGroupOperation(payload) {
+  await getState();
+  const groupId = String(payload?.groupId || payload || "");
+  const group = cachedState?.tabGroups?.find((candidate) => candidate.id === groupId && !candidate.deletedAt);
+  if (!group) throw new Error("找不到页签组");
+  const workspace = await runtimeWorkspaceForOrganization(group.workspaceId);
+  if (Array.from(workspace.tabs.values()).some((tab) => tab.tabGroupId === groupId)) {
+    throw new Error("只能删除空分组；请先移出或关闭其中页签");
+  }
+  const now = new Date().toISOString();
+  cachedState.tabGroups = cachedState.tabGroups.map((candidate) => candidate.id === groupId
+    ? { ...candidate, deletedAt: now, updatedAt: now }
+    : candidate);
+  return persistTabOrganization(workspace);
+}
+
+async function ungroupTabGroupOperation(payload) {
+  await getState();
+  const groupId = String(payload?.groupId || payload || "");
+  const group = cachedState?.tabGroups?.find((candidate) => candidate.id === groupId && !candidate.deletedAt);
+  if (!group) throw new Error("找不到页签组");
+  const workspace = await runtimeWorkspaceForOrganization(group.workspaceId);
+  const tabIds = Array.from(workspace.tabs.values())
+    .filter((tab) => tab.tabGroupId === groupId)
+    .map((tab) => tab.tabId);
+  applyOrganizationTabRecords(
+    workspace,
+    assignTabsToGroup(organizationTabRecords(workspace), tabIds, null),
+  );
+  return persistTabOrganization(workspace);
+}
+
+async function closeTabGroupOperation(payload) {
+  await getState();
+  const groupId = String(payload?.groupId || payload || "");
+  const group = cachedState?.tabGroups?.find((candidate) => candidate.id === groupId && !candidate.deletedAt);
+  if (!group) throw new Error("找不到页签组");
+  const workspace = await runtimeWorkspaceForOrganization(group.workspaceId);
+  const candidates = Array.from(workspace.tabs.values()).filter((tab) => tab.tabGroupId === groupId);
+  const closedTabIds = [];
+  for (const tab of candidates) {
+    const protection = await runtimeTabProtection(tab);
+    if (protection.protected) {
+      return {
+        ok: false,
+        closedTabIds,
+        blocked: { tabId: tab.tabId, reason: protection.reason },
+        browserState: emitWorkspaceBrowserState(workspace),
+      };
+    }
+    await closeBrowserTab({ tabId: tab.tabId, force: true });
+    closedTabIds.push(tab.tabId);
+  }
+  const now = new Date().toISOString();
+  cachedState.tabGroups = cachedState.tabGroups.map((candidate) => candidate.id === groupId
+    ? { ...candidate, deletedAt: now, updatedAt: now }
+    : candidate);
+  await persistState();
+  return { ok: true, closedTabIds, browserState: emitWorkspaceBrowserState(workspace) };
+}
+
+async function suggestSiteTabGroupsOperation(payload) {
+  const workspace = await runtimeWorkspaceForOrganization(payload?.workspaceId || payload);
+  return {
+    workspaceId: workspace.workspaceId,
+    suggestions: new SiteFamilyRegistry().suggestions(organizationTabRecords(workspace)),
+  };
+}
+
+async function duplicateTabReport(payload) {
+  const workspace = await runtimeWorkspaceForOrganization(payload?.workspaceId || payload);
+  const groupsById = new Map(tabGroupsForWorkspace(workspace.workspaceId).map((group) => [group.id, group]));
+  const detected = detectDuplicateTabs(organizationTabRecords(workspace), {
+    activeTabId: workspace.activeTabId,
+  });
+  for (const exact of detected.exact) {
+    exact.tabs = await Promise.all(exact.tabs.map(async (item) => {
+      const runtime = workspace.tabs.get(item.tabId);
+      const protection = await runtimeTabProtection(runtime);
+      return {
+        ...item,
+        groupName: groupsById.get(item.tabGroupId)?.name || "未分组",
+        audible: Boolean(runtime?.view?.webContents?.isCurrentlyAudible?.()),
+        downloading: Boolean(runtime?.view && downloadManager?.hasActiveDownload(runtime.view.webContents.id)),
+        unsavedRisk: Boolean(protection.protected),
+        protectionReason: protection.reason || "",
+      };
+    }));
+  }
+  return { workspaceId: workspace.workspaceId, ...detected };
+}
+
+async function resolveDuplicateTabsOperation(payload) {
+  const keeper = findRuntimeTab(payload?.keeperTabId);
+  if (!keeper) throw new Error("找不到要保留的页签");
+  const keeperUrl = normalizeComparableTabUrl(runtimeTabURL(keeper.tab));
+  const closeTabIds = (Array.isArray(payload?.closeTabIds) ? payload.closeTabIds : []).map(String);
+  const closedTabIds = [];
+  for (const tabId of closeTabIds) {
+    const found = findRuntimeTab(tabId);
+    if (!found || found.workspace !== keeper.workspace) throw new Error("重复页签必须属于同一工作空间");
+    if (!keeperUrl || normalizeComparableTabUrl(runtimeTabURL(found.tab)) !== keeperUrl) {
+      throw new Error("所选页签不是完全重复 URL");
+    }
+    const protection = await runtimeTabProtection(found.tab);
+    if (protection.protected) {
+      return {
+        ok: false,
+        closedTabIds,
+        blocked: { tabId, reason: protection.reason },
+        browserState: emitWorkspaceBrowserState(keeper.workspace),
+      };
+    }
+    await closeBrowserTab({ tabId, force: true });
+    closedTabIds.push(tabId);
+  }
+  return {
+    ok: true,
+    closedTabIds,
+    browserState: emitWorkspaceBrowserState(keeper.workspace),
+  };
+}
+
 function showBrowserTabContextMenu(event, payload) {
   const found = findRuntimeTab(payload?.tabId || payload);
   if (!found) throw new Error("找不到网页标签");
@@ -3270,6 +3618,8 @@ function showBrowserTabContextMenu(event, payload) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 72);
+  const groups = tabGroupsForWorkspace(source.workspaceId);
+  const currentGroup = groups.find((group) => group.id === source.tabGroupId) || null;
 
   return new Promise((resolve) => {
     let selectedAction = null;
@@ -3283,14 +3633,80 @@ function showBrowserTabContextMenu(event, payload) {
       { label: "复制页面链接", click: () => select("copy-url") },
       { label: "在外部浏览器打开", click: () => select("open-external") },
       { type: "separator" },
+      {
+        label: "添加到分组",
+        submenu: [
+          { label: "新建分组…", click: () => select("new-group") },
+          ...(groups.length ? [{ type: "separator" }] : []),
+          ...groups.map((group) => ({
+            label: `${group.name}${group.id === currentGroup?.id ? " ✓" : ""}`,
+            enabled: group.id !== currentGroup?.id,
+            click: () => select(`assign-group:${group.id}`),
+          })),
+        ],
+      },
+      { label: "从分组移除", enabled: Boolean(currentGroup), click: () => select("remove-group") },
+      { label: "将相同站点页签分组…", click: () => select("suggest-site-group") },
+      { label: "整理重复页签…", click: () => select("organize-duplicates") },
+      { type: "separator" },
       { label: source.keepRunning ? "取消保持运行" : "保持运行", click: () => select(source.keepRunning ? "allow-sleep" : "keep-running") },
       { label: "立即休眠", enabled: source !== activeBrowserContext() && !source.detached && Boolean(source.view), click: () => select("suspend") },
       { type: "separator" },
+      {
+        label: "恢复最近关闭的页签",
+        accelerator: "CommandOrControl+Shift+T",
+        enabled: Boolean(cachedState?.recentlyClosedTabs?.length),
+        click: () => select("restore-recently-closed"),
+      },
       { label: "关闭页签", click: () => select("close") },
     ]);
     menu.popup({
       window: owner,
       callback: () => resolve({ action: selectedAction, tabId: source.tabId }),
+    });
+  });
+}
+
+function showBrowserTabGroupContextMenu(event, payload) {
+  const groupId = String(payload?.groupId || payload || "");
+  const group = cachedState?.tabGroups?.find((candidate) => candidate.id === groupId && !candidate.deletedAt);
+  if (!group) throw new Error("找不到页签组");
+  const owner = BrowserWindow.fromWebContents(event.sender);
+  if (!owner || owner.isDestroyed()) return Promise.resolve({ action: null });
+  const groups = tabGroupsForWorkspace(group.workspaceId);
+  const workspace = workspaceBrowserContexts.get(group.workspaceId);
+  const tabCount = workspace
+    ? Array.from(workspace.tabs.values()).filter((tab) => tab.tabGroupId === group.id).length
+    : 0;
+  return new Promise((resolve) => {
+    let selectedAction = null;
+    const select = (action) => {
+      selectedAction = action;
+    };
+    const menu = Menu.buildFromTemplate([
+      { label: `${group.name} · ${tabCount} 个页签`, enabled: false },
+      { type: "separator" },
+      { label: "重命名与修改标识…", click: () => select("edit") },
+      { label: group.collapsed ? "展开分组" : "折叠分组", click: () => select("toggle") },
+      { label: "将全部页签移出分组", enabled: tabCount > 0, click: () => select("ungroup") },
+      {
+        label: "合并到其他分组",
+        enabled: groups.length > 1,
+        submenu: groups
+          .filter((candidate) => candidate.id !== group.id)
+          .map((candidate) => ({
+            label: candidate.name,
+            click: () => select(`merge-group:${candidate.id}`),
+          })),
+      },
+      { label: "撤销上次分组合并", click: () => select("undo-merge") },
+      { type: "separator" },
+      { label: "关闭分组中的页签", enabled: tabCount > 0, click: () => select("close-group") },
+      { label: "删除空分组", enabled: tabCount === 0, click: () => select("delete-empty") },
+    ]);
+    menu.popup({
+      window: owner,
+      callback: () => resolve({ action: selectedAction, groupId: group.id }),
     });
   });
 }
@@ -3646,8 +4062,13 @@ async function closeBrowserTab(payload) {
   const found = findRuntimeTab(payload?.tabId || payload);
   if (!found) throw new Error("找不到要关闭的网页标签");
   const { workspace, tab } = found;
+  if (payload?.force !== true) {
+    const protection = await runtimeTabProtection(tab);
+    if (protection.protected) throw new Error(`页面暂不能关闭：${protection.reason}`);
+  }
   const orderedTabs = Array.from(workspace.tabs.values());
   const closedIndex = orderedTabs.findIndex((item) => item === tab);
+  const recentlyClosed = rememberRecentlyClosedBrowserTab(workspace, tab, closedIndex);
   closeDetachedWindow(tab, "close");
   destroySiteView(tab);
   workspace.tabs.delete(tab.tabId);
@@ -3669,7 +4090,103 @@ async function closeBrowserTab(payload) {
     attachSiteView(fallback);
     if (payload?.bounds) applySiteViewBounds(payload.bounds, fallback);
   }
-  return emitWorkspaceBrowserState(workspace);
+  return {
+    ...emitWorkspaceBrowserState(workspace),
+    recentlyClosedId: recentlyClosed?.id || null,
+  };
+}
+
+function rememberRecentlyClosedBrowserTab(workspace, tab, closedIndex) {
+  if (!cachedState || !workspace || !tab) return null;
+  const url = runtimeTabURL(tab);
+  if (!isSafeWebUrl(url)) return null;
+  const now = new Date().toISOString();
+  const storedSite = cachedState.sites.find(
+    (site) => site.id === tab.currentSiteId && site.workspaceId === workspace.workspaceId,
+  );
+  const liveTitle = tab.view && !tab.view.webContents.isDestroyed()
+    ? tab.view.webContents.getTitle()
+    : "";
+  const activeGroup = cachedState.tabGroups?.find(
+    (group) =>
+      group.id === tab.tabGroupId &&
+      group.workspaceId === workspace.workspaceId &&
+      !group.deletedAt,
+  );
+  const record = {
+    id: `closed-${randomUUID()}`,
+    workspaceId: workspace.workspaceId,
+    tabId: tab.tabId,
+    siteId: storedSite?.id || null,
+    browserProfileId: tab.browserProfileId || DEFAULT_BROWSER_PROFILE_ID,
+    title: liveTitle || tab.browserState.title || storedSite?.name || "",
+    url,
+    normalizedUrl: normalizeUrl(url),
+    homeURL:
+      (isSafeWebUrl(tab.currentHomeUrl) && tab.currentHomeUrl) ||
+      storedSite?.url ||
+      url,
+    favicon: tab.favicon || null,
+    createdAt: tab.createdAt || now,
+    lastActiveAt: tab.lastActiveAt || now,
+    reliableContext: tab.reliableContext || null,
+    keepRunning: tab.keepRunning === true,
+    tabGroupId: activeGroup?.id || null,
+    groupSortOrder: Number(tab.groupSortOrder) || 0,
+    closedIndex: Math.max(0, Number(closedIndex) || 0),
+    allowDuplicate: tab.allowDuplicate === true,
+    closedAt: now,
+  };
+  cachedState.recentlyClosedTabs = [
+    record,
+    ...(Array.isArray(cachedState.recentlyClosedTabs) ? cachedState.recentlyClosedTabs : []),
+  ].slice(0, MAX_RECENTLY_CLOSED_TABS);
+  return record;
+}
+
+async function restoreRecentlyClosedBrowserTab(payload = {}) {
+  const state = await getState();
+  const records = Array.isArray(state.recentlyClosedTabs) ? state.recentlyClosedTabs : [];
+  const requestedId = String(payload?.closedId || "").trim();
+  const record = requestedId
+    ? records.find((candidate) => candidate.id === requestedId)
+    : records[0];
+  if (!record) throw new Error("没有可恢复的最近关闭页签");
+  const workspace = await workspaceForExplicitDuplicate(record.workspaceId);
+  const site = cachedState.sites.find(
+    (candidate) => candidate.id === record.siteId && candidate.workspaceId === record.workspaceId,
+  );
+  const group = cachedState.tabGroups?.find(
+    (candidate) =>
+      candidate.id === record.tabGroupId &&
+      candidate.workspaceId === record.workspaceId &&
+      !candidate.deletedAt,
+  );
+  const restoredTabId = findRuntimeTab(record.tabId) ? randomUUID() : record.tabId;
+  const tab = await createRuntimeBrowserTab(workspace, {
+    tabId: restoredTabId,
+    siteId: site?.id || null,
+    browserProfileId: record.browserProfileId || site?.browserProfileId || DEFAULT_BROWSER_PROFILE_ID,
+    title: record.title,
+    url: record.url,
+    homeURL: record.homeURL || record.url,
+    allowDuplicate: true,
+    tabGroupId: group?.id || null,
+    groupSortOrder: Number(record.groupSortOrder) || 0,
+    reliableContext: record.reliableContext || null,
+    createdAt: record.createdAt,
+    lastActiveAt: record.lastActiveAt,
+    favicon: record.favicon,
+  });
+  tab.keepRunning = record.keepRunning === true;
+  cachedState.recentlyClosedTabs = records.filter((candidate) => candidate.id !== record.id);
+  persistWorkspaceBrowserWorkspace(workspace);
+  const restored = await selectBrowserTab({ tabId: tab.tabId, bounds: payload?.bounds });
+  return {
+    ...restored,
+    restoredClosedId: record.id,
+    restoredToOriginalGroup: Boolean(group),
+  };
 }
 
 function detachedTabForSender(sender) {
@@ -4829,6 +5346,46 @@ function registerIpc() {
   ipcMain.handle("browser:show-tab-context-menu", (event, payload) =>
     showBrowserTabContextMenu(event, payload),
   );
+  ipcMain.handle("browser:show-tab-group-context-menu", (event, payload) =>
+    showBrowserTabGroupContextMenu(event, payload),
+  );
+  ipcMain.handle("tab-groups:create", (_event, payload) =>
+    createTabGroupOperation(payload),
+  );
+  ipcMain.handle("tab-groups:update", (_event, payload) =>
+    updateTabGroupOperation(payload),
+  );
+  ipcMain.handle("tab-groups:assign-tabs", (_event, payload) =>
+    assignTabsToGroupOperation(payload),
+  );
+  ipcMain.handle("tab-groups:reorder-tabs", (_event, payload) =>
+    reorderBrowserTabsOperation(payload),
+  );
+  ipcMain.handle("tab-groups:reorder-groups", (_event, payload) =>
+    reorderTabGroupsOperation(payload),
+  );
+  ipcMain.handle("tab-groups:merge", (_event, payload) =>
+    mergeTabGroupsOperation(payload),
+  );
+  ipcMain.handle("tab-groups:undo-merge", () => undoTabGroupMergeOperation());
+  ipcMain.handle("tab-groups:ungroup", (_event, payload) =>
+    ungroupTabGroupOperation(payload),
+  );
+  ipcMain.handle("tab-groups:delete-empty", (_event, payload) =>
+    deleteEmptyTabGroupOperation(payload),
+  );
+  ipcMain.handle("tab-groups:close", (_event, payload) =>
+    closeTabGroupOperation(payload),
+  );
+  ipcMain.handle("tab-groups:suggest-sites", (_event, payload) =>
+    suggestSiteTabGroupsOperation(payload),
+  );
+  ipcMain.handle("tab-groups:detect-duplicates", (_event, payload) =>
+    duplicateTabReport(payload),
+  );
+  ipcMain.handle("tab-groups:resolve-duplicates", (_event, payload) =>
+    resolveDuplicateTabsOperation(payload),
+  );
   ipcMain.handle("browser:show-address-context-menu", (event) =>
     showAddressContextMenu(event),
   );
@@ -4837,6 +5394,9 @@ function registerIpc() {
   );
   ipcMain.handle("browser:close-tab", (_event, payload) =>
     closeBrowserTab(payload),
+  );
+  ipcMain.handle("browser:restore-closed-tab", (_event, payload) =>
+    restoreRecentlyClosedBrowserTab(payload),
   );
   ipcMain.handle("browser:detach-tab", (_event, payload) =>
     detachBrowserTab(payload),
@@ -5469,9 +6029,16 @@ function createMainWindow() {
           const liveBefore = allRuntimeTabs().filter((tab) => tab.view && !tab.view.webContents.isDestroyed()).length;
           const memoryBefore = app.getAppMetrics().reduce((sum, metric) => sum + Number(metric.memory?.privateBytes || 0), 0);
           await selectBrowserTab({ tabId: extraTabs.at(-1).tabId, bounds: siteViewBounds });
-          const lifecycle = await getWebViewLifecycleManager().updateSettings({ mode: "saver", inactiveMinutes: 0 });
-          await new Promise((resolve) => setTimeout(resolve, 250));
-          const liveAfter = allRuntimeTabs().filter((tab) => tab.view && !tab.view.webContents.isDestroyed()).length;
+          let lifecycle = await getWebViewLifecycleManager().updateSettings({ mode: "saver", inactiveMinutes: 0 });
+          let liveAfter = allRuntimeTabs().filter((tab) => tab.view && !tab.view.webContents.isDestroyed()).length;
+          for (let attempt = 0; liveAfter > 1 && attempt < 5; attempt += 1) {
+            // A page that is still reporting loading is intentionally protected.
+            // Re-run the policy after it settles instead of making the probe race
+            // concurrent Electron integration files.
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            lifecycle = await getWebViewLifecycleManager().enforce("probe-settled");
+            liveAfter = allRuntimeTabs().filter((tab) => tab.view && !tab.view.webContents.isDestroyed()).length;
+          }
           const memoryAfter = app.getAppMetrics().reduce((sum, metric) => sum + Number(metric.memory?.privateBytes || 0), 0);
           const runtimeAfterSuspend = getUserScriptServices().engine.runtimes.has(originalContents.id);
           const resourceCacheAfterSuspend = getPageResourceService().resources.has(originalContents.id);
@@ -5896,6 +6463,110 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
               },
             }),
           );
+        } else if (CAPTURE_ROUTE === "tab-organization-probe") {
+          if (!isSafeWebUrl(TAB_PROBE_BASE_URL)) {
+            throw new Error("QIYE_TAB_PROBE_BASE_URL is required for tab-organization-probe");
+          }
+          const originURL = new URL("/grouped", TAB_PROBE_BASE_URL).toString();
+          await showBrowser({
+            url: originURL,
+            workspaceId: "personal",
+            bounds: siteViewBounds,
+          });
+          const workspace = activeWorkspaceBrowserContext();
+          const original = activeBrowserContext(workspace);
+          original.keepRunning = true;
+          await waitForRuntimeTabNavigation(original);
+          const duplicateResult = await duplicateBrowserTab({ tabId: original.tabId, bounds: siteViewBounds });
+          let duplicate = findRuntimeTab(duplicateResult.activeTabId).tab;
+          duplicate.keepRunning = true;
+          await waitForRuntimeTabNavigation(duplicate);
+          const before = [original, duplicate].map((tab) => ({
+            tabId: tab.tabId,
+            webContentsId: tab.view.webContents.id,
+            browserProfileId: tab.browserProfileId,
+            partition: browserPartitionForProfile(tab.browserProfileId),
+            url: tab.view.webContents.getURL(),
+          }));
+          const firstGroup = await createTabGroupOperation({
+            workspaceId: "personal",
+            name: "SAP Support",
+            tabIds: [original.tabId],
+          });
+          const secondGroup = await createTabGroupOperation({
+            workspaceId: "personal",
+            name: "SAP 登录",
+            colorKey: "blue",
+            tabIds: [duplicate.tabId],
+          });
+          await updateTabGroupOperation({
+            groupId: firstGroup.group.id,
+            patch: { collapsed: true },
+          });
+          const collapsedIdentity = {
+            original: original.view.webContents.id,
+            duplicate: duplicate.view.webContents.id,
+          };
+          await mergeTabGroupsOperation({
+            sourceGroupId: secondGroup.group.id,
+            targetGroupId: firstGroup.group.id,
+          });
+          const mergedIdentity = {
+            original: original.view.webContents.id,
+            duplicate: duplicate.view.webContents.id,
+          };
+          const closedIdentity = {
+            tabId: duplicate.tabId,
+            browserProfileId: duplicate.browserProfileId,
+            partition: browserPartitionForProfile(duplicate.browserProfileId),
+            tabGroupId: duplicate.tabGroupId,
+          };
+          const closeResult = await closeBrowserTab({ tabId: duplicate.tabId, force: true });
+          const closedRecord = cachedState.recentlyClosedTabs.find(
+            (candidate) => candidate.id === closeResult.recentlyClosedId,
+          );
+          const restoredState = await restoreRecentlyClosedBrowserTab({
+            closedId: closeResult.recentlyClosedId,
+            bounds: siteViewBounds,
+          });
+          duplicate = findRuntimeTab(restoredState.activeTabId).tab;
+          await waitForRuntimeTabNavigation(duplicate);
+          const restoredIdentity = {
+            tabId: duplicate.tabId,
+            browserProfileId: duplicate.browserProfileId,
+            partition: browserPartitionForProfile(duplicate.browserProfileId),
+            tabGroupId: duplicate.tabGroupId,
+            restoredToOriginalGroup: restoredState.restoredToOriginalGroup,
+            historyConsumed: !cachedState.recentlyClosedTabs.some(
+              (candidate) => candidate.id === closeResult.recentlyClosedId,
+            ),
+          };
+          original.keepRunning = false;
+          duplicate.keepRunning = false;
+          await original.view.webContents.executeJavaScript(`window.addEventListener('beforeunload', (event) => { event.preventDefault(); event.returnValue = ''; }); true`);
+          const duplicateReport = await duplicateTabReport({ workspaceId: "personal" });
+          const guardedResolution = await resolveDuplicateTabsOperation({
+            keeperTabId: duplicate.tabId,
+            closeTabIds: [original.tabId],
+          });
+          await writeQueue;
+          console.log(JSON.stringify({ tabOrganizationProbe: {
+            before,
+            collapsedIdentity,
+            mergedIdentity,
+            closedIdentity,
+            closedRecord,
+            restoredIdentity,
+            tabCount: workspace.tabs.size,
+            tabIds: Array.from(workspace.tabs.keys()),
+            targetGroupId: firstGroup.group.id,
+            sourceGroupId: secondGroup.group.id,
+            targetGroup: cachedState.tabGroups.find((group) => group.id === firstGroup.group.id),
+            sourceGroup: cachedState.tabGroups.find((group) => group.id === secondGroup.group.id),
+            mergedTabGroups: organizationTabRecords(workspace).map((tab) => ({ tabId: tab.tabId, tabGroupId: tab.tabGroupId })),
+            exactDuplicateGroups: duplicateReport.exact.length,
+            guardedResolution,
+          } }));
         } else if (CAPTURE_ROUTE === "workspace-tabs-convergence-probe") {
           if (!isSafeWebUrl(TAB_PROBE_BASE_URL)) {
             throw new Error(
@@ -5938,19 +6609,18 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
           for (
             let attempt = 0;
             attempt < 80 &&
-            (workspace.tabs.size !== 1 ||
-              popupTab.view.webContents.getURL() !== originURL);
+            popupTab.view.webContents.getURL() !== originURL;
             attempt += 1
           ) {
             await new Promise((resolve) => setTimeout(resolve, 25));
           }
-          if (
-            workspace.tabs.size !== 1 ||
-            popupTab.view.webContents.getURL() !== originURL
-          ) {
-            throw new Error("converged anonymous tabs were not reconciled");
+          if (workspace.tabs.size !== 2 || popupTab.view.webContents.getURL() !== originURL) {
+            throw new Error("converged anonymous tabs were closed or failed to navigate");
           }
           await writeQueue;
+          const candidates = detectDuplicateTabs(organizationTabRecords(workspace), {
+            activeTabId: workspace.activeTabId,
+          });
           console.log(
             JSON.stringify({
               workspaceTabsConvergenceProbe: {
@@ -5958,9 +6628,10 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
                 converged: {
                   tabCount: workspace.tabs.size,
                   activeTabId: workspace.activeTabId,
-                  keptTabId: popupTab.tabId,
-                  keptWebContentsId: popupTab.view.webContents.id,
+                  activeWebContentsId: popupTab.view.webContents.id,
                   url: popupTab.view.webContents.getURL(),
+                  exactDuplicateGroups: candidates.exact.length,
+                  exactDuplicateTabIds: candidates.exact[0]?.tabs.map((tab) => tab.tabId) || [],
                 },
               },
             }),

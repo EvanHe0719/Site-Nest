@@ -71,6 +71,31 @@ contextBridge.exposeInMainWorld("siteNest", {
     ipcRenderer.invoke("workspace-harness:open-tab-external", { tabId }),
   showBrowserTabContextMenu: (tabId) =>
     ipcRenderer.invoke("workspace-harness:show-tab-context-menu", { tabId }),
+  createTabGroup: (input) =>
+    ipcRenderer.invoke("workspace-harness:tab-groups-create", input),
+  updateTabGroup: (groupId, patch) =>
+    ipcRenderer.invoke("workspace-harness:tab-groups-update", { groupId, patch }),
+  assignTabsToGroup: (workspaceId, tabIds, groupId) =>
+    ipcRenderer.invoke("workspace-harness:tab-groups-assign", { workspaceId, tabIds, groupId }),
+  reorderBrowserTabs: (workspaceId, tabIds) =>
+    ipcRenderer.invoke("workspace-harness:tab-groups-reorder-tabs", { workspaceId, tabIds }),
+  reorderTabGroups: (workspaceId, groupIds) =>
+    ipcRenderer.invoke("workspace-harness:tab-groups-reorder-groups", { workspaceId, groupIds }),
+  mergeTabGroups: (sourceGroupId, targetGroupId) =>
+    ipcRenderer.invoke("workspace-harness:tab-groups-merge", { sourceGroupId, targetGroupId }),
+  undoTabGroupMerge: () => ipcRenderer.invoke("workspace-harness:tab-groups-undo"),
+  ungroupTabGroup: (groupId) =>
+    ipcRenderer.invoke("workspace-harness:tab-groups-ungroup", { groupId }),
+  deleteEmptyTabGroup: (groupId) =>
+    ipcRenderer.invoke("workspace-harness:tab-groups-delete-empty", { groupId }),
+  closeTabGroup: (groupId) =>
+    ipcRenderer.invoke("workspace-harness:tab-groups-close", { groupId }),
+  suggestSiteTabGroups: (workspaceId) =>
+    ipcRenderer.invoke("workspace-harness:tab-groups-suggest-sites", { workspaceId }),
+  detectDuplicateTabs: (workspaceId) =>
+    ipcRenderer.invoke("workspace-harness:tab-groups-detect-duplicates", { workspaceId }),
+  resolveDuplicateTabs: (keeperTabId, closeTabIds) =>
+    ipcRenderer.invoke("workspace-harness:tab-groups-resolve-duplicates", { keeperTabId, closeTabIds }),
   setHarnessTabContextMenuAction: (action) =>
     ipcRenderer.invoke("workspace-harness:set-tab-context-menu-action", { action }),
   duplicateSiteTab: (siteId, bounds) =>

@@ -65,6 +65,28 @@ contextBridge.exposeInMainWorld("siteNest", {
     ipcRenderer.invoke("browser:open-tab-external", { tabId }),
   showBrowserTabContextMenu: (tabId) =>
     ipcRenderer.invoke("browser:show-tab-context-menu", { tabId }),
+  showBrowserTabGroupContextMenu: (groupId) =>
+    ipcRenderer.invoke("browser:show-tab-group-context-menu", { groupId }),
+  createTabGroup: (input) => ipcRenderer.invoke("tab-groups:create", input),
+  updateTabGroup: (groupId, patch) => ipcRenderer.invoke("tab-groups:update", { groupId, patch }),
+  assignTabsToGroup: (workspaceId, tabIds, groupId) =>
+    ipcRenderer.invoke("tab-groups:assign-tabs", { workspaceId, tabIds, groupId }),
+  reorderBrowserTabs: (workspaceId, tabIds) =>
+    ipcRenderer.invoke("tab-groups:reorder-tabs", { workspaceId, tabIds }),
+  reorderTabGroups: (workspaceId, groupIds) =>
+    ipcRenderer.invoke("tab-groups:reorder-groups", { workspaceId, groupIds }),
+  mergeTabGroups: (sourceGroupId, targetGroupId) =>
+    ipcRenderer.invoke("tab-groups:merge", { sourceGroupId, targetGroupId }),
+  undoTabGroupMerge: () => ipcRenderer.invoke("tab-groups:undo-merge"),
+  ungroupTabGroup: (groupId) => ipcRenderer.invoke("tab-groups:ungroup", { groupId }),
+  deleteEmptyTabGroup: (groupId) => ipcRenderer.invoke("tab-groups:delete-empty", { groupId }),
+  closeTabGroup: (groupId) => ipcRenderer.invoke("tab-groups:close", { groupId }),
+  suggestSiteTabGroups: (workspaceId) =>
+    ipcRenderer.invoke("tab-groups:suggest-sites", { workspaceId }),
+  detectDuplicateTabs: (workspaceId) =>
+    ipcRenderer.invoke("tab-groups:detect-duplicates", { workspaceId }),
+  resolveDuplicateTabs: (keeperTabId, closeTabIds) =>
+    ipcRenderer.invoke("tab-groups:resolve-duplicates", { keeperTabId, closeTabIds }),
   showAddressContextMenu: () =>
     ipcRenderer.invoke("browser:show-address-context-menu"),
   getTranslationStatus: () => ipcRenderer.invoke("translation:status"),
@@ -104,6 +126,8 @@ contextBridge.exposeInMainWorld("siteNest", {
     ipcRenderer.invoke("sites:duplicate-tab", { siteId, bounds }),
   closeBrowserTab: (tabId, bounds) =>
     ipcRenderer.invoke("browser:close-tab", { tabId, bounds }),
+  restoreRecentlyClosedBrowserTab: (closedId, bounds) =>
+    ipcRenderer.invoke("browser:restore-closed-tab", { closedId, bounds }),
   detachBrowserTab: (tabId, windowBounds) =>
     ipcRenderer.invoke("browser:detach-tab", { tabId, windowBounds }),
   reattachBrowserTab: (tabId, bounds) =>

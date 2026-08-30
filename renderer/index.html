@@ -1152,6 +1152,7 @@
           <section class="browser-page" id="browserPage" aria-label="网站阅读区">
             <div class="browser-tabbar" id="browserTabBar" aria-label="当前空间标签组">
               <div class="browser-tab-list" id="browserTabList" role="tablist" aria-label="网页标签"></div>
+              <button class="browser-tabbar-tool" id="browserOrganizeTabs" type="button" title="整理重复页签" aria-label="整理重复页签"><span data-icon="folder"></span></button>
               <span class="browser-tabbar-hint" id="browserTabHint">个人空间 · 按住标签向下拖可拆出</span>
             </div>
             <div class="browser-toolbar">
@@ -1348,6 +1349,36 @@
         <div class="global-search-results" id="globalSearchResults" role="listbox" aria-live="polite"></div>
         <footer><span>↑↓ 选择</span><span>Enter 打开</span><span>Esc 关闭</span><span>搜索内容仅在确认后联网</span></footer>
       </section>
+    </div>
+
+    <div class="modal-backdrop" id="tabGroupModal" role="dialog" aria-modal="true" aria-labelledby="tabGroupModalTitle">
+      <div class="modal-card tab-group-modal-card">
+        <div class="modal-header"><div><span class="section-kicker">TAB GROUP</span><h2 id="tabGroupModalTitle">新建页签组</h2></div><button class="icon-button" type="button" data-close-modal="tabGroupModal" aria-label="关闭"><span data-icon="close"></span></button></div>
+        <form id="tabGroupForm">
+          <input id="tabGroupId" type="hidden" />
+          <input id="tabGroupWorkspaceId" type="hidden" />
+          <input id="tabGroupTabIds" type="hidden" />
+          <label class="form-field"><span>分组名称</span><input id="tabGroupName" maxlength="80" required placeholder="例如：SAP" /></label>
+          <div class="form-field-row">
+            <label class="form-field"><span>标识颜色</span><select id="tabGroupColor"><option value="pine">墨绿</option><option value="blue">蓝色</option><option value="violet">紫色</option><option value="amber">琥珀</option><option value="rose">玫红</option><option value="slate">灰色</option></select></label>
+            <label class="form-field"><span>图标</span><select id="tabGroupIcon"><option value="folder">文件夹</option><option value="grid">应用</option><option value="bookmark">书签</option><option value="spark">星标</option><option value="home">主页</option></select></label>
+          </div>
+          <p class="form-hint">分组只整理页签，不会重新加载网页，也不会改变登录身份。</p>
+          <div class="modal-actions"><button class="secondary-button" type="button" data-close-modal="tabGroupModal">取消</button><button class="primary-button" type="submit">保存分组</button></div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="duplicateTabsModal" role="dialog" aria-modal="true" aria-labelledby="duplicateTabsModalTitle">
+      <div class="modal-card duplicate-tabs-modal-card">
+        <div class="modal-header"><div><span class="section-kicker">DUPLICATE TABS</span><h2 id="duplicateTabsModalTitle">整理重复页签</h2></div><button class="icon-button" type="button" data-close-modal="duplicateTabsModal" aria-label="关闭"><span data-icon="close"></span></button></div>
+        <p class="modal-intro">仅完全相同的规范化 URL 可以关闭；同站点不同页面只作提示。请选择每组要保留的页签。</p>
+        <form id="duplicateTabsForm">
+          <div class="duplicate-tabs-groups" id="duplicateTabsGroups"></div>
+          <div class="duplicate-tabs-similar" id="duplicateTabsSimilar"></div>
+          <div class="modal-actions"><button class="secondary-button" type="button" data-close-modal="duplicateTabsModal">取消</button><button class="primary-button" id="resolveDuplicateTabsButton" type="submit">关闭所选重复项</button></div>
+        </form>
+      </div>
     </div>
 
     <div class="modal-backdrop" id="taskModal" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle">
