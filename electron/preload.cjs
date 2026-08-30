@@ -61,6 +61,14 @@ contextBridge.exposeInMainWorld("siteNest", {
   configureTranslation: (payload) => ipcRenderer.invoke("translation:configure", payload),
   testTranslation: (payload) => ipcRenderer.invoke("translation:test", payload),
   showTranslationPageMenu: () => ipcRenderer.invoke("translation:show-page-menu"),
+  getTasks: () => ipcRenderer.invoke("tasks:get"),
+  addTask: (task) => ipcRenderer.invoke("tasks:add", task),
+  updateTask: (task) => ipcRenderer.invoke("tasks:update", task),
+  deleteTask: (taskId) => ipcRenderer.invoke("tasks:delete", taskId),
+  setTaskStatus: (taskId, status) => ipcRenderer.invoke("tasks:set-status", { taskId, status }),
+  snoozeTaskReminder: (reminderId, minutes) => ipcRenderer.invoke("tasks:snooze", { reminderId, minutes }),
+  dismissTaskReminder: (reminderId) => ipcRenderer.invoke("tasks:dismiss-reminder", reminderId),
+  updateTaskSettings: (patch) => ipcRenderer.invoke("tasks:update-settings", patch),
   duplicateSiteTab: (siteId, bounds) =>
     ipcRenderer.invoke("sites:duplicate-tab", { siteId, bounds }),
   closeBrowserTab: (tabId, bounds) =>
@@ -101,6 +109,16 @@ contextBridge.exposeInMainWorld("siteNest", {
     const listener = () => callback();
     ipcRenderer.on("translation:open-settings", listener);
     return () => ipcRenderer.removeListener("translation:open-settings", listener);
+  },
+  onTasksChanged: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("tasks:changed", listener);
+    return () => ipcRenderer.removeListener("tasks:changed", listener);
+  },
+  onOpenTask: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("tasks:open", listener);
+    return () => ipcRenderer.removeListener("tasks:open", listener);
   },
   onAppCommand: (callback) => {
     const listener = (_event, value) => callback(value);

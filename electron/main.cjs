@@ -4,12 +4,15 @@ const {
   clipboard,
   dialog,
   Menu,
+  Notification,
+  Tray,
   WebContentsView,
   ipcMain,
   net,
   safeStorage,
   session,
   shell,
+  powerMonitor,
 } = require("electron");
 const { createHash, randomUUID } = require("node:crypto");
 const fs = require("node:fs");
@@ -77,6 +80,18 @@ const {
   normalizeTranslationSettings,
   siteRuleForUrl,
 } = require("./translation/index.cjs");
+const {
+  AppBackgroundService,
+  DesktopNotificationService,
+  TaskReminderScheduler,
+  TrayService,
+  addTaskToState,
+  deleteTaskFromState,
+  nextDoNotDisturbEnd,
+  updateReminderInState,
+  updateTaskInState,
+  updateTaskSettingsInState,
+} = require("./tasks/index.cjs");
 
 const APP_ID = "local.qiye.sitehub";
 const SITE_PARTITION = "persist:qiye-sites";
@@ -174,6 +189,11 @@ let translationService;
 let selectionActionService;
 let pageTranslationController;
 const translationSessionAllowedHosts = new Set();
+let taskReminderScheduler;
+let desktopNotificationService;
+let trayService;
+let appBackgroundService;
+let isQuitting = false;
 
 function dataFilePath() {
   return path.join(app.getPath("userData"), "site-nest-data.json");
@@ -3300,6 +3320,162 @@ async function setAssistantEnabled(assistantId, enabled) {
   return listAssistants();
 }
 
+function taskSnapshot(state = cachedState) {
+  return {
+    tasks: Array.isArray(state?.localTasks) ? state.localTasks : [],
+    reminders: Array.isArray(state?.taskReminders) ? state.taskReminders : [],
+    settings: state?.taskSettings || {},
+    timeZone: state?.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+  };
+}
+
+function emitTasksChanged(focusTaskId = null) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("tasks:changed", {
+    ...taskSnapshot(),
+    focusTaskId,
+  });
+}
+
+async function mutateTaskState(mutator) {
+  const state = await getState();
+  const result = mutator(state);
+  cachedState = result.state;
+  await persistState();
+  emitTasksChanged(result.task?.id || null);
+  if (taskReminderScheduler) await taskReminderScheduler.reschedule();
+  return { ...result, ...taskSnapshot(cachedState) };
+}
+
+async function markTaskCompleted(taskId) {
+  const state = await getState();
+  const task = state.localTasks.find((item) => item.id === String(taskId || ""));
+  if (!task) return null;
+  return mutateTaskState((current) => updateTaskInState(current, { id: task.id, status: "done" }));
+}
+
+async function snoozeTaskReminder(reminderId, minutes) {
+  const duration = Math.max(5, Math.min(1440, Number(minutes) || 10));
+  const result = await mutateTaskState((state) => updateReminderInState(state, reminderId, {
+    state: "snoozed",
+    snoozedUntil: new Date(Date.now() + duration * 60_000).toISOString(),
+    firedAt: null,
+  }));
+  return result.reminder;
+}
+
+async function openMainWindowForTask(taskId = null, view = "week") {
+  if (!mainWindow || mainWindow.isDestroyed()) createMainWindow();
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.webContents.send("tasks:open", { taskId, view });
+}
+
+async function fireTaskReminder(reminderId) {
+  const state = await getState();
+  const reminder = state.taskReminders.find((item) => item.id === String(reminderId || ""));
+  if (!reminder || !["pending", "snoozed"].includes(reminder.state)) return false;
+  const task = state.localTasks.find((item) => item.id === reminder.taskId);
+  if (!task || ["done", "cancelled"].includes(task.status)) return false;
+  const settings = state.taskSettings;
+  if (!settings.remindersEnabled) return false;
+  const now = new Date();
+  const pausedUntil = Date.parse(settings.pausedUntil || 0);
+  const dndUntil = nextDoNotDisturbEnd(settings, now);
+  const deferUntil = Number.isFinite(pausedUntil) && pausedUntil > now.valueOf()
+    ? new Date(pausedUntil).toISOString()
+    : dndUntil;
+  if (deferUntil) {
+    cachedState = updateReminderInState(state, reminder.id, {
+      state: "snoozed",
+      snoozedUntil: deferUntil,
+    }).state;
+    await persistState();
+    return false;
+  }
+  cachedState = updateReminderInState(state, reminder.id, {
+    state: "fired",
+    firedAt: now.toISOString(),
+    snoozedUntil: null,
+  }).state;
+  await persistState();
+  const latestReminder = cachedState.taskReminders.find((item) => item.id === reminder.id);
+  const result = desktopNotificationService?.show(task, latestReminder, {
+    sound: settings.notificationSound,
+  });
+  if (!result?.supported) emitTasksChanged(task.id);
+  return true;
+}
+
+function taskRuntime() {
+  if (taskReminderScheduler) return { scheduler: taskReminderScheduler, notifications: desktopNotificationService, tray: trayService };
+  appBackgroundService = new AppBackgroundService({ app });
+  desktopNotificationService = new DesktopNotificationService({
+    Notification,
+    icon: path.join(PROJECT_ROOT, "assets", "app-icon.png"),
+    onOpenTask: (taskId) => void openMainWindowForTask(taskId),
+    onComplete: (taskId) => void markTaskCompleted(taskId),
+    onSnooze: (reminderId, minutes) => void snoozeTaskReminder(reminderId, minutes),
+  });
+  trayService = new TrayService({
+    Tray,
+    Menu,
+    icon: path.join(PROJECT_ROOT, "assets", "app-icon.png"),
+    onOpen: () => void openMainWindowForTask(),
+    onToday: () => void openMainWindowForTask(null, "week"),
+    onAdd: () => void openMainWindowForTask("new", "week"),
+    onPause: async (pause) => {
+      const state = await getState();
+      const result = updateTaskSettingsInState(state, {
+        pausedUntil: pause ? new Date(Date.now() + 60 * 60_000).toISOString() : null,
+      });
+      cachedState = result.state;
+      await persistState();
+      await refreshTaskRuntimeSettings();
+      emitTasksChanged();
+    },
+    onQuit: () => {
+      isQuitting = true;
+      app.quit();
+    },
+  });
+  taskReminderScheduler = new TaskReminderScheduler({
+    listPending: async () => {
+      const state = await getState();
+      if (!state.taskSettings.remindersEnabled) return [];
+      const openTaskIds = new Set(state.localTasks.filter((task) => !["done", "cancelled"].includes(task.status)).map((task) => task.id));
+      return state.taskReminders.filter((reminder) =>
+        ["pending", "snoozed"].includes(reminder.state) && openTaskIds.has(reminder.taskId),
+      );
+    },
+    fireReminder: fireTaskReminder,
+  });
+  return { scheduler: taskReminderScheduler, notifications: desktopNotificationService, tray: trayService };
+}
+
+async function refreshTaskRuntimeSettings() {
+  const state = await getState();
+  const settings = state.taskSettings;
+  const runtime = taskRuntime();
+  appBackgroundService.applyLoginSettings(settings);
+  if (settings.trayOnClose || settings.startMinimized) {
+    const paused = Date.parse(settings.pausedUntil || 0) > Date.now();
+    runtime.tray.ensure({ paused });
+  } else {
+    runtime.tray.destroy();
+  }
+  if (settings.remindersEnabled) await runtime.scheduler.start();
+  else runtime.scheduler.stop();
+  return taskSnapshot(state);
+}
+
+async function initializeTaskRuntime() {
+  taskRuntime();
+  await refreshTaskRuntimeSettings();
+  powerMonitor.on("resume", () => void taskReminderScheduler?.reschedule());
+}
+
 function registerIpc() {
   ipcMain.handle("state:get", () => getState());
   ipcMain.handle("settings:update-ui", async (_event, patch) => {
@@ -3630,6 +3806,40 @@ function registerIpc() {
     }),
   );
   ipcMain.handle("translation:show-page-menu", () => showTranslationPageMenu());
+  ipcMain.handle("tasks:get", async () => taskSnapshot(await getState()));
+  ipcMain.handle("tasks:add", (_event, payload) =>
+    mutateTaskState((state) => addTaskToState(state, payload)),
+  );
+  ipcMain.handle("tasks:update", (_event, payload) =>
+    mutateTaskState((state) => updateTaskInState(state, payload)),
+  );
+  ipcMain.handle("tasks:delete", (_event, taskId) =>
+    mutateTaskState((state) => deleteTaskFromState(state, taskId)),
+  );
+  ipcMain.handle("tasks:set-status", (_event, payload) =>
+    mutateTaskState((state) => updateTaskInState(state, {
+      id: payload?.taskId,
+      status: payload?.status,
+    })),
+  );
+  ipcMain.handle("tasks:snooze", (_event, payload) =>
+    snoozeTaskReminder(payload?.reminderId, payload?.minutes),
+  );
+  ipcMain.handle("tasks:dismiss-reminder", (_event, reminderId) =>
+    mutateTaskState((state) => updateReminderInState(state, reminderId, {
+      state: "dismissed",
+      snoozedUntil: null,
+    })),
+  );
+  ipcMain.handle("tasks:update-settings", async (_event, patch) => {
+    const state = await getState();
+    const result = updateTaskSettingsInState(state, patch);
+    cachedState = result.state;
+    await persistState();
+    await refreshTaskRuntimeSettings();
+    emitTasksChanged();
+    return taskSnapshot(cachedState);
+  });
   ipcMain.handle("assistants:list", () => listAssistants());
   ipcMain.handle("assistants:set-enabled", (_event, payload) =>
     setAssistantEnabled(payload?.assistantId, payload?.enabled),
@@ -3698,7 +3908,16 @@ function createMainWindow() {
     if (url !== mainWindow.webContents.getURL()) event.preventDefault();
   });
   mainWindow.on("resize", () => applySiteViewBounds(siteViewBounds));
-  mainWindow.on("close", () => {
+  mainWindow.on("close", (event) => {
+    if (appBackgroundService?.shouldHideOnClose(cachedState?.taskSettings, isQuitting)) {
+      event.preventDefault();
+      managedPopupService?.closeAll();
+      destroyAllWorkspaceBrowserViews();
+      mainWindow.hide();
+      const paused = Date.parse(cachedState?.taskSettings?.pausedUntil || 0) > Date.now();
+      trayService?.ensure({ paused });
+      return;
+    }
     managedPopupService?.closeAll();
     destroyAllWorkspaceBrowserViews();
   });
@@ -3707,7 +3926,10 @@ function createMainWindow() {
     mainWindow = undefined;
   });
   mainWindow.once("ready-to-show", async () => {
-    mainWindow?.show();
+    const state = await getState();
+    const hiddenLaunch = process.argv.includes("--hidden") || state.taskSettings.startMinimized;
+    if (CAPTURE_PATH || !hiddenLaunch) mainWindow?.show();
+    else trayService?.ensure({ paused: Date.parse(state.taskSettings.pausedUntil || 0) > Date.now() });
     if (!CAPTURE_PATH) return;
     setTimeout(async () => {
       try {
@@ -3787,7 +4009,7 @@ function createMainWindow() {
           })()`);
           console.log(JSON.stringify({ googleLiveProbe: result }));
           await new Promise((resolve) => setTimeout(resolve, 500));
-        } else if (["settings", "settings-popup", "settings-translation"].includes(CAPTURE_ROUTE)) {
+        } else if (["settings", "settings-popup", "settings-translation", "settings-tasks"].includes(CAPTURE_ROUTE)) {
           await mainWindow.webContents.executeJavaScript("navigateTo('settings')");
           await new Promise((resolve) => setTimeout(resolve, 700));
           if (CAPTURE_ROUTE === "settings-popup") {
@@ -3800,7 +4022,35 @@ function createMainWindow() {
               "document.getElementById('translationSettings')?.scrollIntoView({ block: 'center' })",
             );
             await new Promise((resolve) => setTimeout(resolve, 350));
+          } else if (CAPTURE_ROUTE === "settings-tasks") {
+            await mainWindow.webContents.executeJavaScript(
+              "document.getElementById('taskNotificationSettings')?.scrollIntoView({ block: 'center' })",
+            );
+            await new Promise((resolve) => setTimeout(resolve, 350));
           }
+        } else if (["plan-week", "plan-month", "task-modal"].includes(CAPTURE_ROUTE)) {
+          await mainWindow.webContents.executeJavaScript(`(async () => {
+            const now = new Date();
+            const at = (days, hour) => {
+              const value = new Date(now);
+              value.setDate(value.getDate() + days);
+              value.setHours(hour, 0, 0, 0);
+              return value.toISOString();
+            };
+            const fixtures = [
+              { title: '回复采购退货单位工单', workspaceId: 'work', priority: 'urgent', dueAt: at(0, 11), reminderOffsets: [10] },
+              { title: '整理 Emma 知识检索结果', workspaceId: 'research', priority: 'high', status: 'doing', dueAt: at(1, 16), reminderOffsets: [30] },
+              { title: '复核本周客户跟进清单', workspaceId: 'work', priority: 'normal', dueAt: at(3, 17), reminderOffsets: [] },
+              { title: '阅读 Linux DO 收藏文章', workspaceId: 'personal', priority: 'low', dueAt: at(5, 20), reminderOffsets: [] },
+            ];
+            for (const fixture of fixtures) await window.siteNest.addTask(fixture);
+            await loadTasks();
+            currentTaskView = ${JSON.stringify(CAPTURE_ROUTE === "plan-month" ? "month" : "week")};
+            navigateTo('plan');
+            if (${JSON.stringify(CAPTURE_ROUTE)} === 'task-modal') openTaskModal(taskState.tasks[0]);
+            return { taskCount: taskState.tasks.length, view: currentTaskView };
+          })()`);
+          await new Promise((resolve) => setTimeout(resolve, 900));
         } else if (CAPTURE_ROUTE === "sites") {
           await mainWindow.webContents.executeJavaScript("navigateTo('sites')");
           await new Promise((resolve) => setTimeout(resolve, 700));
@@ -4168,6 +4418,39 @@ function createMainWindow() {
             };
           })()`);
           console.log(JSON.stringify({ stateProbe: result }));
+        } else if (CAPTURE_ROUTE === "task-probe") {
+          const result = await mainWindow.webContents.executeJavaScript(`(async () => {
+            const added = await window.siteNest.addTask({
+              title: 'IPC 本地任务',
+              workspaceId: 'work',
+              priority: 'high',
+              dueAt: '2030-08-30T04:00:00.000Z',
+              reminderOffsets: [10]
+            });
+            const first = added.tasks.find((item) => item.title === 'IPC 本地任务');
+            const disposable = await window.siteNest.addTask({ title: '待删除任务', workspaceId: 'personal' });
+            const deletedId = disposable.tasks.find((item) => item.title === '待删除任务').id;
+            await window.siteNest.deleteTask(deletedId);
+            const updated = await window.siteNest.updateTask({ id: first.id, title: 'IPC 本地任务已更新', status: 'doing' });
+            const reminder = updated.reminders.find((item) => item.taskId === first.id);
+            const snoozed = await window.siteNest.snoozeTaskReminder(reminder.id, 5);
+            const settings = await window.siteNest.updateTaskSettings({
+              remindersEnabled: true,
+              doNotDisturb: { enabled: true, start: '22:30', end: '07:30' }
+            });
+            await loadTasks();
+            navigateTo('plan');
+            return {
+              taskCount: settings.tasks.length,
+              title: settings.tasks[0].title,
+              status: settings.tasks[0].status,
+              reminderState: snoozed.state,
+              dnd: settings.settings.doNotDisturb,
+              route: currentRoute
+            };
+          })()`);
+          console.log(JSON.stringify({ taskProbe: result }));
+          await new Promise((resolve) => setTimeout(resolve, 500));
         } else if (CAPTURE_ROUTE === "workspace-persist") {
           const result = await mainWindow.webContents.executeJavaScript(`(async () => {
             const changed = await window.siteNest.setActiveWorkspace('work');
@@ -4331,6 +4614,7 @@ if (!hasSingleInstanceLock) {
   app.on("second-instance", () => {
     if (!mainWindow) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
     mainWindow.focus();
   });
 
@@ -4338,6 +4622,9 @@ if (!hasSingleInstanceLock) {
     app.setAppUserModelId(APP_ID);
     registerIpc();
     createMainWindow();
+    void initializeTaskRuntime().catch((error) => {
+      console.error("Unable to initialize local task reminders:", error?.message || error);
+    });
     void scheduleNaixiAutomation().catch((error) => {
       console.error("Unable to schedule automation:", error?.message || error);
     });
@@ -4394,6 +4681,11 @@ function persistWorkspaceBrowserWorkspace(workspace) {
 
 app.on("activate", () => {
   if (!mainWindow) createMainWindow();
+  else {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
 });
 
 app.on("window-all-closed", () => {
@@ -4401,7 +4693,11 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  isQuitting = true;
   zohoDashboardAbortController?.abort();
+  taskReminderScheduler?.stop();
+  desktopNotificationService?.closeAll();
+  trayService?.destroy();
   if (automationTimer) clearTimeout(automationTimer);
   if (automationWindow && !automationWindow.isDestroyed()) {
     automationWindow.destroy();

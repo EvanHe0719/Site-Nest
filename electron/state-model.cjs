@@ -1,8 +1,15 @@
 const { createHash, randomUUID } = require("node:crypto");
 const { normalizeSitePopupPolicies } = require("./browser/window-open-policy-service.cjs");
 const { normalizeTranslationSettings } = require("./translation/settings.cjs");
+const {
+  deviceTimeZone,
+  buildTaskReminders,
+  normalizeLocalTasks,
+  normalizeTaskReminders,
+  normalizeTaskSettings,
+} = require("./tasks/task-model.cjs");
 
-const CURRENT_SCHEMA_VERSION = 6;
+const CURRENT_SCHEMA_VERSION = 7;
 const DEFAULT_WORKSPACE_ID = "personal";
 const DEFAULT_BROWSER_PROFILE_ID = "default";
 const VALID_SITE_KINDS = new Set(["normal", "workApp"]);
@@ -757,6 +764,10 @@ function createInitialState(options = {}) {
     connectorConnections: [],
     connectorExecutions: [],
     externalObjectLinks: [],
+    localTasks: [],
+    taskReminders: [],
+    taskSettings: normalizeTaskSettings(),
+    timeZone: deviceTimeZone(),
     createdAt: now,
     updatedAt: now,
   };
@@ -834,6 +845,22 @@ function normalizeStateV4(value, options = {}) {
     "bookmarks",
     rejectedBookmarks,
   );
+  const localTasks = normalizeLocalTasks(input.localTasks, {
+    now,
+    workspaceIds: Array.from(workspaceIds),
+    defaultWorkspaceId: activeWorkspaceId,
+    timeZone: String(input.timeZone || deviceTimeZone()),
+  });
+  const normalizedTaskReminders = normalizeTaskReminders(
+    input.taskReminders,
+    localTasks.map((task) => task.id),
+  );
+  const taskReminders = localTasks.flatMap((task) =>
+    buildTaskReminders(
+      task,
+      normalizedTaskReminders.filter((reminder) => reminder.taskId === task.id),
+    ),
+  );
 
   const normalized = {
     ...input,
@@ -860,6 +887,10 @@ function normalizeStateV4(value, options = {}) {
     ),
     connectorExecutions: normalizeConnectorExecutions(input.connectorExecutions),
     externalObjectLinks: normalizeExternalObjectLinks(input.externalObjectLinks, now),
+    localTasks,
+    taskReminders,
+    taskSettings: normalizeTaskSettings(input.taskSettings),
+    timeZone: String(input.timeZone || deviceTimeZone()).slice(0, 100),
     createdAt: typeof input.createdAt === "string" ? input.createdAt : now,
     updatedAt:
       typeof input.updatedAt === "string"
@@ -1538,6 +1569,7 @@ function appendConnectorExecutionInState(state, execution, options = {}) {
 const normalizeStateV3 = normalizeStateV4;
 const normalizeStateV5 = normalizeStateV4;
 const normalizeStateV6 = normalizeStateV4;
+const normalizeStateV7 = normalizeStateV4;
 
 module.exports = {
   CURRENT_SCHEMA_VERSION,
@@ -1565,6 +1597,7 @@ module.exports = {
   normalizeStateV4,
   normalizeStateV5,
   normalizeStateV6,
+  normalizeStateV7,
   updateUiSettingsInState,
   upsertConnectorConnectionInState,
   appendConnectorExecutionInState,

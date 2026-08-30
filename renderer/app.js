@@ -38,6 +38,7 @@ const ICONS = {
   link: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.4 14.6 5.2-5.2"/><path d="M7.8 17.8 5.5 20a3.5 3.5 0 0 1-5-5l3.3-3.3a3.5 3.5 0 0 1 4.9 0"/><path d="m16.2 6.2 2.3-2.2a3.5 3.5 0 1 1 5 5l-3.3 3.3a3.5 3.5 0 0 1-4.9 0"/></svg>',
   cloud: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 18.5h10.4a4.1 4.1 0 0 0 .5-8.2A6.4 6.4 0 0 0 5.8 9a4.8 4.8 0 0 0 1.4 9.5Z"/></svg>',
   language: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/><path d="m15.5 16.5 2 2 3.5-4"/></svg>',
+  calendar: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2.8v4.4M17 2.8v4.4M3 9h18M7 13h.01M12 13h.01M17 13h.01M7 17h.01M12 17h.01"/></svg>',
 };
 
 const FALLBACK_WORKSPACES = [
@@ -190,6 +191,44 @@ const dom = {
   popupPolicyPreserveOpener: document.getElementById("popupPolicyPreserveOpener"),
   popupPolicyAllowPost: document.getElementById("popupPolicyAllowPost"),
   popupPolicyList: document.getElementById("popupPolicyList"),
+  sidebarTaskCount: document.getElementById("sidebarTaskCount"),
+  planAddTaskButton: document.getElementById("planAddTaskButton"),
+  planViewTabs: document.getElementById("planViewTabs"),
+  taskWeekTitle: document.getElementById("taskWeekTitle"),
+  taskWeekRange: document.getElementById("taskWeekRange"),
+  taskWeekGrid: document.getElementById("taskWeekGrid"),
+  taskMonthTitle: document.getElementById("taskMonthTitle"),
+  taskMonthCalendar: document.getElementById("taskMonthCalendar"),
+  taskSelectedDayTitle: document.getElementById("taskSelectedDayTitle"),
+  taskSelectedDayList: document.getElementById("taskSelectedDayList"),
+  taskAllList: document.getElementById("taskAllList"),
+  taskCompletedList: document.getElementById("taskCompletedList"),
+  taskModal: document.getElementById("taskModal"),
+  taskForm: document.getElementById("taskForm"),
+  taskModalTitle: document.getElementById("taskModalTitle"),
+  taskId: document.getElementById("taskId"),
+  taskTitle: document.getElementById("taskTitle"),
+  taskNotes: document.getElementById("taskNotes"),
+  taskWorkspace: document.getElementById("taskWorkspace"),
+  taskPriority: document.getElementById("taskPriority"),
+  taskStatus: document.getElementById("taskStatus"),
+  taskStartAt: document.getElementById("taskStartAt"),
+  taskDueAt: document.getElementById("taskDueAt"),
+  taskAllDay: document.getElementById("taskAllDay"),
+  taskCustomReminder: document.getElementById("taskCustomReminder"),
+  taskTags: document.getElementById("taskTags"),
+  deleteTaskButton: document.getElementById("deleteTaskButton"),
+  taskReminderSettingsStatus: document.getElementById("taskReminderSettingsStatus"),
+  taskRemindersEnabled: document.getElementById("taskRemindersEnabled"),
+  taskTrayOnClose: document.getElementById("taskTrayOnClose"),
+  taskAutoLaunch: document.getElementById("taskAutoLaunch"),
+  taskStartMinimized: document.getElementById("taskStartMinimized"),
+  taskNotificationSound: document.getElementById("taskNotificationSound"),
+  taskDndEnabled: document.getElementById("taskDndEnabled"),
+  taskDndStart: document.getElementById("taskDndStart"),
+  taskDndEnd: document.getElementById("taskDndEnd"),
+  taskPausedUntil: document.getElementById("taskPausedUntil"),
+  saveTaskSettingsButton: document.getElementById("saveTaskSettingsButton"),
   translationSettings: document.getElementById("translationSettings"),
   translationSettingsStatus: document.getElementById("translationSettingsStatus"),
   translationConfigForm: document.getElementById("translationConfigForm"),
@@ -276,6 +315,9 @@ let appState = {
   },
   connectorConnections: [],
   externalObjectLinks: [],
+  localTasks: [],
+  taskReminders: [],
+  taskSettings: {},
 };
 let currentRoute = "home";
 let currentSite = null;
@@ -287,6 +329,11 @@ let pageActionPanelOpen = false;
 let pageActionRequestId = 0;
 let pageActionRefreshTimer = 0;
 let translationStatusCache = null;
+let taskState = { tasks: [], reminders: [], settings: {}, timeZone: "UTC" };
+let currentTaskView = "week";
+let taskWeekAnchor = new Date();
+let taskMonthAnchor = new Date();
+let selectedTaskDay = new Date();
 let selectedChromeProfile = "";
 let selectedChromeProfileBookmarkCount = 0;
 let editingSiteId = null;
@@ -1433,6 +1480,7 @@ function navigateTo(route) {
     if (activeWorkspaceId() === "work" && !zohoDashboard) void loadZohoDashboard();
   }
   if (route === "sites") renderSiteLibrary();
+  if (route === "plan") renderPlan();
   if (route === "settings") {
     void loadSystemInfo();
     void loadZohoConnectorStatus();
@@ -2034,6 +2082,354 @@ function translationFormPayload() {
     defaultMode: dom.translationDefaultMode.value,
     selectionButtonEnabled: dom.translationSelectionButton.checked,
   };
+}
+
+const TASK_PRIORITY_LABELS = { low: "低", normal: "普通", high: "高", urgent: "紧急" };
+const TASK_STATUS_LABELS = { todo: "待办", doing: "进行中", done: "已完成", cancelled: "已取消" };
+
+function localDateKey(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.valueOf())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function startOfLocalWeek(value = new Date()) {
+  const date = new Date(value);
+  date.setHours(0, 0, 0, 0);
+  const day = date.getDay() || 7;
+  date.setDate(date.getDate() - day + 1);
+  return date;
+}
+
+function isoWeekNumber(value) {
+  const date = new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()));
+  const day = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+}
+
+function taskDate(task) {
+  return task.dueAt || task.startAt || task.createdAt;
+}
+
+function taskDueLabel(task) {
+  if (!task.dueAt) return "未设置截止时间";
+  const date = new Date(task.dueAt);
+  return task.allDay
+    ? date.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
+    : date.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function taskSort(left, right) {
+  const priority = { urgent: 0, high: 1, normal: 2, low: 3 };
+  const leftTime = Date.parse(left.dueAt || left.startAt || "9999-12-31");
+  const rightTime = Date.parse(right.dueAt || right.startAt || "9999-12-31");
+  return leftTime - rightTime || priority[left.priority] - priority[right.priority] || String(left.orderKey).localeCompare(String(right.orderKey));
+}
+
+async function setTaskCompleted(task, completed) {
+  try {
+    const result = await window.siteNest.setTaskStatus(task.id, completed ? "done" : "todo");
+    applyTaskSnapshot(result);
+  } catch (error) {
+    showToast("无法更新任务", error?.message || "请稍后重试", "error");
+  }
+}
+
+function createTaskCard(task, options = {}) {
+  const card = document.createElement("article");
+  card.className = `local-task-card${options.compact ? " local-task-card--compact" : ""}`;
+  card.dataset.taskId = task.id;
+  card.dataset.priority = task.priority;
+  card.dataset.status = task.status;
+  const checkbox = document.createElement("button");
+  checkbox.type = "button";
+  checkbox.className = "task-complete-button";
+  checkbox.setAttribute("aria-label", task.status === "done" ? "标记为未完成" : "标记完成");
+  checkbox.appendChild(createIconElement(task.status === "done" ? "check" : "clock"));
+  checkbox.addEventListener("click", (event) => {
+    event.stopPropagation();
+    void setTaskCompleted(task, task.status !== "done");
+  });
+  const copy = document.createElement("div");
+  copy.className = "local-task-copy";
+  const title = document.createElement("strong");
+  title.textContent = task.title;
+  const meta = document.createElement("div");
+  meta.className = "local-task-meta";
+  const due = document.createElement("span");
+  due.textContent = taskDueLabel(task);
+  const workspace = document.createElement("span");
+  workspace.textContent = workspaceName(task.workspaceId);
+  const priority = document.createElement("span");
+  priority.className = `task-priority task-priority--${task.priority}`;
+  priority.textContent = TASK_PRIORITY_LABELS[task.priority] || "普通";
+  meta.append(due, workspace, priority);
+  if (task.reminderOffsets?.length && task.dueAt) {
+    const reminder = document.createElement("span");
+    reminder.className = "task-reminder-indicator";
+    reminder.title = `${task.reminderOffsets.length} 个本地提醒`;
+    reminder.appendChild(createIconElement("clock"));
+    meta.appendChild(reminder);
+  }
+  copy.append(title, meta);
+  card.append(checkbox, copy);
+  card.addEventListener("click", () => openTaskModal(task));
+  return card;
+}
+
+function taskForId(taskId) {
+  return taskState.tasks.find((task) => task.id === String(taskId || "")) || null;
+}
+
+function toLocalDateTimeInput(iso) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.valueOf())) return "";
+  const local = new Date(date.valueOf() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function fromLocalDateTimeInput(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? null : date.toISOString();
+}
+
+function openTaskModal(task = null, day = null) {
+  dom.taskForm.reset();
+  dom.taskId.value = task?.id || "";
+  dom.taskModalTitle.textContent = task ? "编辑任务" : "添加任务";
+  dom.taskTitle.value = task?.title || "";
+  dom.taskNotes.value = task?.notes || "";
+  dom.taskWorkspace.value = task?.workspaceId || activeWorkspaceId();
+  dom.taskPriority.value = task?.priority || "normal";
+  dom.taskStatus.value = task?.status || "todo";
+  dom.taskStartAt.value = toLocalDateTimeInput(task?.startAt);
+  dom.taskDueAt.value = toLocalDateTimeInput(task?.dueAt);
+  if (!task && day) {
+    const due = new Date(day);
+    due.setHours(17, 0, 0, 0);
+    dom.taskDueAt.value = toLocalDateTimeInput(due.toISOString());
+  }
+  dom.taskAllDay.checked = task?.allDay === true;
+  const standard = new Set([0, 5, 10, 15, 30, 60, 1440]);
+  dom.taskForm.querySelectorAll('input[name="taskReminder"]').forEach((input) => {
+    input.checked = task?.reminderOffsets?.includes(Number(input.value)) || false;
+  });
+  const custom = task?.reminderOffsets?.find((offset) => !standard.has(offset));
+  dom.taskCustomReminder.value = Number.isFinite(custom) ? String(custom) : "";
+  dom.taskTags.value = (task?.tags || []).join(", ");
+  dom.deleteTaskButton.classList.toggle("is-hidden", !task);
+  openModal(dom.taskModal);
+}
+
+function taskFormPayload() {
+  const reminderOffsets = Array.from(dom.taskForm.querySelectorAll('input[name="taskReminder"]:checked'))
+    .map((input) => Number(input.value));
+  const custom = Number(dom.taskCustomReminder.value);
+  if (dom.taskCustomReminder.value !== "" && Number.isFinite(custom) && custom >= 0) reminderOffsets.push(custom);
+  return {
+    id: dom.taskId.value || undefined,
+    title: dom.taskTitle.value.trim(),
+    notes: dom.taskNotes.value,
+    workspaceId: dom.taskWorkspace.value,
+    priority: dom.taskPriority.value,
+    status: dom.taskStatus.value,
+    startAt: fromLocalDateTimeInput(dom.taskStartAt.value),
+    dueAt: fromLocalDateTimeInput(dom.taskDueAt.value),
+    allDay: dom.taskAllDay.checked,
+    reminderOffsets,
+    tags: dom.taskTags.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean),
+  };
+}
+
+function renderTaskList(container, tasks, emptyText = "暂无任务") {
+  container.replaceChildren();
+  if (!tasks.length) {
+    const empty = document.createElement("div");
+    empty.className = "task-empty-state";
+    empty.textContent = emptyText;
+    container.appendChild(empty);
+    return;
+  }
+  tasks.forEach((task) => container.appendChild(createTaskCard(task)));
+}
+
+function renderTaskWeek() {
+  if (!dom.taskWeekGrid) return;
+  const start = startOfLocalWeek(taskWeekAnchor);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  dom.taskWeekTitle.textContent = `本周 W${String(isoWeekNumber(start)).padStart(2, "0")}`;
+  dom.taskWeekRange.textContent = `${start.toLocaleDateString("zh-CN")} — ${end.toLocaleDateString("zh-CN")}`;
+  dom.taskWeekGrid.replaceChildren();
+  const todayKey = localDateKey(new Date());
+  for (let index = 0; index < 7; index += 1) {
+    const day = new Date(start);
+    day.setDate(start.getDate() + index);
+    const key = localDateKey(day);
+    const column = document.createElement("section");
+    column.className = `task-day-column${key === todayKey ? " is-today" : ""}`;
+    const header = document.createElement("header");
+    header.innerHTML = `<span>${["一", "二", "三", "四", "五", "六", "日"][index]}</span><strong>${day.getMonth() + 1}/${day.getDate()}</strong>`;
+    const list = document.createElement("div");
+    list.className = "task-day-list";
+    const tasks = taskState.tasks.filter((task) => localDateKey(taskDate(task)) === key && task.status !== "cancelled").sort(taskSort);
+    tasks.forEach((task) => list.appendChild(createTaskCard(task, { compact: true })));
+    if (!tasks.length) {
+      const empty = document.createElement("small");
+      empty.className = "task-day-empty";
+      empty.textContent = "暂无任务";
+      list.appendChild(empty);
+    }
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "task-day-add";
+    add.textContent = "+ 添加任务";
+    add.addEventListener("click", () => openTaskModal(null, day));
+    column.append(header, list, add);
+    dom.taskWeekGrid.appendChild(column);
+  }
+  const todayColumn = dom.taskWeekGrid.querySelector(".task-day-column.is-today");
+  if (todayColumn) {
+    requestAnimationFrame(() => {
+      const scroller = dom.taskWeekGrid.parentElement;
+      const target = todayColumn.offsetLeft - (scroller.clientWidth - todayColumn.offsetWidth) / 2;
+      scroller.scrollLeft = Math.max(0, target);
+    });
+  }
+}
+
+function renderTaskMonth() {
+  if (!dom.taskMonthCalendar) return;
+  const year = taskMonthAnchor.getFullYear();
+  const month = taskMonthAnchor.getMonth();
+  dom.taskMonthTitle.textContent = `${year} 年 ${month + 1} 月`;
+  dom.taskMonthCalendar.replaceChildren();
+  for (const label of ["一", "二", "三", "四", "五", "六", "日"]) {
+    const head = document.createElement("span");
+    head.className = "task-month-weekday";
+    head.textContent = label;
+    dom.taskMonthCalendar.appendChild(head);
+  }
+  const first = new Date(year, month, 1);
+  const offset = (first.getDay() || 7) - 1;
+  for (let blank = 0; blank < offset; blank += 1) dom.taskMonthCalendar.appendChild(document.createElement("span"));
+  const days = new Date(year, month + 1, 0).getDate();
+  const todayKey = localDateKey(new Date());
+  for (let number = 1; number <= days; number += 1) {
+    const day = new Date(year, month, number);
+    const key = localDateKey(day);
+    const tasks = taskState.tasks.filter((task) => localDateKey(taskDate(task)) === key && task.status !== "cancelled");
+    const unfinished = tasks.filter((task) => task.status !== "done");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "task-month-day";
+    if (key === todayKey) button.classList.add("is-today");
+    if (key === localDateKey(selectedTaskDay)) button.classList.add("is-selected");
+    if (tasks.some((task) => ["high", "urgent"].includes(task.priority) && task.status !== "done")) button.classList.add("has-priority");
+    const count = tasks.length ? `<small>${unfinished.length}/${tasks.length}</small>` : "";
+    button.innerHTML = `<strong>${number}</strong>${count}`;
+    button.addEventListener("click", () => { selectedTaskDay = day; renderTaskMonth(); });
+    dom.taskMonthCalendar.appendChild(button);
+  }
+  const selectedKey = localDateKey(selectedTaskDay);
+  dom.taskSelectedDayTitle.textContent = `${selectedTaskDay.toLocaleDateString("zh-CN")} · 当天任务`;
+  renderTaskList(
+    dom.taskSelectedDayList,
+    taskState.tasks.filter((task) => localDateKey(taskDate(task)) === selectedKey).sort(taskSort),
+    "当天暂无任务",
+  );
+}
+
+function renderPlan() {
+  if (!dom.planViewTabs) return;
+  dom.planViewTabs.querySelectorAll("[data-task-view]").forEach((button) => {
+    const active = button.dataset.taskView === currentTaskView;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  document.querySelectorAll("[data-task-panel]").forEach((panel) => {
+    panel.hidden = panel.dataset.taskPanel !== currentTaskView;
+  });
+  renderTaskWeek();
+  renderTaskMonth();
+  renderTaskList(dom.taskAllList, taskState.tasks.filter((task) => task.status !== "done").sort(taskSort), "暂无未完成任务");
+  renderTaskList(dom.taskCompletedList, taskState.tasks.filter((task) => task.status === "done").sort((a, b) => Date.parse(b.completedAt) - Date.parse(a.completedAt)), "暂无已完成任务");
+}
+
+function renderWorkspaceTaskWidgets() {
+  const today = new Date();
+  const todayKey = localDateKey(today);
+  const soon = new Date(today.valueOf() + 7 * 86400000);
+  document.querySelectorAll("[data-workspace-task-widget]").forEach((container) => {
+    const workspaceId = container.dataset.workspaceTaskWidget;
+    const candidates = taskState.tasks.filter((task) => {
+      if (task.workspaceId !== workspaceId || ["done", "cancelled"].includes(task.status)) return false;
+      const due = task.dueAt ? new Date(task.dueAt) : null;
+      return localDateKey(taskDate(task)) === todayKey || (due && due <= soon) || ["high", "urgent"].includes(task.priority);
+    }).sort(taskSort).slice(0, 5);
+    container.replaceChildren();
+    const header = document.createElement("header");
+    const copy = document.createElement("div");
+    copy.innerHTML = '<span class="section-kicker">WEEKLY PLAN</span><h2>本周计划</h2>';
+    const actions = document.createElement("div");
+    const add = document.createElement("button"); add.type = "button"; add.className = "text-button"; add.textContent = "添加任务"; add.addEventListener("click", () => openTaskModal());
+    const view = document.createElement("button"); view.type = "button"; view.className = "text-button"; view.textContent = "查看本周"; view.addEventListener("click", () => { currentTaskView = "week"; navigateTo("plan"); });
+    actions.append(add, view); header.append(copy, actions);
+    const list = document.createElement("div"); list.className = "workspace-task-list";
+    if (!candidates.length) {
+      const empty = document.createElement("p"); empty.className = "task-widget-empty"; empty.textContent = "本周还没有需要优先处理的任务。"; list.appendChild(empty);
+    } else candidates.forEach((task) => list.appendChild(createTaskCard(task, { compact: true })));
+    container.append(header, list);
+  });
+}
+
+function renderTaskSettings() {
+  if (!dom.taskRemindersEnabled) return;
+  const settings = taskState.settings || {};
+  dom.taskRemindersEnabled.checked = settings.remindersEnabled === true;
+  dom.taskTrayOnClose.checked = settings.trayOnClose === true;
+  dom.taskAutoLaunch.checked = settings.autoLaunch === true;
+  dom.taskStartMinimized.checked = settings.startMinimized === true;
+  dom.taskNotificationSound.checked = settings.notificationSound !== false;
+  dom.taskDndEnabled.checked = settings.doNotDisturb?.enabled === true;
+  dom.taskDndStart.value = settings.doNotDisturb?.start || "22:00";
+  dom.taskDndEnd.value = settings.doNotDisturb?.end || "08:00";
+  dom.taskReminderSettingsStatus.textContent = settings.remindersEnabled ? "提醒已启用" : "提醒已关闭";
+  dom.taskReminderSettingsStatus.classList.toggle("status-pill--success", settings.remindersEnabled === true);
+  const pausedUntil = Date.parse(settings.pausedUntil || 0);
+  dom.taskPausedUntil.textContent = Number.isFinite(pausedUntil) && pausedUntil > Date.now()
+    ? `提醒暂停至 ${new Date(pausedUntil).toLocaleString("zh-CN")}`
+    : "完全退出后提醒停止";
+}
+
+function applyTaskSnapshot(snapshot = {}) {
+  taskState = {
+    tasks: Array.isArray(snapshot.tasks) ? snapshot.tasks : taskState.tasks,
+    reminders: Array.isArray(snapshot.reminders) ? snapshot.reminders : taskState.reminders,
+    settings: snapshot.settings || taskState.settings,
+    timeZone: snapshot.timeZone || taskState.timeZone,
+  };
+  appState.localTasks = taskState.tasks;
+  appState.taskReminders = taskState.reminders;
+  appState.taskSettings = taskState.settings;
+  const unfinished = taskState.tasks.filter((task) => !["done", "cancelled"].includes(task.status)).length;
+  if (dom.sidebarTaskCount) dom.sidebarTaskCount.textContent = unfinished > 99 ? "99+" : String(unfinished);
+  renderPlan();
+  renderWorkspaceTaskWidgets();
+  renderTaskSettings();
+}
+
+async function loadTasks() {
+  if (typeof window.siteNest?.getTasks !== "function") return;
+  try {
+    applyTaskSnapshot(await window.siteNest.getTasks());
+  } catch (error) {
+    showToast("无法读取本地计划", error?.message || "请稍后重试", "error");
+  }
 }
 
 function renderQuickSites() {
@@ -2923,6 +3319,9 @@ function renderAll() {
   renderCurrentSessions();
   renderPopupPolicies();
   renderTranslationSettings();
+  renderPlan();
+  renderWorkspaceTaskWidgets();
+  renderTaskSettings();
   const workspaceSiteCount = sitesForWorkspace().length;
   dom.sidebarSiteCount.textContent = workspaceSiteCount > 99 ? "99+" : String(workspaceSiteCount);
   renderQuickSites();
@@ -2942,7 +3341,7 @@ function renderAll() {
 function openModal(modal) {
   window.siteNest?.hideBrowser();
   modal.classList.add("is-open");
-  const firstInput = modal.querySelector("input:not([type=radio]), button:not([disabled])");
+  const firstInput = modal.querySelector("input:not([type=radio]):not([type=hidden]), button:not([disabled])");
   window.setTimeout(() => firstInput?.focus(), 50);
 }
 
@@ -3919,6 +4318,82 @@ function bindEvents() {
       showToast("无法保存弹窗规则", error?.message || "请稍后重试", "error");
     }
   });
+  dom.planAddTaskButton.addEventListener("click", () => openTaskModal());
+  dom.planViewTabs.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-task-view]");
+    if (!button) return;
+    currentTaskView = button.dataset.taskView;
+    renderPlan();
+  });
+  document.addEventListener("click", (event) => {
+    const weekMove = event.target.closest("[data-week-move]");
+    if (weekMove) {
+      const movement = Number(weekMove.dataset.weekMove);
+      taskWeekAnchor = movement === 0 ? new Date() : new Date(taskWeekAnchor.valueOf() + movement * 7 * 86400000);
+      renderTaskWeek();
+    }
+    const monthMove = event.target.closest("[data-month-move]");
+    if (monthMove) {
+      const movement = Number(monthMove.dataset.monthMove);
+      taskMonthAnchor = movement === 0 ? new Date() : new Date(taskMonthAnchor.getFullYear(), taskMonthAnchor.getMonth() + movement, 1);
+      selectedTaskDay = new Date(taskMonthAnchor.getFullYear(), taskMonthAnchor.getMonth(), 1);
+      renderTaskMonth();
+    }
+  });
+  dom.taskForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const payload = taskFormPayload();
+    if (!payload.title) return;
+    const submit = dom.taskForm.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      const result = payload.id
+        ? await window.siteNest.updateTask(payload)
+        : await window.siteNest.addTask(payload);
+      applyTaskSnapshot(result);
+      closeModal(dom.taskModal);
+      showToast(payload.id ? "任务已更新" : "任务已添加", payload.title);
+    } catch (error) {
+      showToast("无法保存任务", error?.message || "请检查任务内容", "error");
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  dom.deleteTaskButton.addEventListener("click", async () => {
+    const task = taskForId(dom.taskId.value);
+    if (!task || !window.confirm(`删除任务“${task.title}”？此操作同时删除其本地提醒。`)) return;
+    try {
+      const result = await window.siteNest.deleteTask(task.id);
+      applyTaskSnapshot(result);
+      closeModal(dom.taskModal);
+      showToast("任务已删除", task.title);
+    } catch (error) {
+      showToast("无法删除任务", error?.message || "请稍后重试", "error");
+    }
+  });
+  dom.saveTaskSettingsButton.addEventListener("click", async () => {
+    dom.saveTaskSettingsButton.disabled = true;
+    try {
+      const result = await window.siteNest.updateTaskSettings({
+        remindersEnabled: dom.taskRemindersEnabled.checked,
+        trayOnClose: dom.taskTrayOnClose.checked,
+        autoLaunch: dom.taskAutoLaunch.checked,
+        startMinimized: dom.taskStartMinimized.checked,
+        notificationSound: dom.taskNotificationSound.checked,
+        doNotDisturb: {
+          enabled: dom.taskDndEnabled.checked,
+          start: dom.taskDndStart.value,
+          end: dom.taskDndEnd.value,
+        },
+      });
+      applyTaskSnapshot(result);
+      showToast("通知设置已保存", result.settings.trayOnClose ? "关闭窗口后将驻留托盘" : "关闭窗口将完全退出");
+    } catch (error) {
+      showToast("无法保存通知设置", error?.message || "请稍后重试", "error");
+    } finally {
+      dom.saveTaskSettingsButton.disabled = false;
+    }
+  });
   dom.translationConfigForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const submit = event.submitter || dom.translationConfigForm.querySelector('button[type="submit"]');
@@ -4479,6 +4954,16 @@ function bindEvents() {
       dom.translationSettings?.focus({ preventScroll: true });
     }, 80);
   });
+  window.siteNest?.onTasksChanged?.((snapshot) => applyTaskSnapshot(snapshot));
+  window.siteNest?.onOpenTask?.(({ taskId, view }) => {
+    currentTaskView = view || "week";
+    navigateTo("plan");
+    if (taskId === "new") openTaskModal();
+    else if (taskId) {
+      const task = taskForId(taskId);
+      if (task) openTaskModal(task);
+    }
+  });
   window.siteNest?.onAutomationStatus(({ naixi }) => renderNaixiAutomation(naixi));
 }
 
@@ -4494,6 +4979,7 @@ async function initialize() {
     renderAll();
     await loadGoogleSyncStatus();
     await loadTranslationStatus();
+    await loadTasks();
     await loadZohoConnectorStatus();
     if (activeWorkspaceId() === "work") void loadZohoDashboard();
     const persistedBrowser = appState.workspaceBrowserStates?.[activeWorkspaceId()];

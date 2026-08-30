@@ -76,6 +76,11 @@
                 <span>我的站点</span>
                 <span class="nav-count" id="sidebarSiteCount">0</span>
               </button>
+              <button class="nav-item" type="button" data-route="plan" title="计划">
+                <span class="nav-icon" data-icon="calendar"></span>
+                <span>计划</span>
+                <span class="nav-count" id="sidebarTaskCount">0</span>
+              </button>
               <button class="nav-item" type="button" data-route="automations" title="自动化中心">
                 <span class="nav-icon" data-icon="spark"></span>
                 <span>自动化中心</span>
@@ -220,6 +225,8 @@
               </div>
               <div class="quick-grid" id="quickSiteGrid"></div>
 
+              <section class="workspace-task-widget" data-workspace-task-widget="personal"></section>
+
               <div class="feature-grid">
                 <article class="feature-card feature-card--bookmarks">
                   <div class="feature-topline">
@@ -342,6 +349,8 @@
                 </section>
               </div>
 
+              <section class="workspace-task-widget" data-workspace-task-widget="work"></section>
+
               <div class="workspace-section-title">
                 <div><span class="section-kicker">CONTINUE</span><h2>继续处理</h2></div>
                 <span id="workAppTotal">0 个站点</span>
@@ -378,6 +387,42 @@
                 </button>
               </header>
               <div class="research-site-grid" id="researchSiteGrid"></div>
+              <section class="workspace-task-widget" data-workspace-task-widget="research"></section>
+            </div>
+          </section>
+
+          <section class="local-page" id="planPage" data-page="plan">
+            <div class="page-scroll content-scroll plan-scroll">
+              <header class="content-header plan-header">
+                <div>
+                  <span class="section-kicker">LOCAL PLAN</span>
+                  <h1>计划</h1>
+                  <p>周计划、月计划和提醒只保存在这台电脑，不接入外部日历。</p>
+                </div>
+                <button class="primary-button" id="planAddTaskButton" type="button"><span data-icon="plus"></span>添加任务</button>
+              </header>
+              <div class="plan-view-tabs" id="planViewTabs" role="tablist" aria-label="计划视图">
+                <button class="is-active" type="button" data-task-view="week" role="tab">本周</button>
+                <button type="button" data-task-view="month" role="tab">本月</button>
+                <button type="button" data-task-view="all" role="tab">全部任务</button>
+                <button type="button" data-task-view="completed" role="tab">已完成</button>
+              </div>
+              <section class="plan-view-panel" id="taskWeekPanel" data-task-panel="week">
+                <div class="plan-period-toolbar">
+                  <div><strong id="taskWeekTitle">本周</strong><small id="taskWeekRange"></small></div>
+                  <div><button type="button" data-week-move="-1" aria-label="上一周">上一周</button><button type="button" data-week-move="0">本周</button><button type="button" data-week-move="1" aria-label="下一周">下一周</button></div>
+                </div>
+                <div class="task-week-scroll"><div class="task-week-grid" id="taskWeekGrid"></div></div>
+              </section>
+              <section class="plan-view-panel" id="taskMonthPanel" data-task-panel="month" hidden>
+                <div class="plan-period-toolbar">
+                  <div><strong id="taskMonthTitle">本月</strong><small>仅显示栖页本地任务</small></div>
+                  <div><button type="button" data-month-move="-1">上个月</button><button type="button" data-month-move="0">本月</button><button type="button" data-month-move="1">下个月</button></div>
+                </div>
+                <div class="task-month-layout"><div class="task-month-calendar" id="taskMonthCalendar"></div><aside class="task-selected-day"><h2 id="taskSelectedDayTitle">当天任务</h2><div id="taskSelectedDayList"></div></aside></div>
+              </section>
+              <section class="plan-view-panel" id="taskAllPanel" data-task-panel="all" hidden><div class="task-list-page" id="taskAllList"></div></section>
+              <section class="plan-view-panel" id="taskCompletedPanel" data-task-panel="completed" hidden><div class="task-list-page" id="taskCompletedList"></div></section>
             </div>
           </section>
 
@@ -683,6 +728,25 @@
                       <span><strong>仅显示当前空间会话</strong><small>关闭时默认跨空间显示全部会话</small></span>
                       <input id="sessionVisibilitySetting" type="checkbox" />
                     </label>
+                  </div>
+                </article>
+
+                <article class="settings-card settings-card--wide" id="taskNotificationSettings">
+                  <div class="settings-card-icon" data-icon="calendar"></div>
+                  <div class="settings-card-copy">
+                    <div class="settings-title-row"><div><span class="section-kicker">NOTIFICATIONS &amp; BACKGROUND</span><h3>通知与后台</h3></div><span class="status-pill" id="taskReminderSettingsStatus">提醒已关闭</span></div>
+                    <p>最小化到托盘时提醒继续；完全退出后提醒停止。托盘模式会释放网页视图，只保留轻量主进程和最近一条提醒计时器。</p>
+                    <div class="task-settings-grid">
+                      <label class="settings-switch-row"><span><strong>启用任务提醒</strong><small>使用 Windows 桌面通知</small></span><input id="taskRemindersEnabled" type="checkbox" /></label>
+                      <label class="settings-switch-row"><span><strong>关闭窗口后驻留托盘</strong><small>关闭不等于完全退出</small></span><input id="taskTrayOnClose" type="checkbox" /></label>
+                      <label class="settings-switch-row"><span><strong>随系统启动</strong><small>使用 Windows 登录启动项</small></span><input id="taskAutoLaunch" type="checkbox" /></label>
+                      <label class="settings-switch-row"><span><strong>启动时保持最小化</strong><small>可从托盘打开栖页</small></span><input id="taskStartMinimized" type="checkbox" /></label>
+                      <label class="settings-switch-row"><span><strong>通知声音</strong><small>关闭后使用静默通知</small></span><input id="taskNotificationSound" type="checkbox" checked /></label>
+                      <label class="settings-switch-row"><span><strong>勿扰时间</strong><small>期间提醒自动顺延到结束时间</small></span><input id="taskDndEnabled" type="checkbox" /></label>
+                      <label class="task-time-setting"><span>勿扰开始</span><input id="taskDndStart" type="time" value="22:00" /></label>
+                      <label class="task-time-setting"><span>勿扰结束</span><input id="taskDndEnd" type="time" value="08:00" /></label>
+                    </div>
+                    <div class="translation-form-actions"><button class="primary-button compact-button" id="saveTaskSettingsButton" type="button">保存通知设置</button><span class="settings-inline-note" id="taskPausedUntil"></span></div>
                   </div>
                 </article>
 
@@ -1086,6 +1150,30 @@
             </div>
           </section>
         </main>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="taskModal" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle">
+      <div class="modal-card task-modal-card">
+        <div class="modal-header"><div><span class="section-kicker">LOCAL TASK</span><h2 id="taskModalTitle">添加任务</h2></div><button class="icon-button" type="button" data-close-modal="taskModal" aria-label="关闭"><span data-icon="close"></span></button></div>
+        <form id="taskForm">
+          <input id="taskId" type="hidden" />
+          <label class="form-field"><span>任务标题</span><input id="taskTitle" maxlength="300" required placeholder="例如：回复采购退货单位工单" /></label>
+          <label class="form-field"><span>备注</span><textarea id="taskNotes" rows="3" maxlength="5000" placeholder="可选，仅保存在本机"></textarea></label>
+          <div class="form-field-row task-form-field-row--three">
+            <label class="form-field"><span>所属空间</span><select id="taskWorkspace"><option value="personal">个人</option><option value="work">工作</option><option value="research">研究</option></select></label>
+            <label class="form-field"><span>优先级</span><select id="taskPriority"><option value="low">低</option><option value="normal" selected>普通</option><option value="high">高</option><option value="urgent">紧急</option></select></label>
+            <label class="form-field"><span>状态</span><select id="taskStatus"><option value="todo">待办</option><option value="doing">进行中</option><option value="done">已完成</option><option value="cancelled">已取消</option></select></label>
+          </div>
+          <div class="form-field-row">
+            <label class="form-field"><span>开始时间</span><input id="taskStartAt" type="datetime-local" /></label>
+            <label class="form-field"><span>截止时间</span><input id="taskDueAt" type="datetime-local" /></label>
+          </div>
+          <label class="settings-switch-row task-all-day-row"><span><strong>全天任务</strong><small>仍以本机时区存储和显示</small></span><input id="taskAllDay" type="checkbox" /></label>
+          <fieldset class="task-reminder-fieldset"><legend>提醒</legend><label><input type="checkbox" name="taskReminder" value="0" /> 到期时</label><label><input type="checkbox" name="taskReminder" value="5" /> 提前 5 分钟</label><label><input type="checkbox" name="taskReminder" value="10" /> 提前 10 分钟</label><label><input type="checkbox" name="taskReminder" value="15" /> 提前 15 分钟</label><label><input type="checkbox" name="taskReminder" value="30" /> 提前 30 分钟</label><label><input type="checkbox" name="taskReminder" value="60" /> 提前 1 小时</label><label><input type="checkbox" name="taskReminder" value="1440" /> 提前 1 天</label><label>自定义分钟 <input id="taskCustomReminder" type="number" min="0" max="525600" /></label></fieldset>
+          <label class="form-field"><span>标签 <small>用逗号分隔</small></span><input id="taskTags" maxlength="500" placeholder="客户, SAP, 跟进" /></label>
+          <div class="modal-actions"><button class="text-button text-button--quiet is-hidden" id="deleteTaskButton" type="button">删除任务</button><button class="secondary-button" type="button" data-close-modal="taskModal">取消</button><button class="primary-button" type="submit">保存任务</button></div>
+        </form>
       </div>
     </div>
 

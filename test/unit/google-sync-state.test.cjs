@@ -45,6 +45,34 @@ test("remote sync replaces only the cloud whitelist and preserves local-only run
   local.automations.naixi.lastSuccessDate = "2026-08-29";
   local.assistantSettings["generic-page-actions"].lastExecutedAt =
     "2026-08-29T09:00:00.000Z";
+  local.localTasks = [{
+    id: "local-task",
+    title: "本机计划",
+    notes: "",
+    workspaceId: "work",
+    status: "todo",
+    priority: "high",
+    startAt: null,
+    dueAt: "2026-08-30T04:00:00.000Z",
+    allDay: false,
+    reminderOffsets: [10],
+    tags: [],
+    orderKey: "1:local-task",
+    timeZone: local.timeZone,
+    createdAt: "2026-08-29T10:00:00.000Z",
+    updatedAt: "2026-08-29T10:00:00.000Z",
+    completedAt: null,
+  }];
+  local.taskReminders = [{
+    id: "task-reminder:local-task:10",
+    taskId: "local-task",
+    remindAt: "2026-08-30T03:50:00.000Z",
+    state: "pending",
+    firedAt: null,
+    snoozedUntil: null,
+    notificationKey: "task-reminder:local-task:10",
+  }];
+  local.taskSettings.remindersEnabled = true;
 
   const remoteState = baseState("2026-08-29T11:00:00.000Z");
   remoteState.bookmarks = [{
@@ -74,6 +102,9 @@ test("remote sync replaces only the cloud whitelist and preserves local-only run
   assert.equal(result.automations.naixi.enabled, false);
   assert.equal(result.automations.naixi.time, "07:15");
   assert.equal(result.automations.naixi.lastSuccessDate, "2026-08-29");
+  assert.equal(result.localTasks[0].id, "local-task");
+  assert.equal(result.taskReminders[0].id, "task-reminder:local-task:10");
+  assert.equal(result.taskSettings.remindersEnabled, true);
 });
 
 test("invalid remote envelopes never mutate local state", () => {

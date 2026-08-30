@@ -109,9 +109,9 @@ test(
     await fsp.writeFile(dataFile, JSON.stringify(v2Fixture, null, 2), "utf8");
 
     const first = await runElectron({ userData, route: "state-probe" });
-    assert.match(first.stdout, /"version":6/);
+    assert.match(first.stdout, /"version":7/);
     const migrated = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(migrated.version, 6);
+    assert.equal(migrated.version, 7);
     assert.equal(migrated.activeWorkspaceId, "personal");
     assert.deepEqual(
       migrated.workspaces.map((workspace) => workspace.id),
@@ -141,5 +141,42 @@ test(
     const afterAction = JSON.parse(await fsp.readFile(dataFile, "utf8"));
     assert.ok(afterAction.assistantExecutionLogs.length >= 1);
     assert.equal(afterAction.assistantExecutionLogs[0].status, "success");
+  },
+);
+
+test(
+  "本地任务通过安全 IPC 完成增删改、提醒延后并跨重启持久化",
+  { timeout: 90000 },
+  async (t) => {
+    const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-task-integration-"));
+    t.after(async () => {
+      await fsp.rm(userData, { recursive: true, force: true });
+    });
+
+    const probe = await runElectron({ userData, route: "task-probe" });
+    assert.match(probe.stdout, /"taskCount":1/);
+    assert.match(probe.stdout, /"title":"IPC 本地任务已更新"/);
+    assert.match(probe.stdout, /"status":"doing"/);
+    assert.match(probe.stdout, /"reminderState":"snoozed"/);
+    assert.match(probe.stdout, /"route":"plan"/);
+    assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
+
+    const dataFile = path.join(userData, "site-nest-data.json");
+    const persisted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
+    assert.equal(persisted.version, 7);
+    assert.equal(persisted.localTasks.length, 1);
+    assert.equal(persisted.localTasks[0].title, "IPC 本地任务已更新");
+    assert.equal(persisted.taskReminders.length, 1);
+    assert.equal(persisted.taskReminders[0].state, "snoozed");
+    assert.deepEqual(persisted.taskSettings.doNotDisturb, {
+      enabled: true,
+      start: "22:30",
+      end: "07:30",
+    });
+
+    await runElectron({ userData, route: "state-probe" });
+    const restarted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
+    assert.equal(restarted.localTasks.length, 1);
+    assert.equal(restarted.taskReminders[0].state, "snoozed");
   },
 );

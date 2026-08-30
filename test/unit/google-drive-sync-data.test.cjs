@@ -93,6 +93,9 @@ function sampleState() {
   state.assistantExecutionLogs = [
     { id: "log-1", summary: "token=assistant-log-secret" },
   ];
+  state.localTasks = [{ id: "local-task", title: "仅本机客户任务", notes: "不得上传" }];
+  state.taskReminders = [{ id: "local-reminder", taskId: "local-task" }];
+  state.taskSettings = { remindersEnabled: true, trayOnClose: true };
   return state;
 }
 
@@ -115,6 +118,9 @@ test("safe snapshot is an allowlist and excludes sessions, OAuth material, cooki
   assert.equal(Object.hasOwn(snapshot, "tokens"), false);
   assert.equal(Object.hasOwn(snapshot, "oauth"), false);
   assert.equal(Object.hasOwn(snapshot, "logs"), false);
+  assert.equal(Object.hasOwn(snapshot, "localTasks"), false);
+  assert.equal(Object.hasOwn(snapshot, "taskReminders"), false);
+  assert.equal(Object.hasOwn(snapshot, "taskSettings"), false);
 
   const site = snapshot.sites[0];
   assert.equal(site.url, "https://safe.example.test/path?page=1");
