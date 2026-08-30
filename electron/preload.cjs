@@ -91,6 +91,15 @@ contextBridge.exposeInMainWorld("siteNest", {
     ipcRenderer.invoke("browser:reattach-tab", { tabId, bounds }),
   focusDetachedBrowserTab: (tabId) =>
     ipcRenderer.invoke("browser:focus-detached-tab", { tabId }),
+  getBrowserLifecycle: () => ipcRenderer.invoke("browser:get-lifecycle"),
+  setBrowserTabKeepRunning: (tabId, keepRunning) =>
+    ipcRenderer.invoke("browser:set-keep-running", { tabId, keepRunning }),
+  suspendBrowserTab: (tabId) => ipcRenderer.invoke("browser:suspend-tab", { tabId }),
+  getPageResources: () => ipcRenderer.invoke("resources:list"),
+  scanPageResources: () => ipcRenderer.invoke("resources:scan"),
+  startPageResourceNetworkDetection: () => ipcRenderer.invoke("resources:start-network"),
+  stopPageResourceNetworkDetection: () => ipcRenderer.invoke("resources:stop-network"),
+  downloadPageResource: (resourceId) => ipcRenderer.invoke("resources:download", resourceId),
   getAssistants: () => ipcRenderer.invoke("assistants:list"),
   setAssistantEnabled: (assistantId, enabled) =>
     ipcRenderer.invoke("assistants:set-enabled", { assistantId, enabled }),
@@ -111,6 +120,16 @@ contextBridge.exposeInMainWorld("siteNest", {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on("browser:notice", listener);
     return () => ipcRenderer.removeListener("browser:notice", listener);
+  },
+  onBrowserLifecycle: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("browser:lifecycle", listener);
+    return () => ipcRenderer.removeListener("browser:lifecycle", listener);
+  },
+  onPageResourcesChanged: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("resources:changed", listener);
+    return () => ipcRenderer.removeListener("resources:changed", listener);
   },
   onOpenPageActions: (callback) => {
     const listener = () => callback();

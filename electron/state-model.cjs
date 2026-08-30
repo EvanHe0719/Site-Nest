@@ -1,5 +1,6 @@
 const { createHash, randomUUID } = require("node:crypto");
 const { normalizeSitePopupPolicies } = require("./browser/window-open-policy-service.cjs");
+const { normalizeBrowserMemorySettings } = require("./browser/webview-lifecycle-manager.cjs");
 const { normalizeTranslationSettings } = require("./translation/settings.cjs");
 const {
   deviceTimeZone,
@@ -286,6 +287,7 @@ function normalizeUiSettings(value) {
     contextAssistantCollapsed: input.contextAssistantCollapsed === true,
     sitePopupPolicies: normalizeSitePopupPolicies(input.sitePopupPolicies),
     translation: normalizeTranslationSettings(input.translation),
+    browserMemory: normalizeBrowserMemorySettings(input.browserMemory),
   };
 }
 
@@ -571,6 +573,7 @@ function normalizeWorkspaceBrowserStates(value, workspaces, sites, browserProfil
           candidate.reliableContext && typeof candidate.reliableContext === "object"
             ? sanitizePublicConfig(candidate.reliableContext)
             : null,
+        keepRunning: candidate.keepRunning === true,
         ...(allowDuplicate ? { allowDuplicate: true } : {}),
         updatedAt:
           typeof candidate.updatedAt === "string" ? candidate.updatedAt : null,
@@ -1098,6 +1101,7 @@ function normalizeBrowserTabsForMutation(state, workspaceId, tabs, now) {
         candidate.reliableContext && typeof candidate.reliableContext === "object"
           ? sanitizePublicConfig(candidate.reliableContext)
           : null,
+      keepRunning: candidate.keepRunning === true,
       ...(allowDuplicate ? { allowDuplicate: true } : {}),
       updatedAt:
         typeof candidate.updatedAt === "string" ? candidate.updatedAt : now,

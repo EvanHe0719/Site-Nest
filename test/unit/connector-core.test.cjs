@@ -313,6 +313,7 @@ test("v8 migration keeps sites separate from sessions and is idempotent", () => 
       selectionButtonEnabled: true,
       siteRules: [],
     },
+    browserMemory: { mode: "standard", inactiveMinutes: 15 },
   });
   const migrated = migrateState(initial, { now: "2030-01-01T00:00:00Z" });
   assert.equal(migrated.changed, false);
@@ -338,6 +339,7 @@ test("session visibility and context-assistant preferences survive state normali
       selectionButtonEnabled: true,
       siteRules: [],
     },
+    browserMemory: { mode: "standard", inactiveMinutes: 15 },
   });
 });
 

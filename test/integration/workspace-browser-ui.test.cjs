@@ -266,7 +266,14 @@ test("top and sidebar session menus share duplicate behavior and target inactive
   assert.equal(topCopies[sourceIndex].siteId, topCopies[copiedIndex].siteId);
   assert.equal(topCopies[sourceIndex].browserProfileId, topCopies[copiedIndex].browserProfileId);
   assert.equal(topCopies[copiedIndex].active, true);
-  assert.deepEqual(result.leftMenu.labels, ["复制页签", "复制页面链接", "在外部浏览器打开", "关闭页签"]);
+  assert.deepEqual(result.leftMenu.labels, [
+    "复制页签",
+    "复制页面链接",
+    "在外部浏览器打开",
+    "保持运行",
+    "立即休眠",
+    "关闭页签",
+  ]);
   assert.equal(result.afterLeftCopy.browserSnapshot.tabs.length, 4);
   assert.equal(result.trace.tabActions.filter((item) => item.action === "duplicate").length, 2);
   assert.deepEqual(result.trace.copiedTabUrls, [{ tabId: result.menu.sourceTabId, url: topCopies[sourceIndex].url }]);

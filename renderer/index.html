@@ -809,6 +809,23 @@
                   </div>
                 </article>
 
+                <article class="settings-card settings-card--wide" id="browserMemorySettings">
+                  <div class="settings-card-icon" data-icon="window"></div>
+                  <div class="settings-card-copy">
+                    <div class="settings-title-row">
+                      <div><span class="section-kicker">WEBVIEW LIFECYCLE</span><h3>网页视图内存</h3></div>
+                      <span class="status-pill" id="browserMemoryStatus">标准</span>
+                    </div>
+                    <p>休眠只销毁后台网页实例并保留 URL 与会话元数据；不会清理 Cookie、LocalStorage、IndexedDB 或更换浏览身份。</p>
+                    <div class="browser-memory-grid">
+                      <label><span>内存模式</span><select id="browserMemoryMode"><option value="saver">节省内存 · 不保留后台页</option><option value="standard">标准 · 最多 1 个预热页</option><option value="performance">性能优先 · 最多 3 个预热页</option></select></label>
+                      <label><span>后台自动休眠</span><select id="browserMemoryInactiveMinutes"><option value="5">5 分钟</option><option value="15">15 分钟</option><option value="30">30 分钟</option><option value="60">60 分钟</option><option value="0">只按预热数量治理</option></select></label>
+                    </div>
+                    <div class="browser-memory-runtime" id="browserMemoryRuntime">活动 0 · 预热 0 · 已休眠 0</div>
+                    <div class="translation-form-actions"><button class="primary-button compact-button" id="saveBrowserMemorySettings" type="button">保存内存设置</button><span class="settings-inline-note">播放、下载、上传、登录弹窗、未发送 Zoho 回复和“保持运行”页面不会自动休眠。</span></div>
+                  </div>
+                </article>
+
                 <article class="settings-card settings-card--wide translation-settings-card" id="translationSettings" tabindex="-1">
                   <div class="settings-card-icon" data-icon="language"></div>
                   <div class="settings-card-copy">
@@ -1132,6 +1149,12 @@
                   <div class="page-action-section-heading"><span>网页脚本</span><span class="status-pill" id="pageUserScriptStatus">隔离运行</span></div>
                   <button class="page-action-item" id="runRestoreCopyScript" type="button"><span data-icon="copy"></span><span><strong>临时恢复复制与选择</strong><small>仅当前页面；不读取输入框、不访问网络</small></span><span data-icon="chevron-right"></span></button>
                   <div class="page-action-list" id="pageUserScriptCommands"></div>
+                </section>
+                <section class="page-action-section page-resource-actions">
+                  <div class="page-action-section-heading"><span>页面资源</span><span class="status-pill" id="pageResourceStatus">尚未扫描</span></div>
+                  <div class="page-resource-controls"><button class="secondary-button compact-button" id="scanPageResources" type="button"><span data-icon="search"></span>扫描页面</button><button class="secondary-button compact-button" id="detectNetworkResources" type="button"><span data-icon="reload"></span>开始网络检测</button></div>
+                  <p class="page-resource-note">只识别当前页面可直接访问的文件、图片、音视频；不读取 Header、Cookie、响应正文，不处理 DRM 或加密流。</p>
+                  <div class="page-resource-list" id="pageResourceList"></div>
                 </section>
                 <div class="zoho-context-assistant is-hidden" id="zohoContextAssistant">
                   <section class="page-action-section zoho-ticket-context-section">

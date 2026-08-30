@@ -5537,6 +5537,101 @@ svg {
   overflow-wrap: anywhere;
 }
 
+.browser-memory-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0 10px;
+}
+
+.browser-memory-grid label {
+  display: grid;
+  gap: 6px;
+  color: #5f6b66;
+  font-size: 12px;
+}
+
+.browser-memory-grid select {
+  min-height: 38px;
+  border: 1px solid #d9dfdc;
+  border-radius: 10px;
+  background: #fff;
+  color: #21302a;
+  padding: 0 10px;
+}
+
+.browser-memory-runtime {
+  margin-bottom: 12px;
+  border: 1px solid #d9e6e0;
+  border-radius: 10px;
+  background: #f3f8f5;
+  color: #356b5b;
+  padding: 9px 11px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.page-resource-actions {
+  display: grid;
+  gap: 9px;
+}
+
+.page-resource-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.page-resource-note,
+.page-resource-empty {
+  margin: 0;
+  color: #77817d;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.page-resource-list {
+  display: grid;
+  gap: 7px;
+  max-height: 300px;
+  overflow: auto;
+}
+
+.page-resource-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #e0e5e2;
+  border-radius: 10px;
+  background: #fff;
+  padding: 9px;
+}
+
+.page-resource-row > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.page-resource-row strong,
+.page-resource-row small,
+.page-resource-row code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-resource-row strong { color: #25332d; font-size: 12px; }
+.page-resource-row small { color: #78827e; font-size: 10px; }
+.page-resource-row code { color: #537067; font: 10px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+.page-resource-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .text-button--danger {
   color: #a45b52;
 }
@@ -5696,6 +5791,7 @@ svg {
   .userscript-heading-actions { justify-content: flex-start; }
   .userscript-card-actions { flex-wrap: wrap; }
   .userscript-hash { width: 100%; }
+  .browser-memory-grid { grid-template-columns: 1fr; }
 }
 
 .page-action-panel {

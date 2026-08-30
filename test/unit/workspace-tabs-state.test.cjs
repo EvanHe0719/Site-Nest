@@ -77,6 +77,7 @@ test("legacy single-page workspace snapshot migrates to one stable tab and remai
     loadingState: "idle",
     errorState: null,
     reliableContext: null,
+    keepRunning: false,
     updatedAt: legacyUpdatedAt,
   });
   assert.equal(snapshot.activeSiteId, "legacy-site");

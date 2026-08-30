@@ -230,6 +230,11 @@ const dom = {
   taskDndEnd: document.getElementById("taskDndEnd"),
   taskPausedUntil: document.getElementById("taskPausedUntil"),
   saveTaskSettingsButton: document.getElementById("saveTaskSettingsButton"),
+  browserMemoryStatus: document.getElementById("browserMemoryStatus"),
+  browserMemoryMode: document.getElementById("browserMemoryMode"),
+  browserMemoryInactiveMinutes: document.getElementById("browserMemoryInactiveMinutes"),
+  browserMemoryRuntime: document.getElementById("browserMemoryRuntime"),
+  saveBrowserMemorySettings: document.getElementById("saveBrowserMemorySettings"),
   translationSettings: document.getElementById("translationSettings"),
   translationSettingsStatus: document.getElementById("translationSettingsStatus"),
   translationConfigForm: document.getElementById("translationConfigForm"),
@@ -305,6 +310,10 @@ const dom = {
   pageUserScriptStatus: document.getElementById("pageUserScriptStatus"),
   pageUserScriptCommands: document.getElementById("pageUserScriptCommands"),
   runRestoreCopyScript: document.getElementById("runRestoreCopyScript"),
+  pageResourceStatus: document.getElementById("pageResourceStatus"),
+  scanPageResources: document.getElementById("scanPageResources"),
+  detectNetworkResources: document.getElementById("detectNetworkResources"),
+  pageResourceList: document.getElementById("pageResourceList"),
   pageActionPermissions: document.getElementById("pageActionPermissions"),
   pageActionLastResult: document.getElementById("pageActionLastResult"),
   zohoContextAssistant: document.getElementById("zohoContextAssistant"),
@@ -338,6 +347,7 @@ let appState = {
       selectionButtonEnabled: true,
       siteRules: [],
     },
+    browserMemory: { mode: "standard", inactiveMinutes: 15 },
   },
   connectorConnections: [],
   externalObjectLinks: [],
@@ -361,6 +371,8 @@ let pageActionRefreshTimer = 0;
 let translationStatusCache = null;
 let taskState = { tasks: [], reminders: [], settings: {}, timeZone: "UTC" };
 let userScriptState = { scripts: [], executions: [] };
+let pageResourceState = { items: [], detecting: false, detectionEndsAt: null };
+let browserLifecycleState = { settings: { mode: "standard", inactiveMinutes: 15 }, counts: { active: 0, warm: 0, suspended: 0 } };
 let pendingUserScriptReview = null;
 let currentTaskView = "week";
 let taskWeekAnchor = new Date();
@@ -532,6 +544,8 @@ function normalizeWorkspaceBrowserState(value, workspaceId = activeWorkspaceId()
       detached: Boolean(tab.detached),
       active: Boolean(tab.active),
       allowDuplicate: tab.allowDuplicate === true,
+      keepRunning: tab.keepRunning === true,
+      lifecycleState: String(tab.lifecycleState || ""),
     }));
   const requestedActiveTabId = Object.prototype.hasOwnProperty.call(incoming, "activeTabId")
     ? incoming.activeTabId
@@ -1780,6 +1794,14 @@ async function executeSessionContextAction(session, action) {
     await copySessionUrl(session.tabId);
   } else if (action === "open-external") {
     await openSessionExternally(session.tabId);
+  } else if (action === "keep-running" || action === "allow-sleep") {
+    browserLifecycleState = await window.siteNest.setBrowserTabKeepRunning(session.tabId, action === "keep-running");
+    renderBrowserMemorySettings();
+    showToast(action === "keep-running" ? "页签将保持运行" : "页签可以自动休眠", sessionTitle(session));
+  } else if (action === "suspend") {
+    browserLifecycleState = await window.siteNest.suspendBrowserTab(session.tabId);
+    renderBrowserMemorySettings();
+    showToast("页签已休眠", "再次选择时会恢复原地址和登录身份");
   } else if (action === "close") {
     await closeSessionFromSidebar(session);
   }
@@ -1812,6 +1834,8 @@ function openSessionContextMenu(session, anchor = {}) {
     contextMenuButton("复制页签", "copy", () => executeSessionContextAction(session, "duplicate")),
     contextMenuButton("复制页面链接", "link", () => executeSessionContextAction(session, "copy-url")),
     contextMenuButton("在外部浏览器打开", "external", () => executeSessionContextAction(session, "open-external")),
+    contextMenuButton(session.keepRunning ? "取消保持运行" : "保持运行", "window", () => executeSessionContextAction(session, session.keepRunning ? "allow-sleep" : "keep-running")),
+    contextMenuButton("立即休眠", "clock", () => executeSessionContextAction(session, "suspend")),
     divider,
     contextMenuButton("关闭页签", "close", () => executeSessionContextAction(session, "close"), { danger: true }),
   );
@@ -1948,7 +1972,10 @@ function renderCurrentSessions() {
     const badge = document.createElement("span");
     badge.className = "session-workspace-badge";
     badge.textContent = workspaceName(session.workspaceId);
-    meta.append(badge, document.createTextNode(hostFromUrl(session.url)));
+    const lifecycleLabel = session.lifecycleState === "suspended"
+      ? " · 已休眠"
+      : session.keepRunning ? " · 保持运行" : "";
+    meta.append(badge, document.createTextNode(`${hostFromUrl(session.url)}${lifecycleLabel}`));
     copy.append(title, meta);
     main.append(favicon, copy);
     main.addEventListener("click", () => void showSession(session));
@@ -2059,6 +2086,29 @@ function renderPopupPolicies() {
     row.append(copy, remove);
     dom.popupPolicyList.appendChild(row);
   });
+}
+
+const BROWSER_MEMORY_LABELS = { saver: "节省内存", standard: "标准", performance: "性能优先" };
+
+function renderBrowserMemorySettings(snapshot = browserLifecycleState) {
+  if (!dom.browserMemoryMode) return;
+  const settings = snapshot?.settings || appState.uiSettings?.browserMemory || { mode: "standard", inactiveMinutes: 15 };
+  if (document.activeElement !== dom.browserMemoryMode) dom.browserMemoryMode.value = settings.mode || "standard";
+  if (document.activeElement !== dom.browserMemoryInactiveMinutes) dom.browserMemoryInactiveMinutes.value = String(settings.inactiveMinutes ?? 15);
+  dom.browserMemoryStatus.textContent = BROWSER_MEMORY_LABELS[settings.mode] || "标准";
+  const counts = snapshot?.counts || {};
+  dom.browserMemoryRuntime.textContent = `活动 ${counts.active || 0} · 预热 ${counts.warm || 0} · 已休眠 ${counts.suspended || 0}${counts.crashed ? ` · 异常 ${counts.crashed}` : ""}`;
+}
+
+async function loadBrowserLifecycle() {
+  if (typeof window.siteNest?.getBrowserLifecycle !== "function") return browserLifecycleState;
+  try {
+    browserLifecycleState = await window.siteNest.getBrowserLifecycle();
+    renderBrowserMemorySettings();
+  } catch (error) {
+    showToast("无法读取网页内存状态", error?.message || "请稍后重试", "error");
+  }
+  return browserLifecycleState;
 }
 
 function renderTranslationSettings() {
@@ -3351,6 +3401,7 @@ function renderAll() {
   renderWorkspaceSwitcher();
   renderCurrentSessions();
   renderPopupPolicies();
+  renderBrowserMemorySettings();
   renderTranslationSettings();
   renderPlan();
   renderWorkspaceTaskWidgets();
@@ -3870,6 +3921,83 @@ async function refreshPageUserScriptCommands() {
   } catch { dom.pageUserScriptStatus.textContent = "不可用"; }
 }
 
+function formatResourceSize(value) {
+  const size = Number(value);
+  if (!Number.isFinite(size) || size < 0) return "大小未知";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 ** 2) return `${(size / 1024).toFixed(1)} KB`;
+  if (size < 1024 ** 3) return `${(size / 1024 ** 2).toFixed(1)} MB`;
+  return `${(size / 1024 ** 3).toFixed(2)} GB`;
+}
+
+function renderPageResources(snapshot = pageResourceState) {
+  if (!dom.pageResourceList) return;
+  pageResourceState = {
+    items: Array.isArray(snapshot?.items) ? snapshot.items : [],
+    detecting: snapshot?.detecting === true,
+    detectionEndsAt: snapshot?.detectionEndsAt || null,
+  };
+  dom.pageResourceStatus.textContent = pageResourceState.detecting
+    ? "检测中 · 最多 60 秒"
+    : pageResourceState.items.length ? `${pageResourceState.items.length} 项` : "尚未扫描";
+  dom.detectNetworkResources.textContent = pageResourceState.detecting ? "停止网络检测" : "开始网络检测";
+  dom.pageResourceList.replaceChildren();
+  if (!pageResourceState.items.length) {
+    const empty = document.createElement("div");
+    empty.className = "page-resource-empty";
+    empty.textContent = "扫描结果仅保存在当前页面内存中，导航或关闭页面后清理。";
+    dom.pageResourceList.appendChild(empty);
+    return;
+  }
+  for (const resource of pageResourceState.items.slice(0, 100)) {
+    const row = document.createElement("article");
+    row.className = "page-resource-row";
+    const copy = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = resource.filename || "未命名资源";
+    const details = document.createElement("small");
+    details.textContent = `${resource.type || "file"} · ${resource.mime || "MIME 未知"} · ${formatResourceSize(resource.size)} · ${resource.sourceElement || "页面"}`;
+    const url = document.createElement("code");
+    url.textContent = resource.url;
+    url.title = resource.url;
+    copy.append(title, details, url);
+    const actions = document.createElement("div");
+    actions.className = "page-resource-row-actions";
+    const copyUrl = document.createElement("button");
+    copyUrl.type = "button";
+    copyUrl.className = "icon-button";
+    copyUrl.title = "复制资源地址";
+    copyUrl.appendChild(createIconElement("copy"));
+    copyUrl.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(resource.url); showToast("资源地址已复制", resource.filename); }
+      catch { showToast("无法复制资源地址", "系统剪贴板不可用", "error"); }
+    });
+    const download = document.createElement("button");
+    download.type = "button";
+    download.className = "secondary-button compact-button";
+    download.textContent = "保存";
+    download.addEventListener("click", async () => {
+      download.disabled = true;
+      try { await window.siteNest.downloadPageResource(resource.id); showToast("已打开保存对话框", resource.filename); }
+      catch (error) { showToast("无法保存资源", error?.message || "资源可能已失效", "error"); }
+      finally { download.disabled = false; }
+    });
+    actions.append(copyUrl, download);
+    row.append(copy, actions);
+    dom.pageResourceList.appendChild(row);
+  }
+}
+
+async function loadPageResources() {
+  if (typeof window.siteNest?.getPageResources !== "function" || !browserSnapshot.hasOpenPage) {
+    renderPageResources({ items: [], detecting: false });
+    return pageResourceState;
+  }
+  try { renderPageResources(await window.siteNest.getPageResources()); }
+  catch { renderPageResources({ items: [], detecting: false }); }
+  return pageResourceState;
+}
+
 function selectAutomationTab(tab, options = {}) {
   const aliases = { workflows: "schedules", extension: "scripts" };
   const requested = aliases[tab] || tab;
@@ -4382,11 +4510,13 @@ async function refreshPageActions() {
     renderPageActions(result);
     void refreshZohoTicketContext();
     void refreshPageUserScriptCommands();
+    void loadPageResources();
   } catch (error) {
     if (requestId !== pageActionRequestId) return;
     renderPageActions(null, error?.message || "无法读取当前页面动作");
     void refreshZohoTicketContext();
     void refreshPageUserScriptCommands();
+    void loadPageResources();
   }
 }
 
@@ -4421,7 +4551,11 @@ function handleBrowserState(next = {}) {
   const nextWorkspaceId = String(next.workspaceId || activeWorkspaceId());
   if (nextWorkspaceId !== activeWorkspaceId()) return;
   const normalized = normalizeWorkspaceBrowserState(next, nextWorkspaceId);
+  const previousUrl = browserSnapshot.url;
   browserSnapshot = { ...browserSnapshot, ...normalized };
+  if (previousUrl && normalized.url && previousUrl !== normalized.url) {
+    renderPageResources({ items: [], detecting: false });
+  }
   appState.workspaceBrowserStates = {
     ...(appState.workspaceBrowserStates || {}),
     [nextWorkspaceId]: {
@@ -4624,6 +4758,21 @@ function bindEvents() {
     } catch (error) {
       showToast("无法保存弹窗规则", error?.message || "请稍后重试", "error");
     }
+  });
+  dom.saveBrowserMemorySettings.addEventListener("click", async () => {
+    dom.saveBrowserMemorySettings.disabled = true;
+    const browserMemory = {
+      mode: dom.browserMemoryMode.value,
+      inactiveMinutes: Number(dom.browserMemoryInactiveMinutes.value),
+    };
+    try {
+      const result = await window.siteNest.updateUiSettings({ browserMemory });
+      appState = result.state || { ...appState, uiSettings: result.uiSettings };
+      await loadBrowserLifecycle();
+      showToast("网页内存设置已保存", BROWSER_MEMORY_LABELS[browserMemory.mode] || "标准");
+    } catch (error) {
+      showToast("无法保存网页内存设置", error?.message || "请稍后重试", "error");
+    } finally { dom.saveBrowserMemorySettings.disabled = false; }
   });
   dom.planAddTaskButton.addEventListener("click", () => openTaskModal());
   dom.planViewTabs.addEventListener("click", (event) => {
@@ -4917,6 +5066,23 @@ function bindEvents() {
     finally { dom.confirmUserScriptInstall.disabled = false; }
   });
   dom.runRestoreCopyScript.addEventListener("click", () => void runRestoreCopyScript());
+  dom.scanPageResources.addEventListener("click", async () => {
+    dom.scanPageResources.disabled = true;
+    try { renderPageResources(await window.siteNest.scanPageResources()); }
+    catch (error) { showToast("页面资源扫描失败", error?.message || "请稍后重试", "error"); }
+    finally { dom.scanPageResources.disabled = false; }
+  });
+  dom.detectNetworkResources.addEventListener("click", async () => {
+    dom.detectNetworkResources.disabled = true;
+    try {
+      const result = pageResourceState.detecting
+        ? await window.siteNest.stopPageResourceNetworkDetection()
+        : await window.siteNest.startPageResourceNetworkDetection();
+      renderPageResources(result);
+      showToast(pageResourceState.detecting ? "网络资源检测已开始" : "网络资源检测已停止", pageResourceState.detecting ? "最多运行 60 秒，仅记录 URL、MIME 和大小" : "监听器已经注销");
+    } catch (error) { showToast("网络资源检测失败", error?.message || "请稍后重试", "error"); }
+    finally { dom.detectNetworkResources.disabled = false; }
+  });
   dom.refreshExecutionLogs.addEventListener("click", () => void loadExecutionLogs());
   [
     "pageImportButton",
@@ -5293,6 +5459,11 @@ function bindEvents() {
       notice?.tone === "error" ? "error" : "info",
     );
   });
+  window.siteNest?.onBrowserLifecycle?.((snapshot) => {
+    browserLifecycleState = snapshot;
+    renderBrowserMemorySettings();
+  });
+  window.siteNest?.onPageResourcesChanged?.((snapshot) => renderPageResources(snapshot));
   window.siteNest?.onOpenPageActions?.(() => {
     setPageActionPanelOpen(true);
   });
@@ -5337,6 +5508,7 @@ async function initialize() {
     await loadTranslationStatus();
     await loadTasks();
     await loadUserScripts();
+    await loadBrowserLifecycle();
     await loadZohoConnectorStatus();
     if (activeWorkspaceId() === "work") void loadZohoDashboard();
     const persistedBrowser = appState.workspaceBrowserStates?.[activeWorkspaceId()];
