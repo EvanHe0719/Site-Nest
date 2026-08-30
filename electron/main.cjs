@@ -155,6 +155,19 @@ const {
 } = require("./habits/index.cjs");
 const { UsageTracker } = require("./usage/index.cjs");
 const {
+  contentTagSnapshot,
+  deleteContentTagAliasInState,
+  deleteContentTagGroupInState,
+  deleteContentTagInState,
+  mergeContentTags,
+  previewContentTagMerge,
+  saveContentTagAliasInState,
+  saveContentTagGroupInState,
+  saveContentTagInState,
+  setContentObjectTagsInState,
+  undoLastContentTagMerge,
+} = require("./content-tags/index.cjs");
+const {
   UserScriptEngine,
   UserScriptSourceService,
   USER_SCRIPT_WORLD_ID,
@@ -281,6 +294,7 @@ let timelineSearchIndexReady = false;
 let usageTracker;
 let usageTrackerTimer;
 let habitMutationQueue = Promise.resolve();
+let contentTagMutationQueue = Promise.resolve();
 const navigationPerformanceTracer = new NavigationPerformanceTracer();
 const pageCapabilityOrchestrator = new PageCapabilityOrchestrator({
   idleDelayMs: 350,
@@ -4797,6 +4811,48 @@ async function clearUsageTracking() {
   return habitSnapshot(cachedState);
 }
 
+function emitContentTagsChanged() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("content-tags:changed", contentTagSnapshot(cachedState));
+}
+
+function mutateContentTagState(mutator) {
+  const operation = contentTagMutationQueue
+    .catch(() => undefined)
+    .then(async () => {
+      const state = await getState();
+      const result = mutator(state);
+      await commitStateCandidate(result.state);
+      emitContentTagsChanged();
+      const { state: _privateState, record, ...details } = result;
+      const publicRecord = record ? {
+        id: record.id,
+        sourceTagIds: record.sourceTagIds,
+        targetTagId: record.targetTagId,
+        affectedReferenceCount: record.affectedReferenceCount,
+        affectedObjectCount: record.affectedObjectCount,
+        affectedByType: record.affectedByType,
+        createdAt: record.createdAt,
+        undoneAt: record.undoneAt,
+      } : null;
+      return {
+        ...details,
+        ...(publicRecord ? { record: publicRecord } : {}),
+        ...contentTagSnapshot(cachedState),
+      };
+    });
+  contentTagMutationQueue = operation.catch(() => undefined);
+  return operation;
+}
+
+function mergeContentTagsOperation(payload) {
+  return mutateContentTagState((state) => mergeContentTags(state, payload));
+}
+
+function undoLastContentTagMergeOperation() {
+  return mutateContentTagState((state) => undoLastContentTagMerge(state));
+}
+
 function emitTasksChanged(focusTaskId = null) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send("tasks:changed", {
@@ -5247,6 +5303,7 @@ function publicUserScript(script, state = cachedState) {
     connects: script.connects,
     workspaceIds: script.workspaceIds,
     browserProfileIds: script.browserProfileIds,
+    tagIds: Array.isArray(script.tagIds) ? script.tagIds : [],
     createdAt: script.createdAt,
     updatedAt: script.updatedAt,
     lastCheckedAt: script.lastCheckedAt,
@@ -5349,6 +5406,7 @@ function registerIpc() {
       habitReminders: [],
       rewardLedger: [],
       usageDayAggregates: [],
+      contentTagMergeRecords: [],
     };
   });
   ipcMain.handle("settings:update-ui", async (_event, patch) => {
@@ -5889,6 +5947,25 @@ function registerIpc() {
     updateUsageEligibility();
     usageTracker.recordMeaningfulAction();
   });
+  ipcMain.handle("content-tags:get", async () => contentTagSnapshot(await getState()));
+  ipcMain.handle("content-tags:save-group", (_event, payload) =>
+    mutateContentTagState((state) => saveContentTagGroupInState(state, payload)));
+  ipcMain.handle("content-tags:delete-group", (_event, groupId) =>
+    mutateContentTagState((state) => deleteContentTagGroupInState(state, groupId)));
+  ipcMain.handle("content-tags:save-tag", (_event, payload) =>
+    mutateContentTagState((state) => saveContentTagInState(state, payload)));
+  ipcMain.handle("content-tags:delete-tag", (_event, tagId) =>
+    mutateContentTagState((state) => deleteContentTagInState(state, tagId)));
+  ipcMain.handle("content-tags:save-alias", (_event, payload) =>
+    mutateContentTagState((state) => saveContentTagAliasInState(state, payload)));
+  ipcMain.handle("content-tags:delete-alias", (_event, aliasId) =>
+    mutateContentTagState((state) => deleteContentTagAliasInState(state, aliasId)));
+  ipcMain.handle("content-tags:preview-merge", async (_event, payload) =>
+    previewContentTagMerge(await getState(), payload));
+  ipcMain.handle("content-tags:merge", (_event, payload) => mergeContentTagsOperation(payload));
+  ipcMain.handle("content-tags:undo-merge", () => undoLastContentTagMergeOperation());
+  ipcMain.handle("content-tags:set-object-tags", (_event, payload) =>
+    mutateContentTagState((state) => setContentObjectTagsInState(state, payload)));
   ipcMain.handle("timeline:get", async (_event, payload) =>
     timelineSnapshot(await getState(), payload?.year, payload?.trackId),
   );
@@ -6322,6 +6399,56 @@ function createMainWindow() {
             return { habitId: added.habit.id, stars: habitState.totalStars, view: currentTaskView };
           })()`);
           console.log(JSON.stringify({ habitProbe: result }));
+          await new Promise((resolve) => setTimeout(resolve, 900));
+        } else if (CAPTURE_ROUTE === "content-tags") {
+          const result = await mainWindow.webContents.executeJavaScript(`(async () => {
+            const groupResult = await window.siteNest.saveContentTagGroup({ name: '客户工作' });
+            const sourceResult = await window.siteNest.saveContentTag({
+              canonicalName: ' SAP   Support ',
+              groupId: groupResult.group.id,
+              accentKey: 'blue'
+            });
+            const targetResult = await window.siteNest.saveContentTag({
+              canonicalName: '企业服务',
+              groupId: groupResult.group.id,
+              accentKey: 'pine'
+            });
+            const taskResult = await window.siteNest.addTask({
+              title: '内容标签 IPC 回归',
+              workspaceId: 'work'
+            });
+            await window.siteNest.setContentObjectTags({
+              objectType: 'task',
+              objectId: taskResult.task.id,
+              tagIds: [sourceResult.tag.id]
+            });
+            const preview = await window.siteNest.previewContentTagMerge({
+              sourceTagIds: [sourceResult.tag.id],
+              targetTagId: targetResult.tag.id
+            });
+            const merged = await window.siteNest.mergeContentTags({
+              sourceTagIds: [sourceResult.tag.id],
+              targetTagId: targetResult.tag.id
+            });
+            const mergedAlias = merged.contentTagAliases.find((item) => (
+              item.tagId === targetResult.tag.id && item.alias === 'SAP Support'
+            ));
+            const undone = await window.siteNest.undoLastContentTagMerge();
+            navigateTo('settings');
+            if (typeof openContentTagSettings === 'function') await openContentTagSettings();
+            return {
+              groupId: groupResult.group.id,
+              sourceTagId: sourceResult.tag.id,
+              targetTagId: targetResult.tag.id,
+              affectedTasks: preview.affectedByType.task,
+              affectedReferences: preview.affectedReferenceCount,
+              aliasCreated: Boolean(mergedAlias),
+              mergedSourceHidden: !merged.contentTags.some((item) => item.id === sourceResult.tag.id),
+              undoRecordMarked: Boolean(undone.record?.undoneAt),
+              sourceRestored: undone.contentTags.some((item) => item.id === sourceResult.tag.id)
+            };
+          })()`);
+          console.log(JSON.stringify({ contentTagProbe: result }));
           await new Promise((resolve) => setTimeout(resolve, 900));
         } else if (["plan-week", "plan-month", "task-modal"].includes(CAPTURE_ROUTE)) {
           await mainWindow.webContents.executeJavaScript(`(async () => {

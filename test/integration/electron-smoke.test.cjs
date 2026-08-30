@@ -111,9 +111,9 @@ test(
     await fsp.writeFile(dataFile, JSON.stringify(v2Fixture, null, 2), "utf8");
 
     const first = await runElectron({ userData, route: "state-probe" });
-    assert.match(first.stdout, /"version":14/);
+    assert.match(first.stdout, /"version":15/);
     const migrated = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(migrated.version, 14);
+    assert.equal(migrated.version, 15);
     assert.equal(migrated.activeWorkspaceId, "personal");
     assert.deepEqual(
       migrated.workspaces.map((workspace) => workspace.id),
@@ -165,7 +165,7 @@ test(
 
     const dataFile = path.join(userData, "site-nest-data.json");
     const persisted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(persisted.version, 14);
+    assert.equal(persisted.version, 15);
     assert.equal(persisted.localTasks.length, 1);
     assert.equal(persisted.localTasks[0].title, "IPC 本地任务已更新");
     assert.equal(persisted.taskReminders.length, 1);
@@ -233,7 +233,7 @@ test(
     assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
 
     const persisted = JSON.parse(await fsp.readFile(path.join(userData, "site-nest-data.json"), "utf8"));
-    assert.equal(persisted.version, 14);
+    assert.equal(persisted.version, 15);
     assert.deepEqual(persisted.timelineTracks.map((track) => track.id), ["work", "personal"]);
     assert.equal(persisted.timelineEvents.filter((event) => !event.deletedAt).length, 3);
     assert.equal(persisted.timelineUiSettings.viewMode, "timeline");
@@ -260,11 +260,41 @@ test(
 
     const dataFile = path.join(userData, "site-nest-data.json");
     const persisted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(persisted.version, 14);
+    assert.equal(persisted.version, 15);
     assert.equal(persisted.habits.length, 1);
     assert.equal(persisted.habitCheckIns.filter((item) => !item.deletedAt).length, 1);
     assert.equal(persisted.rewardLedger.filter((item) => !item.reversedAt).length, 1);
     assert.equal(persisted.rewardLedger[0].habitId, persisted.habits[0].id);
     assert.equal(persisted.habits[0].reminderTime, "20:30");
+  },
+);
+
+test(
+  "内容标签通过窄 IPC 预览合并、迁移引用并无损撤销",
+  { timeout: 90000 },
+  async (t) => {
+    const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-content-tags-integration-"));
+    t.after(async () => {
+      await fsp.rm(userData, { recursive: true, force: true });
+    });
+    const probe = await runElectron({ userData, route: "content-tags", width: 1400, height: 900 });
+    const line = probe.stdout.split(/\r?\n/).find((item) => item.includes('"contentTagProbe"'));
+    assert.ok(line, probe.stdout);
+    const result = JSON.parse(line).contentTagProbe;
+    assert.equal(result.affectedTasks, 1);
+    assert.equal(result.affectedReferences, 1);
+    assert.equal(result.aliasCreated, true);
+    assert.equal(result.mergedSourceHidden, true);
+    assert.equal(result.undoRecordMarked, true);
+    assert.equal(result.sourceRestored, true);
+    assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
+
+    const persisted = JSON.parse(await fsp.readFile(path.join(userData, "site-nest-data.json"), "utf8"));
+    assert.equal(persisted.version, 15);
+    assert.equal(persisted.contentTagGroups.length, 1);
+    assert.equal(persisted.contentTags.filter((item) => !item.deletedAt).length, 2);
+    assert.equal(persisted.contentTagMergeRecords.length, 1);
+    assert.ok(persisted.contentTagMergeRecords[0].undoneAt);
+    assert.deepEqual(persisted.localTasks[0].tagIds, [result.sourceTagId]);
   },
 );

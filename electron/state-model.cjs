@@ -27,6 +27,10 @@ const {
 } = require("./habits/index.cjs");
 const { normalizeUsageDayAggregates } = require("./usage/index.cjs");
 const {
+  normalizeContentTagState,
+  normalizeTagIdList,
+} = require("./content-tags/index.cjs");
+const {
   normalizeExecutions: normalizeUserScriptExecutions,
   normalizePermissions: normalizeUserScriptPermissions,
   normalizeUserScripts,
@@ -36,7 +40,7 @@ const {
   normalizeTabGroups,
 } = require("./browser/tab-organization.cjs");
 
-const CURRENT_SCHEMA_VERSION = 14;
+const CURRENT_SCHEMA_VERSION = 15;
 const MAX_RECENTLY_CLOSED_TABS = 50;
 const DEFAULT_WORKSPACE_ID = "personal";
 const DEFAULT_BROWSER_PROFILE_ID = "default";
@@ -858,6 +862,7 @@ function normalizeStoredSite(site, index, workspaceIds, browserProfileIds, now) 
       : browserProfileIds.has(String(site.browserProfileId || ""))
         ? String(site.browserProfileId)
         : DEFAULT_BROWSER_PROFILE_ID,
+    tagIds: normalizeTagIdList(site.tagIds, { limit: 100 }),
     assistantIds: normalizeAssistantIds(site.assistantIds),
     pinned: site.pinned !== false,
     order: Number.isFinite(Number(site.order)) ? Number(site.order) : index,
@@ -967,6 +972,10 @@ function createInitialState(options = {}) {
     habitReminders: [],
     rewardLedger: [],
     usageDayAggregates: [],
+    contentTagGroups: [],
+    contentTags: [],
+    contentTagAliases: [],
+    contentTagMergeRecords: [],
     timeZone: deviceTimeZone(),
     userScripts: normalizeUserScripts([], { now }),
     userScriptPermissions: [],
@@ -983,6 +992,11 @@ function normalizeStateV4(value, options = {}) {
   }
   const now = isoNow(options.now);
   const input = cloneValue(value);
+  const contentTagState = normalizeContentTagState(input, { now });
+  // Older builds already carried optional tagIds on some objects. Keep unknown
+  // references during migration rather than silently dropping user data; all
+  // new writes are validated against the active content-tag catalog.
+  const normalizeReferenceTagIds = (tagIds) => normalizeTagIdList(tagIds, { limit: 100 });
   const workspaces = ensureSystemWorkspaces(input.workspaces, now);
   const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
   const browserProfiles = ensureDefaultBrowserProfile(input.browserProfiles, now);
@@ -1015,7 +1029,10 @@ function normalizeStateV4(value, options = {}) {
       });
     }
   });
-  const sites = normalizeSiteOrders(validSites);
+  const sites = normalizeSiteOrders(validSites).map((site) => ({
+    ...site,
+    tagIds: normalizeReferenceTagIds(site.tagIds),
+  }));
   const rejectedBookmarks = [];
   const bookmarks = [];
   const inputBookmarks = Array.isArray(input.bookmarks) ? input.bookmarks : [];
@@ -1064,7 +1081,7 @@ function normalizeStateV4(value, options = {}) {
     workspaceIds: Array.from(workspaceIds),
     defaultWorkspaceId: activeWorkspaceId,
     timeZone: String(input.timeZone || deviceTimeZone()),
-  });
+  }).map((task) => ({ ...task, tagIds: normalizeReferenceTagIds(task.tagIds) }));
   const normalizedTaskReminders = normalizeTaskReminders(
     input.taskReminders,
     localTasks.map((task) => task.id),
@@ -1081,16 +1098,21 @@ function normalizeStateV4(value, options = {}) {
     trackIds: timelineTracks.map((track) => track.id),
     workspaceIds: Array.from(workspaceIds),
     defaultWorkspaceId: activeWorkspaceId,
-  });
+  }).map((event) => ({ ...event, tagIds: normalizeReferenceTagIds(event.tagIds) }));
   const habits = normalizeHabitDefinitions(input.habits, {
     now,
     defaultWorkspaceId: activeWorkspaceId,
-  });
+  }).map((habit) => ({ ...habit, tagIds: normalizeReferenceTagIds(habit.tagIds) }));
   const habitIds = habits.map((habit) => habit.id);
   const habitCheckIns = normalizeHabitCheckIns(input.habitCheckIns, { now, habitIds });
   const habitReminders = normalizeHabitReminders(input.habitReminders, habitIds);
   const rewardLedger = normalizeRewardLedger(input.rewardLedger, { now, habitIds });
-  const userScripts = normalizeUserScripts(input.userScripts, { now });
+  const inputUserScriptsById = new Map((Array.isArray(input.userScripts) ? input.userScripts : [])
+    .map((script) => [String(script?.id || ""), script]));
+  const userScripts = normalizeUserScripts(input.userScripts, { now }).map((script) => ({
+    ...script,
+    tagIds: normalizeReferenceTagIds(inputUserScriptsById.get(script.id)?.tagIds),
+  }));
   const userScriptIds = userScripts.map((script) => script.id);
 
   const uiSettings = normalizeUiSettings(input.uiSettings);
@@ -1136,6 +1158,7 @@ function normalizeStateV4(value, options = {}) {
     habitReminders,
     rewardLedger,
     usageDayAggregates: normalizeUsageDayAggregates(input.usageDayAggregates),
+    ...contentTagState,
     timeZone: String(input.timeZone || deviceTimeZone()).slice(0, 100),
     userScripts,
     userScriptPermissions: normalizeUserScriptPermissions(input.userScriptPermissions, userScriptIds),

@@ -40,6 +40,7 @@ const ICONS = {
   language: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/><path d="m15.5 16.5 2 2 3.5-4"/></svg>',
   calendar: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2.8v4.4M17 2.8v4.4M3 9h18M7 13h.01M12 13h.01M17 13h.01M7 17h.01M12 17h.01"/></svg>',
   code: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 7-5 5 5 5M15.5 7l5 5-5 5M14 4l-4 16"/></svg>',
+  tag: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 5.5v5.2L13 20.2a1.8 1.8 0 0 0 2.5 0l4.7-4.7a1.8 1.8 0 0 0 0-2.5L10.7 3.5H5.5a2 2 0 0 0-2 2Z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg>',
 };
 
 const FALLBACK_WORKSPACES = [
@@ -197,6 +198,7 @@ const dom = {
   siteKindInput: document.getElementById("siteKindInput"),
   siteOpenModeInput: document.getElementById("siteOpenModeInput"),
   sitePinnedInput: document.getElementById("sitePinnedInput"),
+  siteTagIds: document.getElementById("siteTagIds"),
   siteAssistantOptions: document.getElementById("siteAssistantOptions"),
   chromeProfileList: document.getElementById("chromeProfileList"),
   confirmImportButton: document.getElementById("confirmImportButton"),
@@ -213,6 +215,14 @@ const dom = {
   settingsSectionDescription: document.getElementById("settingsSectionDescription"),
   settingsSearchInput: document.getElementById("settingsSearchInput"),
   settingsSearchResults: document.getElementById("settingsSearchResults"),
+  contentTagsSettingsCard: document.getElementById("contentTagsSettingsCard"),
+  contentTagTotal: document.getElementById("contentTagTotal"),
+  contentTagsStatus: document.getElementById("contentTagsStatus"),
+  contentTagGroupList: document.getElementById("contentTagGroupList"),
+  addContentTagButton: document.getElementById("addContentTagButton"),
+  addContentTagGroupButton: document.getElementById("addContentTagGroupButton"),
+  mergeContentTagsButton: document.getElementById("mergeContentTagsButton"),
+  undoContentTagMergeButton: document.getElementById("undoContentTagMergeButton"),
   defaultSearchEngineSelect: document.getElementById("defaultSearchEngineSelect"),
   defaultSearchEngineStatus: document.getElementById("defaultSearchEngineStatus"),
   saveSearchHistorySetting: document.getElementById("saveSearchHistorySetting"),
@@ -292,6 +302,7 @@ const dom = {
   timelineImpact: document.getElementById("timelineImpact"),
   timelineEvidence: document.getElementById("timelineEvidence"),
   timelineTags: document.getElementById("timelineTags"),
+  timelineTagIds: document.getElementById("timelineTagIds"),
   timelineSourceType: document.getElementById("timelineSourceType"),
   timelineSourceId: document.getElementById("timelineSourceId"),
   timelineSourceTitle: document.getElementById("timelineSourceTitle"),
@@ -335,6 +346,7 @@ const dom = {
   taskAllDay: document.getElementById("taskAllDay"),
   taskCustomReminder: document.getElementById("taskCustomReminder"),
   taskTags: document.getElementById("taskTags"),
+  taskTagIds: document.getElementById("taskTagIds"),
   deleteTaskButton: document.getElementById("deleteTaskButton"),
   habitModal: document.getElementById("habitModal"),
   habitModalTitle: document.getElementById("habitModalTitle"),
@@ -354,6 +366,7 @@ const dom = {
   habitTargetType: document.getElementById("habitTargetType"),
   habitTargetValue: document.getElementById("habitTargetValue"),
   habitPartialReward: document.getElementById("habitPartialReward"),
+  habitTagIds: document.getElementById("habitTagIds"),
   deleteHabitButton: document.getElementById("deleteHabitButton"),
   habitCheckInModal: document.getElementById("habitCheckInModal"),
   habitCheckInTitle: document.getElementById("habitCheckInTitle"),
@@ -440,6 +453,45 @@ const dom = {
   userScriptSourcePreview: document.getElementById("userScriptSourcePreview"),
   confirmUserScriptPermissions: document.getElementById("confirmUserScriptPermissions"),
   confirmUserScriptInstall: document.getElementById("confirmUserScriptInstall"),
+  contentTagGroupModal: document.getElementById("contentTagGroupModal"),
+  contentTagGroupModalTitle: document.getElementById("contentTagGroupModalTitle"),
+  contentTagGroupForm: document.getElementById("contentTagGroupForm"),
+  contentTagGroupId: document.getElementById("contentTagGroupId"),
+  contentTagGroupName: document.getElementById("contentTagGroupName"),
+  contentTagGroupIcon: document.getElementById("contentTagGroupIcon"),
+  contentTagGroupSortOrder: document.getElementById("contentTagGroupSortOrder"),
+  deleteContentTagGroupButton: document.getElementById("deleteContentTagGroupButton"),
+  contentTagModal: document.getElementById("contentTagModal"),
+  contentTagModalTitle: document.getElementById("contentTagModalTitle"),
+  contentTagForm: document.getElementById("contentTagForm"),
+  contentTagId: document.getElementById("contentTagId"),
+  contentTagName: document.getElementById("contentTagName"),
+  contentTagGroup: document.getElementById("contentTagGroup"),
+  contentTagAccent: document.getElementById("contentTagAccent"),
+  contentTagDescription: document.getElementById("contentTagDescription"),
+  deleteContentTagButton: document.getElementById("deleteContentTagButton"),
+  contentTagAliasModal: document.getElementById("contentTagAliasModal"),
+  contentTagAliasModalTitle: document.getElementById("contentTagAliasModalTitle"),
+  contentTagAliasForm: document.getElementById("contentTagAliasForm"),
+  contentTagAliasId: document.getElementById("contentTagAliasId"),
+  contentTagAliasTag: document.getElementById("contentTagAliasTag"),
+  contentTagAliasName: document.getElementById("contentTagAliasName"),
+  deleteContentTagAliasButton: document.getElementById("deleteContentTagAliasButton"),
+  contentTagMergeModal: document.getElementById("contentTagMergeModal"),
+  contentTagMergeForm: document.getElementById("contentTagMergeForm"),
+  contentTagMergeTarget: document.getElementById("contentTagMergeTarget"),
+  contentTagMergeSources: document.getElementById("contentTagMergeSources"),
+  previewContentTagMergeButton: document.getElementById("previewContentTagMergeButton"),
+  contentTagMergePreview: document.getElementById("contentTagMergePreview"),
+  confirmContentTagMergeRow: document.getElementById("confirmContentTagMergeRow"),
+  confirmContentTagMerge: document.getElementById("confirmContentTagMerge"),
+  executeContentTagMergeButton: document.getElementById("executeContentTagMergeButton"),
+  contentObjectTagsModal: document.getElementById("contentObjectTagsModal"),
+  contentObjectTagsModalTitle: document.getElementById("contentObjectTagsModalTitle"),
+  contentObjectTagsForm: document.getElementById("contentObjectTagsForm"),
+  contentObjectTagType: document.getElementById("contentObjectTagType"),
+  contentObjectTagId: document.getElementById("contentObjectTagId"),
+  contentObjectTagIds: document.getElementById("contentObjectTagIds"),
   assistantCountBadge: document.getElementById("assistantCountBadge"),
   assistantList: document.getElementById("assistantList"),
   executionLogList: document.getElementById("executionLogList"),
@@ -518,6 +570,10 @@ let appState = {
   userScriptPermissions: [],
   userScriptExecutions: [],
   userScriptValues: {},
+  contentTagGroups: [],
+  contentTags: [],
+  contentTagAliases: [],
+  contentTagMergeRecords: [],
 };
 let currentRoute = "home";
 let currentSite = null;
@@ -563,6 +619,16 @@ let timelineFocusEventId = null;
 let timelineMonthNavDrag = null;
 let timelineSearchTimer = 0;
 let userScriptState = { scripts: [], executions: [] };
+let contentTagState = {
+  groups: [],
+  tags: [],
+  aliases: [],
+  mergeRecords: [],
+  referenceCounts: { byTagId: {} },
+  loading: false,
+  error: "",
+};
+let pendingContentTagMergePreview = null;
 let pageResourceState = { items: [], detecting: false, detectionEndsAt: null };
 let browserLifecycleState = { settings: { mode: "standard", inactiveMinutes: 15 }, counts: { active: 0, warm: 0, suspended: 0 } };
 let pendingUserScriptReview = null;
@@ -666,6 +732,7 @@ const SETTINGS_SEARCH_INDEX = Object.freeze([
   { section: "connections", panel: "connections", title: "Emma、Customer Ops、Gitee、B1 运维台", description: "连接器状态和接口说明" },
   { section: "accounts", panel: "google", title: "Google 数据同步", description: "连接 Google、同步和云端恢复" },
   { section: "accounts", panel: "chrome-bookmarks", title: "Chrome 书签", description: "读取本机 Chrome Profile 和导入书签" },
+  { section: "data", panel: "content-tags", title: "内容标签管理", description: "标签分组、明确别名、引用计数、合并预览和撤销" },
   { section: "data", panel: "local-data", title: "本地数据", description: "数据目录、JSON 和本地存储" },
   { section: "data", panel: "browser-identity", title: "站点登录会话", description: "Cookie、BrowserProfile 和持久分区" },
   { section: "about", panel: "about", title: "关于栖页", description: "版本和更新信息" },
@@ -1123,6 +1190,7 @@ function showSettingsSection(sectionId, panelId = "", options = {}) {
   }
   if (definition.id === "connections") void loadZohoConnectorStatus({ preserveForm: true });
   if (definition.id === "accounts") renderGoogleSettingsStatus();
+  if (definition.id === "data") void loadContentTags();
 }
 
 function initializeSettingsArchitecture() {
@@ -1217,6 +1285,463 @@ function renderGoogleSettingsStatus() {
     input.checked = appState.uiSettings?.googleSync?.[input.dataset.googleSyncModule] === true ||
       (input.dataset.googleSyncModule !== "notifications" && appState.uiSettings?.googleSync?.[input.dataset.googleSyncModule] !== false);
   });
+}
+
+const CONTENT_TAG_OBJECT_LABELS = Object.freeze({
+  task: "任务",
+  habit: "习惯",
+  timeline: "时间线",
+  site: "站点",
+  userScript: "用户脚本",
+});
+
+const CONTENT_TAG_API_METHODS = Object.freeze({
+  get: ["getContentTags", "get"],
+  saveGroup: ["saveContentTagGroup", "saveGroup"],
+  deleteGroup: ["deleteContentTagGroup", "deleteGroup"],
+  saveTag: ["saveContentTag", "saveTag"],
+  deleteTag: ["deleteContentTag", "deleteTag"],
+  saveAlias: ["saveContentTagAlias", "saveAlias"],
+  deleteAlias: ["deleteContentTagAlias", "deleteAlias"],
+  previewMerge: ["previewContentTagMerge", "previewMerge"],
+  merge: ["mergeContentTags", "merge"],
+  undoMerge: ["undoLastContentTagMerge", "undoMerge"],
+  setObjectTags: ["setContentObjectTags", "setObjectTags"],
+});
+
+function resolveContentTagApiMethod(operation) {
+  const names = CONTENT_TAG_API_METHODS[operation] || [];
+  const providers = [window.siteNest, window.qiye?.contentTags].filter(Boolean);
+  for (const provider of providers) {
+    for (const name of names) {
+      if (typeof provider[name] === "function") return provider[name].bind(provider);
+    }
+  }
+  return null;
+}
+
+async function callContentTagApi(operation, ...args) {
+  const method = resolveContentTagApiMethod(operation);
+  if (!method) throw new Error("当前版本尚未提供内容标签数据接口");
+  return method(...args);
+}
+
+function normalizeContentTagSnapshot(value = {}) {
+  const source = value?.snapshot || value?.state || value || {};
+  const groups = source.groups || source.contentTagGroups || value.groups || value.contentTagGroups || [];
+  const tags = source.tags || source.contentTags || value.tags || value.contentTags || [];
+  const aliases = source.aliases || source.contentTagAliases || value.aliases || value.contentTagAliases || [];
+  const mergeRecords = source.mergeRecords || source.contentTagMergeRecords || value.mergeRecords || value.contentTagMergeRecords || [];
+  const referenceCounts = value.referenceCounts || value.usage || source.referenceCounts || source.usage || { byTagId: {} };
+  return {
+    groups: Array.isArray(groups) ? groups : [],
+    tags: Array.isArray(tags) ? tags : [],
+    aliases: Array.isArray(aliases) ? aliases : [],
+    mergeRecords: Array.isArray(mergeRecords) ? mergeRecords : [],
+    referenceCounts: referenceCounts && typeof referenceCounts === "object" ? referenceCounts : { byTagId: {} },
+  };
+}
+
+function activeContentTagGroups() {
+  return contentTagState.groups.filter((group) => !group.deletedAt);
+}
+
+function activeContentTags() {
+  return contentTagState.tags.filter((tag) => !tag.deletedAt);
+}
+
+function contentTagAliases(tagId) {
+  return contentTagState.aliases.filter((alias) => alias.tagId === tagId);
+}
+
+function contentTagReferenceSummary(tagId) {
+  const record = contentTagState.referenceCounts?.byTagId?.[tagId] || {};
+  return {
+    objectCount: Number(record.objectCount) || 0,
+    referenceCount: Number(record.referenceCount) || 0,
+    byType: record.byType && typeof record.byType === "object" ? record.byType : {},
+  };
+}
+
+function parseTagIdsValue(value) {
+  if (Array.isArray(value)) return Array.from(new Set(value.map(String).filter(Boolean)));
+  try {
+    const parsed = JSON.parse(String(value || "[]"));
+    return Array.isArray(parsed) ? Array.from(new Set(parsed.map(String).filter(Boolean))) : [];
+  } catch {
+    return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+  }
+}
+
+function pickerForKey(key) {
+  return document.querySelector(`[data-content-tag-picker="${CSS.escape(String(key || ""))}"]`);
+}
+
+function tagIdsForPicker(key) {
+  const picker = pickerForKey(key);
+  if (!picker) return [];
+  const checked = Array.from(picker.querySelectorAll('input[type="checkbox"][data-content-tag-id]:checked'))
+    .map((input) => input.dataset.contentTagId)
+    .filter(Boolean);
+  if (checked.length) return Array.from(new Set(checked));
+  return parseTagIdsValue(picker.querySelector('input[type="hidden"]')?.value);
+}
+
+function renderContentTagPicker(key, selectedTagIds) {
+  const picker = pickerForKey(key);
+  if (!picker) return;
+  const hidden = picker.querySelector('input[type="hidden"]');
+  const host = picker.querySelector(".content-tag-picker-options");
+  const empty = picker.querySelector(".content-tag-picker-empty");
+  const selected = new Set(parseTagIdsValue(selectedTagIds ?? hidden?.value));
+  if (hidden) hidden.value = JSON.stringify(Array.from(selected));
+  host?.replaceChildren();
+  const tags = activeContentTags();
+  if (empty) empty.hidden = tags.length > 0;
+  if (!host || !tags.length) return;
+  const groups = new Map(activeContentTagGroups().map((group) => [group.id, group]));
+  tags
+    .slice()
+    .sort((left, right) => {
+      const leftGroup = groups.get(left.groupId)?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+      const rightGroup = groups.get(right.groupId)?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+      return leftGroup - rightGroup || String(left.canonicalName).localeCompare(String(right.canonicalName), "zh-CN");
+    })
+    .forEach((tag) => {
+      const label = document.createElement("label");
+      label.className = "content-tag-choice";
+      label.dataset.accent = tag.accentKey || "neutral";
+      label.title = groups.get(tag.groupId)?.name ? `${groups.get(tag.groupId).name} · ${tag.canonicalName}` : tag.canonicalName;
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.dataset.contentTagId = tag.id;
+      input.checked = selected.has(tag.id);
+      input.addEventListener("change", () => {
+        if (hidden) hidden.value = JSON.stringify(Array.from(host.querySelectorAll('input[data-content-tag-id]:checked')).map((item) => item.dataset.contentTagId));
+      });
+      const dot = document.createElement("span");
+      dot.className = "content-tag-dot";
+      const name = document.createElement("span");
+      name.textContent = tag.canonicalName;
+      label.append(input, dot, name);
+      host.appendChild(label);
+    });
+}
+
+function renderAllContentTagPickers() {
+  document.querySelectorAll("[data-content-tag-picker]").forEach((picker) => {
+    renderContentTagPicker(picker.dataset.contentTagPicker, picker.querySelector('input[type="hidden"]')?.value || "[]");
+  });
+}
+
+function populateContentTagSelect(select, selectedValue = "", includeEmpty = false) {
+  if (!select) return;
+  select.replaceChildren();
+  if (includeEmpty) {
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "未分组";
+    select.appendChild(empty);
+  }
+  const groups = activeContentTagGroups();
+  if (select === dom.contentTagGroup) {
+    groups.forEach((group) => {
+      const option = document.createElement("option");
+      option.value = group.id;
+      option.textContent = group.name;
+      select.appendChild(option);
+    });
+  } else {
+    const groupMap = new Map(groups.map((group) => [group.id, group.name]));
+    activeContentTags().forEach((tag) => {
+      const option = document.createElement("option");
+      option.value = tag.id;
+      option.textContent = `${groupMap.get(tag.groupId) ? `${groupMap.get(tag.groupId)} · ` : ""}${tag.canonicalName}`;
+      select.appendChild(option);
+    });
+  }
+  select.value = selectedValue || (includeEmpty ? "" : select.options[0]?.value || "");
+}
+
+function openContentTagGroupModal(group = null) {
+  dom.contentTagGroupForm.reset();
+  dom.contentTagGroupModalTitle.textContent = group ? "编辑标签分组" : "新增标签分组";
+  dom.contentTagGroupId.value = group?.id || "";
+  dom.contentTagGroupName.value = group?.name || "";
+  dom.contentTagGroupIcon.value = group?.iconKey || "folder";
+  dom.contentTagGroupSortOrder.value = String(group?.sortOrder || 0);
+  dom.deleteContentTagGroupButton.classList.toggle("is-hidden", !group);
+  openModal(dom.contentTagGroupModal);
+}
+
+function openContentTagModal(tag = null, groupId = "") {
+  dom.contentTagForm.reset();
+  dom.contentTagModalTitle.textContent = tag ? "编辑内容标签" : "新增内容标签";
+  dom.contentTagId.value = tag?.id || "";
+  dom.contentTagName.value = tag?.canonicalName || "";
+  populateContentTagSelect(dom.contentTagGroup, tag?.groupId || groupId, true);
+  dom.contentTagAccent.value = tag?.accentKey || "neutral";
+  dom.contentTagDescription.value = tag?.description || "";
+  dom.deleteContentTagButton.classList.toggle("is-hidden", !tag);
+  openModal(dom.contentTagModal);
+}
+
+function openContentTagAliasModal(tag, alias = null) {
+  if (!tag) return;
+  dom.contentTagAliasForm.reset();
+  dom.contentTagAliasModalTitle.textContent = alias ? "编辑明确别名" : "添加明确别名";
+  dom.contentTagAliasId.value = alias?.id || "";
+  populateContentTagSelect(dom.contentTagAliasTag, tag.id);
+  dom.contentTagAliasTag.disabled = Boolean(alias);
+  dom.contentTagAliasName.value = alias?.alias || "";
+  dom.deleteContentTagAliasButton.classList.toggle("is-hidden", !alias);
+  openModal(dom.contentTagAliasModal);
+}
+
+function createContentTagRow(tag) {
+  const row = document.createElement("article");
+  row.className = "content-tag-row";
+  row.dataset.accent = tag.accentKey || "neutral";
+  const marker = document.createElement("span");
+  marker.className = "content-tag-color";
+  const copy = document.createElement("div");
+  copy.className = "content-tag-row-copy";
+  const title = document.createElement("strong");
+  title.textContent = tag.canonicalName;
+  const description = document.createElement("small");
+  description.textContent = tag.description || "没有说明";
+  const aliases = document.createElement("div");
+  aliases.className = "content-tag-alias-list";
+  contentTagAliases(tag.id).forEach((alias) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "content-tag-alias-chip";
+    button.textContent = alias.alias;
+    button.title = "编辑明确别名";
+    button.addEventListener("click", () => openContentTagAliasModal(tag, alias));
+    aliases.appendChild(button);
+  });
+  const addAlias = document.createElement("button");
+  addAlias.type = "button";
+  addAlias.className = "content-tag-alias-chip content-tag-alias-chip--add";
+  addAlias.textContent = "+ 别名";
+  addAlias.addEventListener("click", () => openContentTagAliasModal(tag));
+  aliases.appendChild(addAlias);
+  copy.append(title, description, aliases);
+  const references = contentTagReferenceSummary(tag.id);
+  const usage = document.createElement("div");
+  usage.className = "content-tag-reference-count";
+  const total = document.createElement("strong");
+  total.textContent = `${references.objectCount} 个对象`;
+  const typeSummary = Object.entries(references.byType)
+    .filter(([, count]) => Number(count) > 0)
+    .map(([type, count]) => `${CONTENT_TAG_OBJECT_LABELS[type] || type} ${count}`)
+    .join(" · ");
+  const detail = document.createElement("small");
+  detail.textContent = typeSummary || "暂无引用";
+  usage.append(total, detail);
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.className = "icon-button content-tag-edit";
+  edit.title = "编辑标签";
+  edit.setAttribute("aria-label", `编辑标签 ${tag.canonicalName}`);
+  edit.appendChild(createIconElement("edit"));
+  edit.addEventListener("click", () => openContentTagModal(tag));
+  row.append(marker, copy, usage, edit);
+  return row;
+}
+
+function renderContentTags() {
+  if (!dom.contentTagGroupList) return;
+  const groups = activeContentTagGroups();
+  const tags = activeContentTags();
+  dom.contentTagTotal.textContent = `${tags.length} 个标签`;
+  dom.contentTagsStatus.textContent = contentTagState.loading
+    ? "正在读取本地内容标签…"
+    : contentTagState.error
+      ? contentTagState.error
+      : `${groups.length} 个分组 · ${contentTagState.aliases.length} 个明确别名`;
+  dom.contentTagsStatus.classList.toggle("is-error", Boolean(contentTagState.error));
+  dom.mergeContentTagsButton.disabled = tags.length < 2;
+  const latestMerge = contentTagState.mergeRecords
+    .filter((record) => !record.undoneAt)
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))[0];
+  dom.undoContentTagMergeButton.disabled = !latestMerge;
+  dom.undoContentTagMergeButton.title = latestMerge ? `撤销 ${new Date(latestMerge.createdAt).toLocaleString("zh-CN")} 的合并` : "没有可撤销的合并";
+  dom.contentTagGroupList.replaceChildren();
+  if (!groups.length && !tags.length) {
+    const empty = document.createElement("div");
+    empty.className = "content-tags-empty";
+    empty.innerHTML = "<strong>还没有内容标签</strong><small>先创建分组或直接新增标签；正式界面不会自动生成标签或同义词。</small>";
+    dom.contentTagGroupList.appendChild(empty);
+    renderAllContentTagPickers();
+    return;
+  }
+  const groupBuckets = [
+    ...groups.map((group) => ({ group, tags: tags.filter((tag) => tag.groupId === group.id) })),
+    { group: null, tags: tags.filter((tag) => !groups.some((group) => group.id === tag.groupId)) },
+  ].filter((bucket) => bucket.group || bucket.tags.length);
+  groupBuckets.forEach(({ group, tags: groupTags }) => {
+    const section = document.createElement("section");
+    section.className = "content-tag-group";
+    const header = document.createElement("header");
+    const heading = document.createElement("div");
+    heading.append(createIconElement(group?.iconKey || "tag"));
+    const title = document.createElement("strong");
+    title.textContent = group?.name || "未分组";
+    const count = document.createElement("small");
+    count.textContent = `${groupTags.length} 个标签`;
+    heading.append(title, count);
+    const actions = document.createElement("div");
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "text-button text-button--quiet";
+    add.textContent = "新增标签";
+    add.addEventListener("click", () => openContentTagModal(null, group?.id || ""));
+    actions.appendChild(add);
+    if (group) {
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "icon-button";
+      edit.title = "编辑分组";
+      edit.setAttribute("aria-label", `编辑分组 ${group.name}`);
+      edit.appendChild(createIconElement("edit"));
+      edit.addEventListener("click", () => openContentTagGroupModal(group));
+      actions.appendChild(edit);
+    }
+    header.append(heading, actions);
+    const list = document.createElement("div");
+    list.className = "content-tag-list";
+    if (groupTags.length) groupTags.forEach((tag) => list.appendChild(createContentTagRow(tag)));
+    else {
+      const empty = document.createElement("small");
+      empty.className = "content-tag-group-empty";
+      empty.textContent = "这个分组还没有标签";
+      list.appendChild(empty);
+    }
+    section.append(header, list);
+    dom.contentTagGroupList.appendChild(section);
+  });
+  renderAllContentTagPickers();
+}
+
+function applyContentTagSnapshot(snapshot = {}) {
+  contentTagState = { ...contentTagState, ...normalizeContentTagSnapshot(snapshot), loading: false, error: "" };
+  renderContentTags();
+}
+
+async function loadContentTags(options = {}) {
+  if (contentTagState.loading) return;
+  const method = resolveContentTagApiMethod("get");
+  if (!method) {
+    contentTagState = { ...contentTagState, loading: false, error: "内容标签数据接口尚未配置" };
+    renderContentTags();
+    return;
+  }
+  contentTagState = { ...contentTagState, loading: true, error: "" };
+  if (!options.silent) renderContentTags();
+  try {
+    applyContentTagSnapshot(await method());
+  } catch (error) {
+    contentTagState = { ...contentTagState, loading: false, error: error?.message || "无法读取内容标签" };
+    renderContentTags();
+  }
+}
+
+async function openContentTagSettings() {
+  navigateTo("settings?section=data&panel=content-tags");
+  await loadContentTags({ silent: true });
+  dom.contentTagsSettingsCard?.scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
+async function applyContentTagMutation(operation, payload, successTitle) {
+  const result = await callContentTagApi(operation, payload);
+  const normalized = normalizeContentTagSnapshot(result);
+  if (normalized.groups.length || normalized.tags.length || operation === "deleteTag" || operation === "deleteGroup") {
+    applyContentTagSnapshot(result);
+  } else {
+    await loadContentTags({ silent: true });
+  }
+  if (successTitle) showToast(successTitle, "内容标签已保存在本机");
+  return result;
+}
+
+function resetContentTagMergePreview() {
+  pendingContentTagMergePreview = null;
+  dom.contentTagMergePreview.hidden = true;
+  dom.contentTagMergePreview.replaceChildren();
+  dom.confirmContentTagMergeRow.hidden = true;
+  dom.confirmContentTagMerge.checked = false;
+  dom.executeContentTagMergeButton.disabled = true;
+}
+
+function selectedContentTagMergeInput() {
+  return {
+    targetTagId: dom.contentTagMergeTarget.value,
+    sourceTagIds: Array.from(dom.contentTagMergeSources.querySelectorAll('input[type="checkbox"]:checked')).map((input) => input.value),
+  };
+}
+
+function syncContentTagMergeSources() {
+  const targetId = dom.contentTagMergeTarget.value;
+  dom.contentTagMergeSources.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+    input.disabled = input.value === targetId;
+    if (input.disabled) input.checked = false;
+  });
+  resetContentTagMergePreview();
+}
+
+function openContentTagMergeModal() {
+  const tags = activeContentTags();
+  if (tags.length < 2) return;
+  populateContentTagSelect(dom.contentTagMergeTarget, tags[0]?.id || "");
+  dom.contentTagMergeSources.replaceChildren();
+  tags.forEach((tag) => {
+    const label = document.createElement("label");
+    label.className = "content-tag-merge-source";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = tag.id;
+    input.addEventListener("change", resetContentTagMergePreview);
+    const name = document.createElement("span");
+    name.textContent = tag.canonicalName;
+    label.append(input, name);
+    dom.contentTagMergeSources.appendChild(label);
+  });
+  syncContentTagMergeSources();
+  openModal(dom.contentTagMergeModal);
+}
+
+function renderContentTagMergePreview(preview) {
+  const sourceNames = (preview.sourceTags || []).map((tag) => tag.canonicalName).join("、");
+  const targetName = preview.targetTag?.canonicalName || activeContentTags().find((tag) => tag.id === preview.targetTagId)?.canonicalName || "目标标签";
+  const heading = document.createElement("strong");
+  heading.textContent = `${sourceNames} → ${targetName}`;
+  const summary = document.createElement("p");
+  summary.textContent = `将改写 ${Number(preview.affectedObjectCount) || 0} 个对象中的 ${Number(preview.affectedReferenceCount) || 0} 处引用；来源标签会保留为明确别名并软删除。`;
+  const usage = document.createElement("p");
+  usage.textContent = `来源标签当前 ${Number(preview.sourceUsage?.referenceCount) || 0} 处引用；目标标签当前 ${Number(preview.targetUsage?.referenceCount) || 0} 处引用。`;
+  const types = document.createElement("div");
+  types.className = "content-tag-merge-type-counts";
+  Object.entries(preview.affectedByType || {}).forEach(([type, count]) => {
+    const item = document.createElement("span");
+    item.textContent = `${CONTENT_TAG_OBJECT_LABELS[type] || type} ${Number(count) || 0}`;
+    types.appendChild(item);
+  });
+  const note = document.createElement("small");
+  note.textContent = "合并不根据名称推断；这里只处理你明确选择的标签。合并后可撤销最近一次操作。";
+  dom.contentTagMergePreview.replaceChildren(heading, summary, usage, types, note);
+  dom.contentTagMergePreview.hidden = false;
+  dom.confirmContentTagMergeRow.hidden = false;
+}
+
+function openContentObjectTagsModal(objectType, object, label = "") {
+  if (!object?.id) return;
+  dom.contentObjectTagType.value = objectType;
+  dom.contentObjectTagId.value = object.id;
+  dom.contentObjectTagsModalTitle.textContent = `${label || CONTENT_TAG_OBJECT_LABELS[objectType] || "对象"}内容标签`;
+  renderContentTagPicker("object", object.tagIds || []);
+  openModal(dom.contentObjectTagsModal);
 }
 
 function bindZohoConfigEvents() {
@@ -3837,6 +4362,7 @@ function openTimelineEventModal(event = null, draft = {}) {
   dom.timelineImpact.value = value.impact || "";
   dom.timelineEvidence.value = value.evidence || "";
   dom.timelineTags.value = (value.tags || []).join(", ");
+  renderContentTagPicker("timeline", value.tagIds || []);
   dom.timelineSourceType.value = value.sourceType || "manual";
   dom.timelineSourceId.value = value.sourceId || "";
   dom.timelineSourceTitle.value = value.sourceTitle || "";
@@ -3878,6 +4404,7 @@ function timelineEventFormPayload() {
     impactLevel: Number(dom.timelineImpactLevel.value) || 1,
     importance: dom.timelineImportance.value,
     tags: dom.timelineTags.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean),
+    tagIds: tagIdsForPicker("timeline"),
     relatedTaskIds,
     sourceType: dom.timelineSourceType.value || "manual",
     sourceId: dom.timelineSourceId.value || null,
@@ -3901,6 +4428,7 @@ function openTaskAsTimelineDraft(task) {
     datePrecision: "day",
     importance: ["urgent", "high"].includes(task.priority) ? "important" : "normal",
     tags: task.tags || [],
+    tagIds: task.tagIds || [],
     relatedTaskIds: [task.id],
     sourceType: "task",
     sourceId: task.id,
@@ -4532,6 +5060,7 @@ function openTaskModal(task = null, day = null) {
   const custom = task?.reminderOffsets?.find((offset) => !standard.has(offset));
   dom.taskCustomReminder.value = Number.isFinite(custom) ? String(custom) : "";
   dom.taskTags.value = (task?.tags || []).join(", ");
+  renderContentTagPicker("task", task?.tagIds || []);
   dom.deleteTaskButton.classList.toggle("is-hidden", !task);
   openModal(dom.taskModal);
 }
@@ -4553,6 +5082,7 @@ function taskFormPayload() {
     allDay: dom.taskAllDay.checked,
     reminderOffsets,
     tags: dom.taskTags.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean),
+    tagIds: tagIdsForPicker("task"),
   };
 }
 
@@ -5067,6 +5597,7 @@ function openHabitModal(habit = null) {
   dom.habitTargetType.value = habit?.targetType || "none";
   dom.habitTargetValue.value = habit?.targetValue || "";
   dom.habitPartialReward.checked = habit?.partialRewardEnabled === true;
+  renderContentTagPicker("habit", habit?.tagIds || []);
   dom.deleteHabitButton.classList.toggle("is-hidden", !habit);
   syncHabitFrequencyFields();
   openModal(dom.habitModal);
@@ -5089,6 +5620,7 @@ function habitFormPayload() {
     targetType: dom.habitTargetType.value,
     targetValue: Number(dom.habitTargetValue.value) || null,
     partialRewardEnabled: dom.habitPartialReward.checked,
+    tagIds: tagIdsForPicker("habit"),
   };
 }
 
@@ -6124,6 +6656,7 @@ function openAddSiteModal(options = {}) {
   document.getElementById("siteNameInput").value = preset.name || "";
   document.getElementById("siteUrlInput").value = preset.url || "";
   dom.siteDescriptionInput.value = preset.description || "";
+  renderContentTagPicker("site", preset.tagIds || []);
   renderSiteAssistantOptions(preset.assistantIds || []);
   dom.siteModalKicker.textContent = "NEW WEBSITE";
   dom.addSiteTitle.textContent = workspaceId === "work" ? "添加工作站点" : "添加一个常用网站";
@@ -6143,6 +6676,7 @@ function openEditSiteModal(site) {
   document.getElementById("siteNameInput").value = site.name || "";
   document.getElementById("siteUrlInput").value = site.url || "";
   dom.siteDescriptionInput.value = site.description || "";
+  renderContentTagPicker("site", site.tagIds || []);
   dom.siteKindInput.value = site.siteKind === "workApp" ? "workApp" : "normal";
   dom.siteOpenModeInput.value = site.openMode === "external" ? "external" : "internal";
   dom.sitePinnedInput.checked = isSitePinned(site);
@@ -6441,6 +6975,12 @@ function renderUserScripts() {
       update.addEventListener("click", () => void reviewUserScriptUpdate(script, update));
       actions.appendChild(update);
     }
+    const tagButton = document.createElement("button");
+    tagButton.type = "button";
+    tagButton.className = "secondary-button compact-button";
+    tagButton.append(createIconElement("tag"), document.createTextNode("内容标签"));
+    tagButton.addEventListener("click", () => openContentObjectTagsModal("userScript", script, `${script.name} · `));
+    actions.appendChild(tagButton);
     if (script.sourceType !== "builtIn") {
       const remove = document.createElement("button");
       remove.type = "button";
@@ -7376,6 +7916,174 @@ function bindEvents() {
   });
   dom.settingsSectionSelect.addEventListener("change", () => showSettingsSection(dom.settingsSectionSelect.value));
   dom.settingsSearchInput.addEventListener("input", renderSettingsSearchResults);
+  document.querySelectorAll("[data-open-content-tags]").forEach((button) => {
+    button.addEventListener("click", () => void openContentTagSettings());
+  });
+  dom.addContentTagButton.addEventListener("click", () => openContentTagModal());
+  dom.addContentTagGroupButton.addEventListener("click", () => openContentTagGroupModal());
+  dom.mergeContentTagsButton.addEventListener("click", openContentTagMergeModal);
+  dom.undoContentTagMergeButton.addEventListener("click", async () => {
+    if (!window.confirm("撤销最近一次内容标签合并？\n\n标签、明确别名和对象引用将恢复到合并前；合并后另行修改过的关联不会被强制覆盖。")) return;
+    dom.undoContentTagMergeButton.disabled = true;
+    try {
+      applyContentTagSnapshot(await callContentTagApi("undoMerge"));
+      showToast("已撤销最近合并", "标签与引用已恢复");
+    } catch (error) {
+      showToast("无法撤销标签合并", error?.message || "关联可能已在合并后发生变化", "error");
+      renderContentTags();
+    }
+  });
+  dom.contentTagGroupForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = event.submitter || dom.contentTagGroupForm.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      await applyContentTagMutation("saveGroup", {
+        id: dom.contentTagGroupId.value || undefined,
+        name: dom.contentTagGroupName.value.trim(),
+        iconKey: dom.contentTagGroupIcon.value,
+        sortOrder: Number(dom.contentTagGroupSortOrder.value) || 0,
+      }, dom.contentTagGroupId.value ? "标签分组已更新" : "标签分组已创建");
+      closeModal(dom.contentTagGroupModal);
+    } catch (error) {
+      showToast("无法保存标签分组", error?.message || "请检查分组名称", "error");
+    } finally { submit.disabled = false; }
+  });
+  dom.deleteContentTagGroupButton.addEventListener("click", async () => {
+    const group = activeContentTagGroups().find((item) => item.id === dom.contentTagGroupId.value);
+    if (!group || !window.confirm(`删除分组“${group.name}”？\n\n组内标签会变为未分组，不会删除标签或对象引用。`)) return;
+    dom.deleteContentTagGroupButton.disabled = true;
+    try {
+      await applyContentTagMutation("deleteGroup", group.id, "标签分组已删除");
+      closeModal(dom.contentTagGroupModal);
+    } catch (error) {
+      showToast("无法删除标签分组", error?.message || "请稍后重试", "error");
+    } finally { dom.deleteContentTagGroupButton.disabled = false; }
+  });
+  dom.contentTagForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = event.submitter || dom.contentTagForm.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      await applyContentTagMutation("saveTag", {
+        id: dom.contentTagId.value || undefined,
+        canonicalName: dom.contentTagName.value.trim(),
+        groupId: dom.contentTagGroup.value || null,
+        iconKey: "tag",
+        accentKey: dom.contentTagAccent.value,
+        description: dom.contentTagDescription.value,
+      }, dom.contentTagId.value ? "内容标签已更新" : "内容标签已创建");
+      closeModal(dom.contentTagModal);
+    } catch (error) {
+      showToast("无法保存内容标签", error?.message || "标签名称可能已存在", "error");
+    } finally { submit.disabled = false; }
+  });
+  dom.deleteContentTagButton.addEventListener("click", async () => {
+    const tag = activeContentTags().find((item) => item.id === dom.contentTagId.value);
+    if (!tag) return;
+    const references = contentTagReferenceSummary(tag.id);
+    const detail = references.objectCount ? `\n\n当前有 ${references.objectCount} 个对象引用；若接口拒绝删除，请先合并或移除引用。` : "";
+    if (!window.confirm(`删除内容标签“${tag.canonicalName}”？${detail}`)) return;
+    dom.deleteContentTagButton.disabled = true;
+    try {
+      await applyContentTagMutation("deleteTag", tag.id, "内容标签已删除");
+      closeModal(dom.contentTagModal);
+    } catch (error) {
+      showToast("无法删除内容标签", error?.message || "请先处理引用对象", "error");
+    } finally { dom.deleteContentTagButton.disabled = false; }
+  });
+  dom.contentTagAliasForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = event.submitter || dom.contentTagAliasForm.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      await applyContentTagMutation("saveAlias", {
+        id: dom.contentTagAliasId.value || undefined,
+        tagId: dom.contentTagAliasTag.value,
+        alias: dom.contentTagAliasName.value.trim(),
+      }, dom.contentTagAliasId.value ? "明确别名已更新" : "明确别名已添加");
+      closeModal(dom.contentTagAliasModal);
+    } catch (error) {
+      showToast("无法保存明确别名", error?.message || "别名可能已存在", "error");
+    } finally { submit.disabled = false; }
+  });
+  dom.deleteContentTagAliasButton.addEventListener("click", async () => {
+    const alias = contentTagState.aliases.find((item) => item.id === dom.contentTagAliasId.value);
+    if (!alias || !window.confirm(`删除明确别名“${alias.alias}”？`)) return;
+    dom.deleteContentTagAliasButton.disabled = true;
+    try {
+      await applyContentTagMutation("deleteAlias", alias.id, "明确别名已删除");
+      closeModal(dom.contentTagAliasModal);
+    } catch (error) {
+      showToast("无法删除明确别名", error?.message || "请稍后重试", "error");
+    } finally { dom.deleteContentTagAliasButton.disabled = false; }
+  });
+  dom.contentTagMergeTarget.addEventListener("change", syncContentTagMergeSources);
+  dom.previewContentTagMergeButton.addEventListener("click", async () => {
+    const input = selectedContentTagMergeInput();
+    if (!input.sourceTagIds.length) {
+      showToast("请选择来源标签", "至少选择一个要合并的标签", "error");
+      return;
+    }
+    dom.previewContentTagMergeButton.disabled = true;
+    try {
+      pendingContentTagMergePreview = await callContentTagApi("previewMerge", input);
+      renderContentTagMergePreview(pendingContentTagMergePreview);
+    } catch (error) {
+      resetContentTagMergePreview();
+      showToast("无法预览标签合并", error?.message || "请检查标签选择", "error");
+    } finally { dom.previewContentTagMergeButton.disabled = false; }
+  });
+  dom.confirmContentTagMerge.addEventListener("change", () => {
+    dom.executeContentTagMergeButton.disabled = !dom.confirmContentTagMerge.checked || !pendingContentTagMergePreview;
+  });
+  dom.contentTagMergeForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const input = selectedContentTagMergeInput();
+    if (!pendingContentTagMergePreview || !dom.confirmContentTagMerge.checked) return;
+    const expectedSources = JSON.stringify([...(pendingContentTagMergePreview.sourceTagIds || [])].sort());
+    if (pendingContentTagMergePreview.targetTagId !== input.targetTagId || expectedSources !== JSON.stringify([...input.sourceTagIds].sort())) {
+      resetContentTagMergePreview();
+      showToast("标签选择已改变", "请重新预览影响范围", "error");
+      return;
+    }
+    const targetName = pendingContentTagMergePreview.targetTag?.canonicalName || "目标标签";
+    if (!window.confirm(`最后确认：将所选标签合并到“${targetName}”？\n\n将改写 ${pendingContentTagMergePreview.affectedObjectCount || 0} 个对象，可在标签管理页撤销最近一次合并。`)) return;
+    dom.executeContentTagMergeButton.disabled = true;
+    try {
+      applyContentTagSnapshot(await callContentTagApi("merge", input));
+      closeModal(dom.contentTagMergeModal);
+      showToast("内容标签已合并", `目标标签：${targetName}`);
+    } catch (error) {
+      showToast("无法合并内容标签", error?.message || "引用可能已发生变化，请重新预览", "error");
+    } finally { dom.executeContentTagMergeButton.disabled = false; }
+  });
+  dom.contentObjectTagsForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = event.submitter || dom.contentObjectTagsForm.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    const input = {
+      objectType: dom.contentObjectTagType.value,
+      objectId: dom.contentObjectTagId.value,
+      tagIds: tagIdsForPicker("object"),
+    };
+    try {
+      const result = await callContentTagApi("setObjectTags", input);
+      const object = result?.object || result?.item;
+      if (input.objectType === "userScript") {
+        userScriptState.scripts = userScriptState.scripts.map((script) => script.id === input.objectId
+          ? { ...script, tagIds: object?.tagIds || input.tagIds }
+          : script);
+        renderUserScripts();
+      }
+      if (result?.contentTags || result?.tags || result?.snapshot || result?.state?.contentTags) applyContentTagSnapshot(result);
+      else await loadContentTags({ silent: true });
+      closeModal(dom.contentObjectTagsModal);
+      showToast("对象标签已保存", `${input.tagIds.length} 个内容标签`);
+    } catch (error) {
+      showToast("无法保存对象标签", error?.message || "请稍后重试", "error");
+    } finally { submit.disabled = false; }
+  });
   dom.defaultSearchEngineSelect.addEventListener("change", async () => {
     try {
       applySearchSnapshot(await window.siteNest.updateSearchSettings({ defaultSearchEngineId: dom.defaultSearchEngineSelect.value }));
@@ -8117,6 +8825,7 @@ function bindEvents() {
         openMode: formData.get("openMode") === "external" ? "external" : "internal",
         pinned: dom.sitePinnedInput.checked,
         assistantIds: formData.getAll("assistantIds").map(String),
+        tagIds: tagIdsForPicker("site"),
       };
       const result = editing
         ? await window.siteNest.updateSite({ id: editing, ...input })
@@ -8514,6 +9223,7 @@ function bindEvents() {
     if (pageActionPanelOpen) void refreshPageUserScriptCommands();
   });
   window.siteNest?.onUserScriptsChanged?.((snapshot) => applyUserScriptSnapshot(snapshot));
+  window.siteNest?.onContentTagsChanged?.((snapshot) => applyContentTagSnapshot(snapshot));
   window.siteNest?.onUserScriptExecution?.(() => {
     if (currentAutomationTab === "scripts") void loadUserScripts();
   });
@@ -8545,6 +9255,7 @@ async function initialize() {
     await loadTranslationStatus();
     await loadTasks();
     await loadHabits();
+    await loadContentTags({ silent: true });
     await loadUserScripts();
     await loadBrowserLifecycle();
     await loadZohoConnectorStatus();

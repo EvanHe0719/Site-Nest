@@ -9,9 +9,9 @@ const {
 
 const NOW = "2026-08-31T00:00:00.000Z";
 
-test("schema 14 adds empty habit and usage collections without creating fake goals", () => {
+test("schema 15 retains empty habit and usage collections without creating fake goals", () => {
   const state = createInitialState({ now: NOW, defaultSites: [] });
-  assert.equal(CURRENT_SCHEMA_VERSION, 14);
+  assert.equal(CURRENT_SCHEMA_VERSION, 15);
   assert.deepEqual(state.habits, []);
   assert.deepEqual(state.habitCheckIns, []);
   assert.deepEqual(state.habitReminders, []);
@@ -20,7 +20,7 @@ test("schema 14 adds empty habit and usage collections without creating fake goa
   assert.equal(state.uiSettings.usageTrackingEnabled, true);
 });
 
-test("v10 migrates directly to schema 14 and stays idempotent with local-date habit history", () => {
+test("v10 migrates directly to schema 15 and stays idempotent with local-date habit history", () => {
   const raw = {
     version: 10,
     createdAt: NOW,
@@ -63,7 +63,7 @@ test("v10 migrates directly to schema 14 and stays idempotent with local-date ha
     }],
   };
   const once = migrateState(raw, { now: NOW });
-  assert.equal(once.state.version, 14);
+  assert.equal(once.state.version, 15);
   assert.equal(once.state.habits[0].reminderTime, "20:30");
   assert.equal(once.state.habitCheckIns[0].localDate, "2026-08-30");
   assert.equal(once.state.rewardLedger[0].amount, 1);

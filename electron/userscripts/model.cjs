@@ -11,20 +11,29 @@ function isoOrNull(value) {
   return Number.isNaN(date.valueOf()) ? null : date.toISOString();
 }
 
+function normalizeContentTagIds(value) {
+  return Array.from(new Set((Array.isArray(value) ? value : [])
+    .map((item) => String(item || "").trim().slice(0, 120))
+    .filter(Boolean))).slice(0, 100);
+}
+
 function normalizeUserScript(value, options = {}) {
   const input = value && typeof value === "object" ? value : {};
   try {
-    return parseUserScript(input.sourceCode, {
-      id: String(input.id || randomUUID()).slice(0, 120),
-      sourceType: SOURCE_TYPES.has(input.sourceType) ? input.sourceType : "pasted",
-      sourceUrl: input.sourceUrl || null,
-      enabled: input.enabled === true,
-      workspaceIds: input.workspaceIds,
-      browserProfileIds: input.browserProfileIds,
-      createdAt: isoOrNull(input.createdAt) || options.now,
-      lastCheckedAt: isoOrNull(input.lastCheckedAt),
-      now: isoOrNull(input.updatedAt) || options.now,
-    });
+    return {
+      ...parseUserScript(input.sourceCode, {
+        id: String(input.id || randomUUID()).slice(0, 120),
+        sourceType: SOURCE_TYPES.has(input.sourceType) ? input.sourceType : "pasted",
+        sourceUrl: input.sourceUrl || null,
+        enabled: input.enabled === true,
+        workspaceIds: input.workspaceIds,
+        browserProfileIds: input.browserProfileIds,
+        createdAt: isoOrNull(input.createdAt) || options.now,
+        lastCheckedAt: isoOrNull(input.lastCheckedAt),
+        now: isoOrNull(input.updatedAt) || options.now,
+      }),
+      tagIds: normalizeContentTagIds(input.tagIds),
+    };
   } catch {
     return null;
   }
@@ -38,8 +47,14 @@ function normalizeUserScripts(value, options = {}) {
     const parsed = parseUserScript(builtin.sourceCode, { ...builtin, now });
     const existing = byId.get(builtin.id);
     byId.set(builtin.id, existing
-      ? { ...parsed, enabled: existing.enabled, createdAt: existing.createdAt, updatedAt: existing.updatedAt }
-      : parsed);
+      ? {
+        ...parsed,
+        enabled: existing.enabled,
+        createdAt: existing.createdAt,
+        updatedAt: existing.updatedAt,
+        tagIds: normalizeContentTagIds(existing.tagIds),
+      }
+      : { ...parsed, tagIds: [] });
   }
   return Array.from(byId.values()).slice(0, 500);
 }

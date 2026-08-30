@@ -455,7 +455,7 @@
                   <h1>计划</h1>
                   <p>任务用于计划未来；时间轴用于记录已经发生或持续的重要经历，均只保存在这台电脑。</p>
                 </div>
-                <button class="primary-button" id="planAddTaskButton" type="button"><span data-icon="plus"></span>添加任务</button>
+                <div class="plan-header-actions"><button class="secondary-button" type="button" data-open-content-tags><span data-icon="tag"></span>内容标签</button><button class="primary-button" id="planAddTaskButton" type="button"><span data-icon="plus"></span>添加任务</button></div>
               </header>
               <div class="plan-view-tabs" id="planViewTabs" role="tablist" aria-label="计划视图">
                 <button class="is-active" type="button" data-task-view="week" role="tab">本周</button>
@@ -482,7 +482,7 @@
               <section class="plan-view-panel habit-panel" id="habitPanel" data-task-panel="habits" hidden>
                 <div class="habit-summary-bar">
                   <div><span class="section-kicker">LONG-TERM GOALS</span><h2>习惯打卡</h2><p id="habitTodaySummary">读取今日计划…</p></div>
-                  <div class="habit-summary-actions"><button class="secondary-button compact-button" id="openUsageTrackButton" type="button">使用轨迹</button><button class="primary-button compact-button" id="habitAddButton" type="button"><span data-icon="plus"></span>创建长期目标</button></div>
+                  <div class="habit-summary-actions"><button class="secondary-button compact-button" type="button" data-open-content-tags><span data-icon="tag"></span>内容标签</button><button class="secondary-button compact-button" id="openUsageTrackButton" type="button">使用轨迹</button><button class="primary-button compact-button" id="habitAddButton" type="button"><span data-icon="plus"></span>创建长期目标</button></div>
                 </div>
                 <section class="usage-detail-card is-hidden" id="usageDetailCard">
                   <div class="usage-detail-header"><div><h3>栖页使用轨迹</h3><p>与习惯热力图完全分开，不产生坚持星。</p></div><div><label class="settings-switch-row"><span><strong>使用统计</strong><small>仅前台有效使用</small></span><input id="usageTrackingToggle" type="checkbox" checked /></label><button class="text-button text-button--danger" id="clearUsageStats" type="button">清除统计</button></div></div>
@@ -514,6 +514,7 @@
                   <div class="timeline-action-control">
                     <div class="timeline-view-switch" id="timelineViewSwitch" role="group" aria-label="时间轴视图"><button class="is-active" type="button" data-timeline-view="timeline">波形</button><button type="button" data-timeline-view="list">列表</button></div>
                     <button class="secondary-button compact-button is-hidden" id="timelineBackToYear" type="button"><span data-icon="arrow-left"></span>返回年度</button>
+                    <button class="secondary-button compact-button" type="button" data-open-content-tags><span data-icon="tag"></span>内容标签</button>
                     <button class="secondary-button compact-button" id="timelineReviewButton" type="button">年度回顾</button>
                     <button class="secondary-button compact-button" id="timelineExportMarkdown" type="button">导出 MD</button>
                     <button class="secondary-button compact-button" id="timelineExportJson" type="button">导出 JSON</button>
@@ -1104,6 +1105,28 @@
                   </div>
                 </article>
 
+                <article class="settings-card settings-card--wide content-tags-settings-card" id="contentTagsSettingsCard" data-settings-section="data" data-settings-panel="content-tags">
+                  <div class="settings-card-icon" data-icon="tag"></div>
+                  <div class="settings-card-copy">
+                    <div class="settings-title-row">
+                      <div>
+                        <span class="section-kicker">CONTENT TAGS</span>
+                        <h3>内容标签管理</h3>
+                      </div>
+                      <span class="status-pill" id="contentTagTotal">0 个标签</span>
+                    </div>
+                    <p>用同一套标签整理任务、习惯、时间线、站点和用户脚本。别名只用于明确映射，不会自动推断同义词。</p>
+                    <div class="content-tags-toolbar">
+                      <button class="primary-button compact-button" id="addContentTagButton" type="button"><span data-icon="plus"></span>新增标签</button>
+                      <button class="secondary-button compact-button" id="addContentTagGroupButton" type="button"><span data-icon="folder"></span>新增分组</button>
+                      <button class="secondary-button compact-button" id="mergeContentTagsButton" type="button"><span data-icon="workflow"></span>合并标签</button>
+                      <button class="text-button text-button--quiet" id="undoContentTagMergeButton" type="button" disabled>撤销最近合并</button>
+                    </div>
+                    <p class="content-tags-status" id="contentTagsStatus" role="status">正在读取本地内容标签…</p>
+                    <div class="content-tag-group-list" id="contentTagGroupList"></div>
+                  </div>
+                </article>
+
                 <article class="settings-card" data-settings-section="data" data-settings-panel="local-data">
                   <div class="settings-card-icon" data-icon="database"></div>
                   <div class="settings-card-copy">
@@ -1427,7 +1450,8 @@
           </div>
           <label class="settings-switch-row task-all-day-row"><span><strong>全天任务</strong><small>仍以本机时区存储和显示</small></span><input id="taskAllDay" type="checkbox" /></label>
           <fieldset class="task-reminder-fieldset"><legend>提醒</legend><label><input type="checkbox" name="taskReminder" value="0" /> 到期时</label><label><input type="checkbox" name="taskReminder" value="5" /> 提前 5 分钟</label><label><input type="checkbox" name="taskReminder" value="10" /> 提前 10 分钟</label><label><input type="checkbox" name="taskReminder" value="15" /> 提前 15 分钟</label><label><input type="checkbox" name="taskReminder" value="30" /> 提前 30 分钟</label><label><input type="checkbox" name="taskReminder" value="60" /> 提前 1 小时</label><label><input type="checkbox" name="taskReminder" value="1440" /> 提前 1 天</label><label>自定义分钟 <input id="taskCustomReminder" type="number" min="0" max="525600" /></label></fieldset>
-          <label class="form-field"><span>标签 <small>用逗号分隔</small></span><input id="taskTags" maxlength="500" placeholder="客户, SAP, 跟进" /></label>
+          <fieldset class="content-tag-picker" data-content-tag-picker="task"><legend>内容标签 <small>统一用于跨模块整理</small></legend><input id="taskTagIds" type="hidden" /><div class="content-tag-picker-options"></div><small class="content-tag-picker-empty">尚未创建内容标签，可在“设置与数据 → 数据与备份 → 内容标签管理”中添加。</small></fieldset>
+          <label class="form-field"><span>旧标签 <small>兼容原有逗号标签</small></span><input id="taskTags" maxlength="500" placeholder="客户, SAP, 跟进" /></label>
           <div class="modal-actions"><button class="text-button text-button--quiet is-hidden" id="deleteTaskButton" type="button">删除任务</button><button class="secondary-button" type="button" data-close-modal="taskModal">取消</button><button class="primary-button" type="submit">保存任务</button></div>
         </form>
       </div>
@@ -1469,7 +1493,8 @@
             <label class="form-field"><span>影响</span><textarea id="timelineImpact" rows="3" maxlength="5000"></textarea></label>
           </div>
           <label class="form-field"><span>证据</span><textarea id="timelineEvidence" rows="2" maxlength="5000" placeholder="数字、项目、工单、文件或链接"></textarea></label>
-          <label class="form-field"><span>标签 <small>用逗号分隔</small></span><input id="timelineTags" maxlength="500" /></label>
+          <fieldset class="content-tag-picker" data-content-tag-picker="timeline"><legend>内容标签 <small>统一用于跨模块整理</small></legend><input id="timelineTagIds" type="hidden" /><div class="content-tag-picker-options"></div><small class="content-tag-picker-empty">尚未创建内容标签，可在“设置与数据 → 数据与备份 → 内容标签管理”中添加。</small></fieldset>
+          <label class="form-field"><span>旧标签 <small>兼容原有逗号标签</small></span><input id="timelineTags" maxlength="500" /></label>
           <div class="timeline-source-preview" id="timelineSourcePreview" hidden></div>
           <div class="modal-actions"><button class="text-button text-button--quiet is-hidden" id="deleteTimelineEventButton" type="button">删除记录</button><button class="secondary-button" type="button" data-close-modal="timelineEventModal">取消</button><button class="primary-button" type="submit">保存记录</button></div>
         </form>
@@ -1509,6 +1534,7 @@
             <label class="form-field"><span>目标值</span><input id="habitTargetValue" type="number" min="1" /></label>
             <label class="settings-switch-row"><span><strong>部分完成也获星</strong><small>同日仍最多一颗</small></span><input id="habitPartialReward" type="checkbox" /></label>
           </div>
+          <fieldset class="content-tag-picker" data-content-tag-picker="habit"><legend>内容标签 <small>统一用于跨模块整理</small></legend><input id="habitTagIds" type="hidden" /><div class="content-tag-picker-options"></div><small class="content-tag-picker-empty">尚未创建内容标签，可在“设置与数据 → 数据与备份 → 内容标签管理”中添加。</small></fieldset>
           <div class="modal-actions"><button class="text-button text-button--danger is-hidden" id="deleteHabitButton" type="button">删除目标</button><button class="secondary-button" type="button" data-close-modal="habitModal">取消</button><button class="primary-button" type="submit">保存目标</button></div>
         </form>
       </div>
@@ -1549,6 +1575,76 @@
         <details class="userscript-source-preview"><summary>查看源码摘要与 Hash</summary><code id="userScriptSourcePreview"></code></details>
         <label class="userscript-confirm-row"><input id="confirmUserScriptPermissions" type="checkbox" /><span>我已核对适用域名、权限、跨域范围和代码摘要，确认安装到本机。</span></label>
         <div class="modal-actions"><button class="secondary-button" type="button" data-close-modal="userScriptReviewModal">取消</button><button class="primary-button" id="confirmUserScriptInstall" type="button" disabled>确认安装</button></div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="contentTagGroupModal" role="dialog" aria-modal="true" aria-labelledby="contentTagGroupModalTitle">
+      <div class="modal-card compact-modal-card">
+        <div class="modal-header"><div><span class="section-kicker">TAG GROUP</span><h2 id="contentTagGroupModalTitle">新增标签分组</h2></div><button class="icon-button" type="button" data-close-modal="contentTagGroupModal" aria-label="关闭"><span data-icon="close"></span></button></div>
+        <form id="contentTagGroupForm">
+          <input id="contentTagGroupId" type="hidden" />
+          <label class="form-field"><span>分组名称</span><input id="contentTagGroupName" maxlength="80" required placeholder="例如：客户与项目" /></label>
+          <div class="form-field-row">
+            <label class="form-field"><span>图标</span><select id="contentTagGroupIcon"><option value="folder">文件夹</option><option value="tag">标签</option><option value="grid">应用</option><option value="bookmark">书签</option><option value="spark">星标</option></select></label>
+            <label class="form-field"><span>排序</span><input id="contentTagGroupSortOrder" type="number" step="1" value="0" /></label>
+          </div>
+          <div class="modal-actions"><button class="text-button text-button--danger is-hidden" id="deleteContentTagGroupButton" type="button">删除分组</button><button class="secondary-button" type="button" data-close-modal="contentTagGroupModal">取消</button><button class="primary-button" type="submit">保存分组</button></div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="contentTagModal" role="dialog" aria-modal="true" aria-labelledby="contentTagModalTitle">
+      <div class="modal-card compact-modal-card">
+        <div class="modal-header"><div><span class="section-kicker">CONTENT TAG</span><h2 id="contentTagModalTitle">新增内容标签</h2></div><button class="icon-button" type="button" data-close-modal="contentTagModal" aria-label="关闭"><span data-icon="close"></span></button></div>
+        <form id="contentTagForm">
+          <input id="contentTagId" type="hidden" />
+          <label class="form-field"><span>标签名称</span><input id="contentTagName" maxlength="120" required placeholder="例如：SAP、重点客户、学习资料" /></label>
+          <div class="form-field-row">
+            <label class="form-field"><span>分组</span><select id="contentTagGroup"><option value="">未分组</option></select></label>
+            <label class="form-field"><span>标识颜色</span><select id="contentTagAccent"><option value="neutral">中性灰</option><option value="pine">墨绿</option><option value="blue">蓝色</option><option value="violet">紫色</option><option value="amber">琥珀</option><option value="rose">玫红</option></select></label>
+          </div>
+          <label class="form-field"><span>说明</span><textarea id="contentTagDescription" rows="3" maxlength="2000" placeholder="可选；不会据此自动推断别名"></textarea></label>
+          <div class="modal-actions"><button class="text-button text-button--danger is-hidden" id="deleteContentTagButton" type="button">删除标签</button><button class="secondary-button" type="button" data-close-modal="contentTagModal">取消</button><button class="primary-button" type="submit">保存标签</button></div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="contentTagAliasModal" role="dialog" aria-modal="true" aria-labelledby="contentTagAliasModalTitle">
+      <div class="modal-card compact-modal-card">
+        <div class="modal-header"><div><span class="section-kicker">EXPLICIT ALIAS</span><h2 id="contentTagAliasModalTitle">添加明确别名</h2></div><button class="icon-button" type="button" data-close-modal="contentTagAliasModal" aria-label="关闭"><span data-icon="close"></span></button></div>
+        <form id="contentTagAliasForm">
+          <input id="contentTagAliasId" type="hidden" />
+          <label class="form-field"><span>归属标签</span><select id="contentTagAliasTag" required></select></label>
+          <label class="form-field"><span>别名</span><input id="contentTagAliasName" maxlength="120" required placeholder="只添加你明确确认的叫法" /></label>
+          <p class="form-hint">系统不会根据名称相似度、拼音或描述自动生成同义词。</p>
+          <div class="modal-actions"><button class="text-button text-button--danger is-hidden" id="deleteContentTagAliasButton" type="button">删除别名</button><button class="secondary-button" type="button" data-close-modal="contentTagAliasModal">取消</button><button class="primary-button" type="submit">保存别名</button></div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="contentTagMergeModal" role="dialog" aria-modal="true" aria-labelledby="contentTagMergeModalTitle">
+      <div class="modal-card content-tag-merge-modal-card">
+        <div class="modal-header"><div><span class="section-kicker">MERGE PREVIEW</span><h2 id="contentTagMergeModalTitle">合并内容标签</h2></div><button class="icon-button" type="button" data-close-modal="contentTagMergeModal" aria-label="关闭"><span data-icon="close"></span></button></div>
+        <form id="contentTagMergeForm">
+          <label class="form-field"><span>合并到</span><select id="contentTagMergeTarget" required></select></label>
+          <fieldset class="content-tag-merge-sources"><legend>选择要合并的来源标签</legend><div id="contentTagMergeSources"></div></fieldset>
+          <button class="secondary-button" id="previewContentTagMergeButton" type="button">预览影响范围</button>
+          <div class="content-tag-merge-preview" id="contentTagMergePreview" hidden></div>
+          <label class="userscript-confirm-row" id="confirmContentTagMergeRow" hidden><input id="confirmContentTagMerge" type="checkbox" /><span>我已核对目标标签、影响对象与引用变化，确认执行可撤销合并。</span></label>
+          <div class="modal-actions"><button class="secondary-button" type="button" data-close-modal="contentTagMergeModal">取消</button><button class="primary-button" id="executeContentTagMergeButton" type="submit" disabled>确认合并</button></div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="contentObjectTagsModal" role="dialog" aria-modal="true" aria-labelledby="contentObjectTagsModalTitle">
+      <div class="modal-card compact-modal-card">
+        <div class="modal-header"><div><span class="section-kicker">OBJECT TAGS</span><h2 id="contentObjectTagsModalTitle">用户脚本内容标签</h2></div><button class="icon-button" type="button" data-close-modal="contentObjectTagsModal" aria-label="关闭"><span data-icon="close"></span></button></div>
+        <form id="contentObjectTagsForm">
+          <input id="contentObjectTagType" type="hidden" />
+          <input id="contentObjectTagId" type="hidden" />
+          <fieldset class="content-tag-picker content-tag-picker--modal" data-content-tag-picker="object"><legend>内容标签</legend><input id="contentObjectTagIds" type="hidden" /><div class="content-tag-picker-options"></div><small class="content-tag-picker-empty">尚未创建内容标签。</small></fieldset>
+          <div class="modal-actions"><button class="secondary-button" type="button" data-close-modal="contentObjectTagsModal">取消</button><button class="primary-button" type="submit">保存标签</button></div>
+        </form>
       </div>
     </div>
 
@@ -1612,6 +1708,7 @@
             <span>简介 <small>（可选）</small></span>
             <textarea id="siteDescriptionInput" name="description" rows="3" maxlength="120" placeholder="例如：技术社区与最新话题"></textarea>
           </label>
+          <fieldset class="content-tag-picker" data-content-tag-picker="site"><legend>内容标签 <small>统一用于跨模块整理</small></legend><input id="siteTagIds" type="hidden" /><div class="content-tag-picker-options"></div><small class="content-tag-picker-empty">尚未创建内容标签，可在“设置与数据 → 数据与备份 → 内容标签管理”中添加。</small></fieldset>
           <fieldset class="color-fieldset">
             <legend>标识颜色</legend>
             <div class="color-options">

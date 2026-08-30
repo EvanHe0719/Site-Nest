@@ -112,6 +112,17 @@ contextBridge.exposeInMainWorld("siteNest", {
   updateUsageSettings: (patch) => ipcRenderer.invoke("usage:update-settings", patch),
   clearUsageStats: () => ipcRenderer.invoke("usage:clear"),
   recordMeaningfulUsageAction: () => ipcRenderer.send("usage:meaningful-action"),
+  getContentTags: () => ipcRenderer.invoke("content-tags:get"),
+  saveContentTagGroup: (input) => ipcRenderer.invoke("content-tags:save-group", input),
+  deleteContentTagGroup: (groupId) => ipcRenderer.invoke("content-tags:delete-group", groupId),
+  saveContentTag: (input) => ipcRenderer.invoke("content-tags:save-tag", input),
+  deleteContentTag: (tagId) => ipcRenderer.invoke("content-tags:delete-tag", tagId),
+  saveContentTagAlias: (input) => ipcRenderer.invoke("content-tags:save-alias", input),
+  deleteContentTagAlias: (aliasId) => ipcRenderer.invoke("content-tags:delete-alias", aliasId),
+  previewContentTagMerge: (input) => ipcRenderer.invoke("content-tags:preview-merge", input),
+  mergeContentTags: (input) => ipcRenderer.invoke("content-tags:merge", input),
+  undoLastContentTagMerge: () => ipcRenderer.invoke("content-tags:undo-merge"),
+  setContentObjectTags: (input) => ipcRenderer.invoke("content-tags:set-object-tags", input),
   getTimeline: (options) => ipcRenderer.invoke("timeline:get", typeof options === "object" ? options : { year: options }),
   addTimelineEvent: (event) => ipcRenderer.invoke("timeline:add", event),
   updateTimelineEvent: (event) => ipcRenderer.invoke("timeline:update", event),
@@ -205,6 +216,11 @@ contextBridge.exposeInMainWorld("siteNest", {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on("habits:changed", listener);
     return () => ipcRenderer.removeListener("habits:changed", listener);
+  },
+  onContentTagsChanged: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("content-tags:changed", listener);
+    return () => ipcRenderer.removeListener("content-tags:changed", listener);
   },
   onOpenHabit: (callback) => {
     const listener = (_event, value) => callback(value);

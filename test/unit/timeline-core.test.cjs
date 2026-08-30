@@ -41,9 +41,9 @@ function event(overrides = {}) {
   };
 }
 
-test("schema v14 preserves work and personal timeline tracks exactly once", () => {
+test("schema v15 preserves work and personal timeline tracks exactly once", () => {
   const initial = state();
-  assert.equal(CURRENT_SCHEMA_VERSION, 14);
+  assert.equal(CURRENT_SCHEMA_VERSION, 15);
   assert.deepEqual(initial.timelineTracks.map((track) => track.id), ["work", "personal"]);
   assert.deepEqual(initial.timelineEvents, []);
   assert.equal(initial.timelineUiSettings.selectedYear, 2026);
@@ -218,7 +218,7 @@ test("timeline-export-v1 is stable and strips executable presentation content", 
   });
   assert.equal(exported.exportVersion, "timeline-export-v1");
   assert.equal(exported.appVersion, "0.5.5");
-  assert.equal(exported.schemaVersion, 14);
+  assert.equal(exported.schemaVersion, 15);
   assert.equal(exported.events[0].eventType, "achievement");
   assert.equal(exported.events[0].impactDirection, "neutral");
   assert.equal(exported.events[0].impactLevel, 1);

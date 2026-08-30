@@ -51,6 +51,9 @@ function normalizeLocalTask(value, options = {}) {
     tags: Array.from(new Set((Array.isArray(input.tags) ? input.tags : [])
       .map((item) => String(item || "").trim().slice(0, 60))
       .filter(Boolean))).slice(0, 30),
+    tagIds: Array.from(new Set((Array.isArray(input.tagIds) ? input.tagIds : [])
+      .map((item) => String(item || "").trim().slice(0, 120))
+      .filter(Boolean))).slice(0, 100),
     orderKey: String(input.orderKey || `${Date.parse(now)}:${id}`).slice(0, 200),
     timeZone: String(input.timeZone || options.timeZone || deviceTimeZone()).slice(0, 100),
     createdAt: isoOrNull(input.createdAt) || now,
