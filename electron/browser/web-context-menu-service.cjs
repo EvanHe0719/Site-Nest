@@ -50,6 +50,21 @@ class WebContextMenuService {
         { label: "粘贴为纯文本", role: "pasteAndMatchStyle", enabled: params.editFlags?.canPaste !== false },
         { type: "separator" },
         { label: "全选", role: "selectAll", enabled: params.editFlags?.canSelectAll !== false },
+        hasSelection ? { type: "separator" } : null,
+        hasSelection
+          ? {
+              label: "翻译选中文字",
+              click: () => this.actions.translateSelection?.({
+                text: String(params.selectionText),
+                pageUrl,
+                context,
+                webContents,
+                isEditable: true,
+                x: params.x,
+                y: params.y,
+              }),
+            }
+          : null,
       ]);
     }
 
@@ -62,6 +77,10 @@ class WebContextMenuService {
             text: String(params.selectionText),
             pageUrl,
             context,
+            webContents,
+            isEditable: false,
+            x: params.x,
+            y: params.y,
           }),
         },
         {

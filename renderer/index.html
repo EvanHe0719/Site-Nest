@@ -721,6 +721,63 @@
                   </div>
                 </article>
 
+                <article class="settings-card settings-card--wide translation-settings-card" id="translationSettings" tabindex="-1">
+                  <div class="settings-card-icon" data-icon="language"></div>
+                  <div class="settings-card-copy">
+                    <div class="settings-title-row">
+                      <div>
+                        <span class="section-kicker">TRANSLATION</span>
+                        <h3>划词与整页翻译</h3>
+                      </div>
+                      <span class="status-pill" id="translationSettingsStatus">未配置</span>
+                    </div>
+                    <p>翻译请求只由主进程发送。API Key 使用系统安全存储；网页正文、选中文字与译文不会写入普通日志或本地数据库。</p>
+                    <form class="translation-config-form" id="translationConfigForm">
+                      <label class="translation-field translation-field--wide">
+                        <span>OpenAI-compatible API Base URL</span>
+                        <input id="translationApiBase" type="url" autocomplete="off" value="https://api.openai.com/v1" required />
+                      </label>
+                      <label class="translation-field">
+                        <span>模型</span>
+                        <input id="translationModel" autocomplete="off" value="gpt-4o-mini" required />
+                      </label>
+                      <label class="translation-field">
+                        <span>API Key</span>
+                        <input id="translationApiKey" type="password" autocomplete="new-password" placeholder="已保存时可留空" />
+                      </label>
+                      <label class="translation-field">
+                        <span>源语言</span>
+                        <select id="translationSourceLanguage">
+                          <option value="auto">自动检测</option><option value="zh-CN">简体中文</option><option value="en">英语</option><option value="ja">日语</option><option value="ko">韩语</option><option value="de">德语</option><option value="fr">法语</option><option value="es">西班牙语</option>
+                        </select>
+                      </label>
+                      <label class="translation-field">
+                        <span>目标语言</span>
+                        <select id="translationTargetLanguage">
+                          <option value="zh-CN">简体中文</option><option value="en">英语</option><option value="ja">日语</option><option value="ko">韩语</option><option value="de">德语</option><option value="fr">法语</option><option value="es">西班牙语</option>
+                        </select>
+                      </label>
+                      <label class="translation-field">
+                        <span>默认显示</span>
+                        <select id="translationDefaultMode"><option value="bilingual">双语对照</option><option value="translated">仅显示译文</option></select>
+                      </label>
+                      <label class="settings-switch-row translation-selection-toggle">
+                        <span><strong>选词旁显示“译”按钮</strong><small>关闭后仍可通过网页右键菜单翻译</small></span>
+                        <input id="translationSelectionButton" type="checkbox" checked />
+                      </label>
+                      <div class="translation-form-actions">
+                        <button class="primary-button compact-button" type="submit">安全保存</button>
+                        <button class="secondary-button compact-button" id="testTranslationButton" type="button">测试连接</button>
+                        <button class="text-button text-button--quiet" id="clearTranslationKeyButton" type="button">清除密钥</button>
+                      </div>
+                    </form>
+                    <div class="translation-privacy-note">
+                      <span data-icon="shield"></span>
+                      <span>Zoho、SAP、邮箱、登录页和内部系统首次翻译前会单独确认；整页翻译不提取密码框、输入值、Cookie、Token、文件与隐藏表单，划词只使用主动选择的文字。</span>
+                    </div>
+                  </div>
+                </article>
+
                 <article class="settings-card settings-card--wide settings-card--chrome-bookmarks" id="chromeBookmarksSettingsSection" data-settings-section="chrome-bookmarks" tabindex="-1">
                   <div class="settings-card-icon" data-icon="chrome"></div>
                   <div class="settings-card-copy">

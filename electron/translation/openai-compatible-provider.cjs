@@ -1,0 +1,150 @@
+const DEFAULT_TIMEOUT_MS = 45_000;
+
+class TranslationProviderError extends Error {
+  constructor(code, message, options = {}) {
+    super(message, options);
+    this.name = "TranslationProviderError";
+    this.code = code;
+  }
+}
+
+function endpointForBaseUrl(rawBaseUrl) {
+  let parsed;
+  try {
+    parsed = new URL(String(rawBaseUrl || ""));
+  } catch {
+    throw new TranslationProviderError("INVALID_CONFIG", "翻译 API Base URL 无效");
+  }
+  const local = ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname);
+  if (parsed.protocol !== "https:" && !(local && parsed.protocol === "http:")) {
+    throw new TranslationProviderError("INVALID_CONFIG", "翻译 API 必须使用 HTTPS；本机服务可使用 HTTP");
+  }
+  parsed.pathname = `${parsed.pathname.replace(/\/$/, "")}/chat/completions`;
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString();
+}
+
+function parseJsonContent(content) {
+  const raw = String(content || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new TranslationProviderError("INVALID_RESPONSE", "翻译服务没有返回有效 JSON", { cause: error });
+  }
+}
+
+function normalizeProviderResults(payload, expectedSegments) {
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  const byId = new Map(items.map((item) => [String(item?.segmentId || ""), item]));
+  return expectedSegments.map((segment) => {
+    const item = byId.get(String(segment.segmentId));
+    const translatedText = String(item?.translatedText || "").trim();
+    if (!translatedText) {
+      throw new TranslationProviderError("INVALID_RESPONSE", "翻译结果与原文段落未能一一对应");
+    }
+    return {
+      segmentId: String(segment.segmentId),
+      translatedText,
+      detectedLanguage: String(item?.detectedLanguage || payload?.detectedLanguage || "unknown").slice(0, 30),
+    };
+  });
+}
+
+class OpenAICompatibleTranslationProvider {
+  constructor({ fetchFn }) {
+    if (typeof fetchFn !== "function") throw new TypeError("fetchFn is required");
+    this.id = "openai-compatible";
+    this.name = "OpenAI-compatible";
+    this.supportsLanguageDetection = true;
+    this.maxBatchCharacters = 12_000;
+    this.fetchFn = fetchFn;
+  }
+
+  async translateSegments(segments, options = {}) {
+    const list = Array.isArray(segments) ? segments : [];
+    if (!list.length) return [];
+    const endpoint = endpointForBaseUrl(options.baseUrl);
+    const apiKey = String(options.apiKey || "").trim();
+    const model = String(options.model || "").trim();
+    if (!apiKey || !model) {
+      throw new TranslationProviderError("NOT_CONFIGURED", "翻译 Provider 尚未配置 API Key 或模型");
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(new Error("timeout")), options.timeoutMs || DEFAULT_TIMEOUT_MS);
+    const abortFromParent = () => controller.abort(options.signal?.reason);
+    options.signal?.addEventListener("abort", abortFromParent, { once: true });
+    try {
+      const response = await this.fetchFn(endpoint, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0,
+          response_format: { type: "json_object" },
+          messages: [
+            {
+              role: "system",
+              content: "You are a precise translation engine. Translate without summarizing, explaining, censoring, or rewriting. Preserve meaning, numbers, placeholders, URLs, and line breaks. Return JSON only.",
+            },
+            {
+              role: "user",
+              content: JSON.stringify({
+                task: "translate_segments",
+                sourceLanguage: options.sourceLanguage || "auto",
+                targetLanguage: options.targetLanguage || "zh-CN",
+                outputSchema: { items: [{ segmentId: "string", translatedText: "string", detectedLanguage: "string" }] },
+                segments: list.map((item) => ({
+                  segmentId: String(item.segmentId),
+                  text: String(item.text),
+                })),
+              }),
+            },
+          ],
+        }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const code = response.status === 401 || response.status === 403
+          ? "AUTH_REQUIRED"
+          : response.status === 429
+            ? "RATE_LIMITED"
+            : "API_ERROR";
+        throw new TranslationProviderError(code, `翻译服务请求失败（HTTP ${response.status}）`);
+      }
+      const body = await response.json();
+      const content = body?.choices?.[0]?.message?.content;
+      return normalizeProviderResults(parseJsonContent(content), list);
+    } catch (error) {
+      if (error instanceof TranslationProviderError) throw error;
+      if (controller.signal.aborted) {
+        throw new TranslationProviderError(options.signal?.aborted ? "CANCELLED" : "REQUEST_TIMEOUT", options.signal?.aborted ? "翻译已取消" : "翻译请求超时");
+      }
+      throw new TranslationProviderError("NETWORK_ERROR", "无法连接翻译服务", { cause: error });
+    } finally {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", abortFromParent);
+    }
+  }
+
+  async detectLanguage(text, options = {}) {
+    const [result] = await this.translateSegments([{ segmentId: "detect", text }], options);
+    return result?.detectedLanguage || "unknown";
+  }
+
+  async testConnection(options = {}) {
+    const result = await this.translateSegments([{ segmentId: "test", text: "Hello" }], options);
+    return { ok: result.length === 1, detectedLanguage: result[0]?.detectedLanguage || "unknown" };
+  }
+}
+
+module.exports = {
+  OpenAICompatibleTranslationProvider,
+  TranslationProviderError,
+  endpointForBaseUrl,
+  normalizeProviderResults,
+  parseJsonContent,
+};

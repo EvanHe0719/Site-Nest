@@ -11,6 +11,7 @@
     "types": ["node"]
   },
   "include": [
-    "electron/browser/**/*.cjs"
+    "electron/browser/**/*.cjs",
+    "electron/translation/**/*.cjs"
   ]
 }

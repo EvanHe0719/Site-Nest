@@ -190,6 +190,18 @@ const dom = {
   popupPolicyPreserveOpener: document.getElementById("popupPolicyPreserveOpener"),
   popupPolicyAllowPost: document.getElementById("popupPolicyAllowPost"),
   popupPolicyList: document.getElementById("popupPolicyList"),
+  translationSettings: document.getElementById("translationSettings"),
+  translationSettingsStatus: document.getElementById("translationSettingsStatus"),
+  translationConfigForm: document.getElementById("translationConfigForm"),
+  translationApiBase: document.getElementById("translationApiBase"),
+  translationModel: document.getElementById("translationModel"),
+  translationApiKey: document.getElementById("translationApiKey"),
+  translationSourceLanguage: document.getElementById("translationSourceLanguage"),
+  translationTargetLanguage: document.getElementById("translationTargetLanguage"),
+  translationDefaultMode: document.getElementById("translationDefaultMode"),
+  translationSelectionButton: document.getElementById("translationSelectionButton"),
+  testTranslationButton: document.getElementById("testTranslationButton"),
+  clearTranslationKeyButton: document.getElementById("clearTranslationKeyButton"),
   zohoConfigForm: document.getElementById("zohoConfigForm"),
   zohoDisplayName: document.getElementById("zohoDisplayName"),
   zohoOrgId: document.getElementById("zohoOrgId"),
@@ -252,6 +264,15 @@ let appState = {
     sessionVisibility: "all",
     contextAssistantCollapsed: false,
     sitePopupPolicies: [],
+    translation: {
+      providerId: "openai-compatible",
+      publicConfig: { baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+      sourceLanguage: "auto",
+      targetLanguage: "zh-CN",
+      defaultMode: "bilingual",
+      selectionButtonEnabled: true,
+      siteRules: [],
+    },
   },
   connectorConnections: [],
   externalObjectLinks: [],
@@ -265,6 +286,7 @@ let pageActionSnapshot = null;
 let pageActionPanelOpen = false;
 let pageActionRequestId = 0;
 let pageActionRefreshTimer = 0;
+let translationStatusCache = null;
 let selectedChromeProfile = "";
 let selectedChromeProfileBookmarkCount = 0;
 let editingSiteId = null;
@@ -1958,6 +1980,62 @@ function renderPopupPolicies() {
   });
 }
 
+function renderTranslationSettings() {
+  if (!dom.translationConfigForm) return;
+  const settings = translationStatusCache?.settings || appState.uiSettings?.translation || {};
+  const publicConfig = settings.publicConfig || {};
+  if (document.activeElement !== dom.translationApiBase) {
+    dom.translationApiBase.value = publicConfig.baseUrl || "https://api.openai.com/v1";
+  }
+  if (document.activeElement !== dom.translationModel) {
+    dom.translationModel.value = publicConfig.model || "gpt-4o-mini";
+  }
+  dom.translationSourceLanguage.value = settings.sourceLanguage || "auto";
+  dom.translationTargetLanguage.value = settings.targetLanguage || "zh-CN";
+  dom.translationDefaultMode.value = settings.defaultMode || "bilingual";
+  dom.translationSelectionButton.checked = settings.selectionButtonEnabled !== false;
+  const configured = translationStatusCache?.configured === true;
+  dom.translationSettingsStatus.textContent = configured ? "已配置" : "未配置";
+  dom.translationSettingsStatus.classList.toggle("status-pill--success", configured);
+  dom.translatePageButton.classList.toggle("is-configured", configured);
+  dom.translatePageButton.title = configured ? "翻译本页" : "翻译本页（Provider 未配置）";
+  dom.translationApiKey.placeholder = translationStatusCache?.hasApiKey
+    ? "密钥已安全保存；留空保持不变"
+    : "输入 API Key";
+}
+
+async function loadTranslationStatus() {
+  if (typeof window.siteNest?.getTranslationStatus !== "function") return null;
+  try {
+    translationStatusCache = await window.siteNest.getTranslationStatus();
+    if (translationStatusCache?.settings) {
+      appState.uiSettings = {
+        ...(appState.uiSettings || {}),
+        translation: translationStatusCache.settings,
+      };
+    }
+    renderTranslationSettings();
+    return translationStatusCache;
+  } catch (error) {
+    translationStatusCache = { configured: false, hasApiKey: false };
+    renderTranslationSettings();
+    showToast("无法读取翻译配置", error?.message || "系统安全存储不可用", "error");
+    return null;
+  }
+}
+
+function translationFormPayload() {
+  return {
+    baseUrl: dom.translationApiBase.value.trim(),
+    model: dom.translationModel.value.trim(),
+    apiKey: dom.translationApiKey.value.trim(),
+    sourceLanguage: dom.translationSourceLanguage.value,
+    targetLanguage: dom.translationTargetLanguage.value,
+    defaultMode: dom.translationDefaultMode.value,
+    selectionButtonEnabled: dom.translationSelectionButton.checked,
+  };
+}
+
 function renderQuickSites() {
   dom.quickSiteGrid.replaceChildren();
   const quickSites = recentSites().slice(0, 3);
@@ -2844,6 +2922,7 @@ function renderAll() {
   renderWorkspaceSwitcher();
   renderCurrentSessions();
   renderPopupPolicies();
+  renderTranslationSettings();
   const workspaceSiteCount = sitesForWorkspace().length;
   dom.sidebarSiteCount.textContent = workspaceSiteCount > 99 ? "99+" : String(workspaceSiteCount);
   renderQuickSites();
@@ -3840,6 +3919,51 @@ function bindEvents() {
       showToast("无法保存弹窗规则", error?.message || "请稍后重试", "error");
     }
   });
+  dom.translationConfigForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = event.submitter || dom.translationConfigForm.querySelector('button[type="submit"]');
+    if (submit) submit.disabled = true;
+    try {
+      translationStatusCache = await window.siteNest.configureTranslation(translationFormPayload());
+      if (translationStatusCache?.settings) {
+        appState.uiSettings.translation = translationStatusCache.settings;
+      }
+      dom.translationApiKey.value = "";
+      renderTranslationSettings();
+      showToast("翻译配置已安全保存", translationStatusCache.configured ? "Provider 已可用" : "仍需填写 API Key");
+    } catch (error) {
+      showToast("无法保存翻译配置", error?.message || "请检查配置", "error");
+    } finally {
+      if (submit) submit.disabled = false;
+    }
+  });
+  dom.testTranslationButton.addEventListener("click", async () => {
+    dom.testTranslationButton.disabled = true;
+    dom.testTranslationButton.textContent = "正在测试…";
+    try {
+      await window.siteNest.testTranslation(translationFormPayload());
+      showToast("翻译服务连接成功", "固定测试文本已得到有效响应");
+    } catch (error) {
+      showToast("翻译服务连接失败", error?.message || "请检查地址、模型与密钥", "error");
+    } finally {
+      dom.testTranslationButton.disabled = false;
+      dom.testTranslationButton.textContent = "测试连接";
+    }
+  });
+  dom.clearTranslationKeyButton.addEventListener("click", async () => {
+    try {
+      translationStatusCache = await window.siteNest.configureTranslation({
+        ...translationFormPayload(),
+        apiKey: "",
+        clearApiKey: true,
+      });
+      dom.translationApiKey.value = "";
+      renderTranslationSettings();
+      showToast("翻译密钥已清除", "安全存储中的 API Key 已删除");
+    } catch (error) {
+      showToast("无法清除翻译密钥", error?.message || "请稍后重试", "error");
+    }
+  });
   dom.googleSyncCard.addEventListener("click", () => {
     setGoogleSyncPopoverOpen(!googleSyncPopoverOpen);
   });
@@ -4110,8 +4234,13 @@ function bindEvents() {
   dom.browserReload.addEventListener("click", () =>
     void window.siteNest.browserAction(browserSnapshot.loading ? "stop" : "reload"),
   );
-  dom.translatePageButton.addEventListener("click", () => {
-    showToast("翻译服务尚未配置", "下一阶段将接入划词与整页翻译");
+  dom.translatePageButton.addEventListener("click", async () => {
+    if (typeof window.siteNest?.showTranslationPageMenu !== "function") return;
+    try {
+      await window.siteNest.showTranslationPageMenu();
+    } catch (error) {
+      showToast("无法打开翻译菜单", error?.message || "请稍后重试", "error");
+    }
   });
   document.getElementById("zoomOut").addEventListener("click", () =>
     void window.siteNest.browserAction("zoom-out"),
@@ -4343,6 +4472,13 @@ function bindEvents() {
   window.siteNest?.onOpenPageActions?.(() => {
     setPageActionPanelOpen(true);
   });
+  window.siteNest?.onOpenTranslationSettings?.(() => {
+    navigateTo("settings");
+    window.setTimeout(() => {
+      dom.translationSettings?.scrollIntoView({ block: "center", behavior: "smooth" });
+      dom.translationSettings?.focus({ preventScroll: true });
+    }, 80);
+  });
   window.siteNest?.onAutomationStatus(({ naixi }) => renderNaixiAutomation(naixi));
 }
 
@@ -4357,6 +4493,7 @@ async function initialize() {
     desiredWorkspaceId = activeWorkspaceId();
     renderAll();
     await loadGoogleSyncStatus();
+    await loadTranslationStatus();
     await loadZohoConnectorStatus();
     if (activeWorkspaceId() === "work") void loadZohoDashboard();
     const persistedBrowser = appState.workspaceBrowserStates?.[activeWorkspaceId()];

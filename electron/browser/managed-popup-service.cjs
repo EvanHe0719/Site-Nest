@@ -9,6 +9,7 @@ class ManagedPopupService {
     openExternal,
     askToOpen,
     onBlocked,
+    handleInternalAction,
   }) {
     this.BrowserWindow = BrowserWindow;
     this.Menu = Menu;
@@ -19,6 +20,7 @@ class ManagedPopupService {
     this.openExternal = openExternal;
     this.askToOpen = askToOpen;
     this.onBlocked = onBlocked;
+    this.handleInternalAction = handleInternalAction;
     this.windows = new Map();
   }
 
@@ -45,6 +47,10 @@ class ManagedPopupService {
     if (!webContents || webContents.isDestroyed()) return;
 
     webContents.setWindowOpenHandler((details) => {
+      if (/^qiye-action:\/\//i.test(String(details.url || ""))) {
+        setImmediate(() => void this.handleInternalAction?.(details, context, webContents));
+        return { action: "deny" };
+      }
       const decision = this.policyService.classify(details, webContents.getURL());
       if (decision.kind === "tab" || decision.kind === "background-tab") {
         setImmediate(() => void this.openTab(details.url, {

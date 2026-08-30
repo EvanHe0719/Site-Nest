@@ -57,6 +57,10 @@ contextBridge.exposeInMainWorld("siteNest", {
     ipcRenderer.invoke("browser:show-tab-context-menu", { tabId }),
   showAddressContextMenu: () =>
     ipcRenderer.invoke("browser:show-address-context-menu"),
+  getTranslationStatus: () => ipcRenderer.invoke("translation:status"),
+  configureTranslation: (payload) => ipcRenderer.invoke("translation:configure", payload),
+  testTranslation: (payload) => ipcRenderer.invoke("translation:test", payload),
+  showTranslationPageMenu: () => ipcRenderer.invoke("translation:show-page-menu"),
   duplicateSiteTab: (siteId, bounds) =>
     ipcRenderer.invoke("sites:duplicate-tab", { siteId, bounds }),
   closeBrowserTab: (tabId, bounds) =>
@@ -92,6 +96,11 @@ contextBridge.exposeInMainWorld("siteNest", {
     const listener = () => callback();
     ipcRenderer.on("assistants:open-panel", listener);
     return () => ipcRenderer.removeListener("assistants:open-panel", listener);
+  },
+  onOpenTranslationSettings: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("translation:open-settings", listener);
+    return () => ipcRenderer.removeListener("translation:open-settings", listener);
   },
   onAppCommand: (callback) => {
     const listener = (_event, value) => callback(value);

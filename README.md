@@ -15,6 +15,8 @@
 - 站点支持普通站点/工作应用、栖页内打开/系统浏览器打开、所属空间、固定状态和助手绑定。
 - 使用 Electron `WebContentsView` 直接显示网站，保留前进、后退、刷新、地址栏、缩放、登录入口和外部打开；安全 GET 新窗口自动进入当前空间标签组。
 - 网页右键菜单由 Electron 主进程按选择、编辑区、链接和媒体上下文动态生成；地址栏支持搜索与“粘贴并转到”，脚本协议不会执行。
+- 划词翻译支持右键和可关闭的选区旁“译”按钮；整页翻译支持双语、仅译文、恢复原文、动态 DOM 与同源 iframe。未配置正式 Provider 时明确不可用，不使用免费非官方接口或假译文。
+- 翻译 Provider 当前支持 OpenAI-compatible API；API Key 与连接器凭据共用 Electron `safeStorage` 加密文件，正文和译文只在本次运行内存与当前网页 DOM 中短暂存在。
 - OAuth、SSO 和 POST 登录窗口使用受控窗口，继承原浏览身份、Cookie 与 opener；站点级策略可在“设置与数据 → 新窗口与登录弹窗”中调整。
 - 左侧导航可收纳为 72px 图标栏并记住偏好；浏览器不再显示“已连接/正在加载”信息条，切换空间提示约 1.4 秒后消失。
 - 自动化中心包含签到任务、站点助手、工作流和执行记录；旧签到入口兼容到“签到任务”。
@@ -29,7 +31,7 @@
 
 应用状态保存在 Electron 的 Windows `userData` 目录中的 `site-nest-data.json`。
 
-0.5.0 使用 schema v5；新增的站点弹窗策略默认留空并由安全启发式处理，不删除书签、站点、固定数据或登录状态。v2/v3/v4 升级时：
+0.5.0 使用 schema v6；新增的站点弹窗策略与翻译公开配置会安全补齐，不删除书签、站点、固定数据或登录状态。v2/v3/v4/v5 升级时：
 
 - 旧站点和固定项进入个人空间；原 ID、URL、书签、最近访问和奶昔状态保留。
 - 旧站点补齐 `workspaceId: personal`、`siteKind: normal`、`openMode: internal`、`browserProfileId: default` 和空助手绑定。
@@ -37,6 +39,7 @@
 - 写入使用同目录临时文件、同步和替换。JSON 损坏或迁移失败时保留原文件并写安全错误记录，不会回退后覆盖为默认数据。
 - v4 扩展现有标签为会话字段，并增加界面设置、连接器连接、脱敏执行记录和外部对象关联；不会把固定站点批量转换成已打开会话。
 - v5 增加 `uiSettings.sitePopupPolicies`；缺失字段自动补齐且迁移可重复执行，不会更改原浏览分区。
+- v6 增加 `uiSettings.translation`；只保存 Provider 公共地址、模型、语言与站点规则，API Key 仍只保存在系统安全存储。
 - v3 首次升级也创建版本备份；连接器与界面默认项可重复归一化，不重复创建默认连接。
 
 ## 登录会话边界
@@ -86,7 +89,7 @@ npm run dist:win
 
 也可以执行 `npm test` 依次运行单元与 Electron 集成回归，执行 `npm run build` 构建 Windows x64 便携版。输出位于 `release/`。
 
-仓库目前没有 ESLint 或 TypeScript，因此没有伪造的 lint/typecheck 命令；`npm run check` 是实际的 JavaScript 语法检查。
+`npm run lint` 会检查全部 JavaScript/CJS 语法及生产代码安全禁用项；`npm run typecheck` 使用 TypeScript `checkJs` 检查浏览器与翻译核心服务。这两项均为真实执行命令，不替代 Electron 集成测试。
 
 ## 仍然存在的限制
 

@@ -65,6 +65,18 @@ const {
   resolveNavigationTarget,
   securityStateForUrl,
 } = require("./browser/index.cjs");
+const {
+  OpenAICompatibleTranslationProvider,
+  PageTextExtractor,
+  PageTranslationController,
+  PageTranslationRenderer,
+  SelectionActionService,
+  TranslationProviderRegistry,
+  TranslationService,
+  isSensitiveTranslationUrl,
+  normalizeTranslationSettings,
+  siteRuleForUrl,
+} = require("./translation/index.cjs");
 
 const APP_ID = "local.qiye.sitehub";
 const SITE_PARTITION = "persist:qiye-sites";
@@ -156,6 +168,12 @@ let downloadManager;
 let managedPopupService;
 let webContextMenuService;
 let windowOpenPolicyService;
+let connectorSecretStore;
+let translationProviderRegistry;
+let translationService;
+let selectionActionService;
+let pageTranslationController;
+const translationSessionAllowedHosts = new Set();
 
 function dataFilePath() {
   return path.join(app.getPath("userData"), "site-nest-data.json");
@@ -185,6 +203,16 @@ function connectorSecretPath() {
 
 function connectorCachePath() {
   return path.join(app.getPath("userData"), "connector-cache.json");
+}
+
+function getConnectorSecretStore() {
+  if (!connectorSecretStore) {
+    connectorSecretStore = new ConnectorSecretStore({
+      filePath: connectorSecretPath(),
+      safeStorage,
+    });
+  }
+  return connectorSecretStore;
 }
 
 function zohoOAuthConfigPath() {
@@ -610,6 +638,223 @@ async function addCurrentPageToSites(context) {
   return result;
 }
 
+async function currentTranslationSettings() {
+  const state = await getState();
+  return normalizeTranslationSettings(state.uiSettings?.translation);
+}
+
+async function saveTranslationSettings(settings) {
+  const state = await getState();
+  const result = updateUiSettingsInState(state, {
+    translation: normalizeTranslationSettings(settings),
+  }, { defaultSites: DEFAULT_SITES });
+  cachedState = result.state;
+  await persistState();
+  const enabled = result.uiSettings.translation.selectionButtonEnabled !== false;
+  if (selectionActionService) {
+    for (const workspace of workspaceBrowserContexts.values()) {
+      for (const context of workspace.tabs.values()) {
+        if (context.view && !context.view.webContents.isDestroyed()) {
+          void selectionActionService.installTrigger(context.view.webContents, enabled);
+        }
+      }
+    }
+  }
+  return result.uiSettings.translation;
+}
+
+async function setTranslationSiteRule(rawUrl, patch = {}) {
+  const settings = await currentTranslationSettings();
+  const parsed = new URL(String(rawUrl || ""));
+  const hostnamePattern = parsed.hostname.toLowerCase();
+  const current = settings.siteRules.find((rule) => rule.hostnamePattern === hostnamePattern) || {
+    hostnamePattern,
+    mode: "manual",
+    privacyAllowed: false,
+  };
+  settings.siteRules = [
+    ...settings.siteRules.filter((rule) => rule.hostnamePattern !== hostnamePattern),
+    { ...current, ...patch, hostnamePattern },
+  ];
+  await saveTranslationSettings(settings);
+  return settings.siteRules.find((rule) => rule.hostnamePattern === hostnamePattern);
+}
+
+async function confirmSensitiveTranslation(rawUrl) {
+  if (!isSensitiveTranslationUrl(rawUrl)) return true;
+  let hostname = "";
+  try {
+    hostname = new URL(rawUrl).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  const settings = await currentTranslationSettings();
+  const rule = siteRuleForUrl(settings, rawUrl);
+  if (rule?.privacyAllowed || translationSessionAllowedHosts.has(hostname)) return true;
+  const result = await dialog.showMessageBox(browserOwnerWindow(activeBrowserContext()), {
+    type: "warning",
+    title: "确认发送页面文字",
+    message: "本次操作会将页面中的可见文字发送到当前翻译服务。",
+    detail: `${hostname}\n整页翻译不读取密码、Cookie、输入框值、隐藏表单和授权信息；划词翻译只使用你主动选择的文字。`,
+    buttons: ["取消", "仅本次允许", "始终允许此网站"],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  });
+  if (result.response === 1) {
+    translationSessionAllowedHosts.add(hostname);
+    return true;
+  }
+  if (result.response === 2) {
+    await setTranslationSiteRule(rawUrl, { privacyAllowed: true });
+    return true;
+  }
+  return false;
+}
+
+function getTranslationServices() {
+  if (translationService && selectionActionService && pageTranslationController) {
+    return { registry: translationProviderRegistry, service: translationService, selection: selectionActionService, page: pageTranslationController };
+  }
+  translationProviderRegistry = new TranslationProviderRegistry();
+  translationProviderRegistry.register(new OpenAICompatibleTranslationProvider({
+    fetchFn: (...args) => net.fetch(...args),
+  }));
+  translationService = new TranslationService({
+    registry: translationProviderRegistry,
+    secretStore: getConnectorSecretStore(),
+    getSettings: currentTranslationSettings,
+    saveSettings: saveTranslationSettings,
+  });
+  selectionActionService = new SelectionActionService({
+    translationService,
+    onNotice: emitBrowserNotice,
+    openExternal: (url) => shell.openExternal(url),
+    confirmSensitive: confirmSensitiveTranslation,
+  });
+  pageTranslationController = new PageTranslationController({
+    translationService,
+    extractor: new PageTextExtractor(),
+    renderer: new PageTranslationRenderer(),
+    getSettings: currentTranslationSettings,
+    confirmSensitive: confirmSensitiveTranslation,
+    onNotice: emitBrowserNotice,
+  });
+  return { registry: translationProviderRegistry, service: translationService, selection: selectionActionService, page: pageTranslationController };
+}
+
+async function handleTranslationInternalAction(details, context, contents) {
+  let action = "";
+  try {
+    action = new URL(details.url).hostname;
+  } catch {
+    return false;
+  }
+  const translation = getTranslationServices();
+  if (action === "translation-selection-button") return translation.selection.translateCurrentSelection(contents, context);
+  if (action === "translation-retry") return translation.selection.retry(contents, context);
+  if (action === "translation-open-external") return translation.selection.openInTranslationWebsite(contents);
+  if (action === "translation-close") return translation.selection.clear(contents);
+  if (action === "translation-dynamic") return translation.page.translateDynamic(context);
+  return false;
+}
+
+async function updateTranslationLanguage(key, value) {
+  const settings = await currentTranslationSettings();
+  settings[key] = value;
+  await saveTranslationSettings(settings);
+}
+
+async function showTranslationPageMenu(context = activeBrowserContext()) {
+  const contents = context?.view?.webContents;
+  if (!contents || contents.isDestroyed()) return false;
+  const translation = getTranslationServices();
+  const [status, settings] = await Promise.all([
+    translation.service.status(),
+    currentTranslationSettings(),
+  ]);
+  const pageState = translation.page.state(context);
+  const currentRule = siteRuleForUrl(settings, contents.getURL());
+  const languages = [
+    ["auto", "自动检测"], ["zh-CN", "简体中文"], ["en", "英语"],
+    ["ja", "日语"], ["ko", "韩语"], ["de", "德语"], ["fr", "法语"], ["es", "西班牙语"],
+  ];
+  const template = [
+    {
+      label: status.configured ? "翻译本页" : "翻译本页（Provider 未配置）",
+      enabled: status.configured,
+      click: () => void translation.page.translate(context, { mode: settings.defaultMode, explicit: true }),
+    },
+    { type: "separator" },
+    {
+      label: "双语对照",
+      type: "radio",
+      checked: pageState.mode === "bilingual" || (!pageState.active && settings.defaultMode === "bilingual"),
+      enabled: status.configured,
+      click: () => void translation.page.setMode(context, "bilingual"),
+    },
+    {
+      label: "仅显示译文",
+      type: "radio",
+      checked: pageState.mode === "translated" || (!pageState.active && settings.defaultMode === "translated"),
+      enabled: status.configured,
+      click: () => void translation.page.setMode(context, "translated"),
+    },
+    { label: "恢复原文", enabled: pageState.active, click: () => void translation.page.restore(context) },
+    { type: "separator" },
+    {
+      label: `源语言：${languages.find(([id]) => id === settings.sourceLanguage)?.[1] || settings.sourceLanguage}`,
+      submenu: languages.map(([id, label]) => ({
+        label,
+        type: "radio",
+        checked: settings.sourceLanguage === id,
+        click: () => void updateTranslationLanguage("sourceLanguage", id),
+      })),
+    },
+    {
+      label: `目标语言：${languages.find(([id]) => id === settings.targetLanguage)?.[1] || settings.targetLanguage}`,
+      submenu: languages.filter(([id]) => id !== "auto").map(([id, label]) => ({
+        label,
+        type: "radio",
+        checked: settings.targetLanguage === id,
+        click: () => void updateTranslationLanguage("targetLanguage", id),
+      })),
+    },
+    {
+      label: `翻译 Provider：${status.configured ? status.providerName : "未配置"}`,
+      click: () => mainWindow?.webContents.send("translation:open-settings"),
+    },
+    { type: "separator" },
+    {
+      label: "总是翻译此网站",
+      type: "checkbox",
+      checked: currentRule?.mode === "always",
+      enabled: status.configured,
+      click: (item) => void setTranslationSiteRule(contents.getURL(), { mode: item.checked ? "always" : "manual" }),
+    },
+    {
+      label: "不翻译此网站",
+      type: "checkbox",
+      checked: currentRule?.mode === "never",
+      click: (item) => void setTranslationSiteRule(contents.getURL(), { mode: item.checked ? "never" : "manual" }),
+    },
+  ];
+  Menu.buildFromTemplate(template).popup({ window: browserOwnerWindow(context) });
+  return true;
+}
+
+async function maybeAutoTranslate(context) {
+  if (!context?.view || context.view.webContents.isDestroyed()) return;
+  const settings = await currentTranslationSettings();
+  const url = context.view.webContents.getURL();
+  const rule = siteRuleForUrl(settings, url);
+  if (rule?.mode !== "always") return;
+  if (isSensitiveTranslationUrl(url) && !rule.privacyAllowed) return;
+  const status = await getTranslationServices().service.status();
+  if (!status.configured) return;
+  await getTranslationServices().page.translate(context, { mode: settings.defaultMode, explicit: false });
+}
+
 function getBrowserServices() {
   if (managedPopupService && webContextMenuService && downloadManager) {
     return {
@@ -672,6 +917,7 @@ function getBrowserServices() {
         "error",
       );
     },
+    handleInternalAction: handleTranslationInternalAction,
   });
   webContextMenuService = new WebContextMenuService({
     Menu,
@@ -688,8 +934,8 @@ function getBrowserServices() {
       navigateCurrent: (url, context) => browserActionForContext(context, "navigate", url),
       openExternal: (url) => isSafeWebUrl(url) ? shell.openExternal(url) : null,
       browserAction: (action, context) => browserActionForContext(context, action),
-      translateSelection: () => emitBrowserNotice("翻译服务将在下一阶段启用"),
-      translatePage: () => emitBrowserNotice("整页翻译将在下一阶段启用"),
+      translateSelection: (input) => getTranslationServices().selection.translate(input),
+      translatePage: ({ context }) => showTranslationPageMenu(context),
       addCurrentPage: ({ context }) => void addCurrentPageToSites(context),
       openPageActions: () => mainWindow?.webContents.send("assistants:open-panel"),
       inspectResource: () => emitBrowserNotice("资源检测将在资源治理阶段启用"),
@@ -713,10 +959,7 @@ function getConnectorServices() {
     };
   }
   connectorRegistry = new ConnectorRegistry();
-  const secretStore = new ConnectorSecretStore({
-    filePath: connectorSecretPath(),
-    safeStorage,
-  });
+  const secretStore = getConnectorSecretStore();
   const cache = new ConnectorCache({
     filePath: connectorCachePath(),
     defaultTtlMs: 5 * 60 * 1000,
@@ -1410,6 +1653,8 @@ function detachSiteViewFromOwner(context) {
 function destroySiteView(context = activeBrowserContext()) {
   if (!context?.view) return;
   const contents = context.view.webContents;
+  if (pageTranslationController) pageTranslationController.clear(context);
+  if (selectionActionService) selectionActionService.clear(contents);
   context.attachRequested = false;
   detachSiteViewFromOwner(context);
   context.view = null;
@@ -1704,12 +1949,14 @@ function ensureSiteView(context = activeBrowserContext()) {
     event.preventDefault();
     void browserServices.externalProtocol.open(url, browserOwnerWindow(context));
   });
-  view.webContents.on("did-start-loading", () =>
+  view.webContents.on("did-start-loading", () => {
+    if (pageTranslationController) pageTranslationController.clear(context);
+    if (selectionActionService) selectionActionService.clear(view.webContents);
     compactBrowserState(
       { loading: true, error: "", siteIssue: "" },
       context,
-    ),
-  );
+    );
+  });
   view.webContents.on("did-stop-loading", () => {
     compactBrowserState({
       loading: false,
@@ -1722,6 +1969,15 @@ function ensureSiteView(context = activeBrowserContext()) {
     });
     setTimeout(() => void inspectKnownSiteIssue(context), 350);
   });
+  view.webContents.on("did-finish-load", () => {
+    void currentTranslationSettings().then((settings) =>
+      getTranslationServices().selection.installTrigger(
+        view.webContents,
+        settings.selectionButtonEnabled !== false,
+      ),
+    );
+    setTimeout(() => void maybeAutoTranslate(context), 150);
+  });
   view.webContents.on("did-navigate", (_event, url) => {
     compactBrowserState({ url, securityState: securityStateForUrl(url), error: "" }, context);
     persistWorkspaceBrowserContext(context, { currentURL: url });
@@ -1730,8 +1986,11 @@ function ensureSiteView(context = activeBrowserContext()) {
     "did-navigate-in-page",
     (_event, url, isMainFrame) => {
       if (isMainFrame) {
+        if (pageTranslationController) void pageTranslationController.restore(context);
+        if (selectionActionService) selectionActionService.clear(view.webContents);
         compactBrowserState({ url, securityState: securityStateForUrl(url), error: "" }, context);
         persistWorkspaceBrowserContext(context, { currentURL: url });
+        setTimeout(() => void maybeAutoTranslate(context), 150);
       }
     },
   );
@@ -1758,6 +2017,8 @@ function ensureSiteView(context = activeBrowserContext()) {
     },
   );
   view.webContents.on("render-process-gone", () => {
+    if (pageTranslationController) pageTranslationController.clear(context);
+    if (selectionActionService) selectionActionService.clear(view.webContents);
     compactBrowserState({
       loading: false,
       error: "页面进程已停止，请点击刷新重试",
@@ -3344,6 +3605,31 @@ function registerIpc() {
     if (!found) throw new Error("独立页面已经失效");
     return closeBrowserTab({ tabId: found.tab.tabId });
   });
+  ipcMain.handle("translation:status", () => getTranslationServices().service.status());
+  ipcMain.handle("translation:configure", async (_event, payload) => {
+    return getTranslationServices().service.configure({
+      publicConfig: {
+        baseUrl: payload?.baseUrl,
+        model: payload?.model,
+      },
+      apiKey: payload?.apiKey,
+      clearApiKey: payload?.clearApiKey === true,
+      sourceLanguage: payload?.sourceLanguage,
+      targetLanguage: payload?.targetLanguage,
+      defaultMode: payload?.defaultMode,
+      selectionButtonEnabled: payload?.selectionButtonEnabled,
+    });
+  });
+  ipcMain.handle("translation:test", (_event, payload) =>
+    getTranslationServices().service.testConnection({
+      publicConfig: {
+        baseUrl: payload?.baseUrl,
+        model: payload?.model,
+      },
+      apiKey: payload?.apiKey,
+    }),
+  );
+  ipcMain.handle("translation:show-page-menu", () => showTranslationPageMenu());
   ipcMain.handle("assistants:list", () => listAssistants());
   ipcMain.handle("assistants:set-enabled", (_event, payload) =>
     setAssistantEnabled(payload?.assistantId, payload?.enabled),
@@ -3501,12 +3787,17 @@ function createMainWindow() {
           })()`);
           console.log(JSON.stringify({ googleLiveProbe: result }));
           await new Promise((resolve) => setTimeout(resolve, 500));
-        } else if (CAPTURE_ROUTE === "settings" || CAPTURE_ROUTE === "settings-popup") {
+        } else if (["settings", "settings-popup", "settings-translation"].includes(CAPTURE_ROUTE)) {
           await mainWindow.webContents.executeJavaScript("navigateTo('settings')");
           await new Promise((resolve) => setTimeout(resolve, 700));
           if (CAPTURE_ROUTE === "settings-popup") {
             await mainWindow.webContents.executeJavaScript(
               "document.getElementById('popupPolicySettings')?.scrollIntoView({ block: 'center' })",
+            );
+            await new Promise((resolve) => setTimeout(resolve, 350));
+          } else if (CAPTURE_ROUTE === "settings-translation") {
+            await mainWindow.webContents.executeJavaScript(
+              "document.getElementById('translationSettings')?.scrollIntoView({ block: 'center' })",
             );
             await new Promise((resolve) => setTimeout(resolve, 350));
           }
