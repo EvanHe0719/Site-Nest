@@ -32,7 +32,7 @@
 
 应用状态保存在 Electron 的 Windows `userData` 目录中的 `site-nest-data.json`。
 
-0.5.0 使用 schema v7；新增的站点弹窗策略、翻译公开配置、本地任务与提醒设置会安全补齐，不删除书签、站点、固定数据或登录状态。v2/v3/v4/v5/v6 升级时：
+0.5.0 使用 schema v8；新增的站点弹窗策略、翻译公开配置、本地任务、提醒设置和用户脚本记录会安全补齐，不删除书签、站点、固定数据或登录状态。v2/v3/v4/v5/v6/v7 升级时：
 
 - 旧站点和固定项进入个人空间；原 ID、URL、书签、最近访问和奶昔状态保留。
 - 旧站点补齐 `workspaceId: personal`、`siteKind: normal`、`openMode: internal`、`browserProfileId: default` 和空助手绑定。
@@ -42,6 +42,7 @@
 - v5 增加 `uiSettings.sitePopupPolicies`；缺失字段自动补齐且迁移可重复执行，不会更改原浏览分区。
 - v6 增加 `uiSettings.translation`；只保存 Provider 公共地址、模型、语言与站点规则，API Key 仍只保存在系统安全存储。
 - v7 增加 `localTasks`、`taskReminders`、`taskSettings` 与设备时区；固定站点和浏览会话不会被迁移成任务，旧版缺失字段可重复补齐。
+- v8 增加用户脚本、批准权限、隔离存储与脱敏执行记录；只创建一个默认停用的内置“恢复复制与选择”脚本，不自动执行远程代码。
 - v3 首次升级也创建版本备份；连接器与界面默认项可重复归一化，不重复创建默认连接。
 
 ## 登录会话边界

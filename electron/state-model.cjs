@@ -8,8 +8,14 @@ const {
   normalizeTaskReminders,
   normalizeTaskSettings,
 } = require("./tasks/task-model.cjs");
+const {
+  normalizeExecutions: normalizeUserScriptExecutions,
+  normalizePermissions: normalizeUserScriptPermissions,
+  normalizeUserScripts,
+  normalizeValues: normalizeUserScriptValues,
+} = require("./userscripts/model.cjs");
 
-const CURRENT_SCHEMA_VERSION = 7;
+const CURRENT_SCHEMA_VERSION = 8;
 const DEFAULT_WORKSPACE_ID = "personal";
 const DEFAULT_BROWSER_PROFILE_ID = "default";
 const VALID_SITE_KINDS = new Set(["normal", "workApp"]);
@@ -768,6 +774,10 @@ function createInitialState(options = {}) {
     taskReminders: [],
     taskSettings: normalizeTaskSettings(),
     timeZone: deviceTimeZone(),
+    userScripts: normalizeUserScripts([], { now }),
+    userScriptPermissions: [],
+    userScriptExecutions: [],
+    userScriptValues: {},
     createdAt: now,
     updatedAt: now,
   };
@@ -861,6 +871,8 @@ function normalizeStateV4(value, options = {}) {
       normalizedTaskReminders.filter((reminder) => reminder.taskId === task.id),
     ),
   );
+  const userScripts = normalizeUserScripts(input.userScripts, { now });
+  const userScriptIds = userScripts.map((script) => script.id);
 
   const normalized = {
     ...input,
@@ -891,6 +903,10 @@ function normalizeStateV4(value, options = {}) {
     taskReminders,
     taskSettings: normalizeTaskSettings(input.taskSettings),
     timeZone: String(input.timeZone || deviceTimeZone()).slice(0, 100),
+    userScripts,
+    userScriptPermissions: normalizeUserScriptPermissions(input.userScriptPermissions, userScriptIds),
+    userScriptExecutions: normalizeUserScriptExecutions(input.userScriptExecutions, userScriptIds),
+    userScriptValues: normalizeUserScriptValues(input.userScriptValues, userScriptIds),
     createdAt: typeof input.createdAt === "string" ? input.createdAt : now,
     updatedAt:
       typeof input.updatedAt === "string"
@@ -1570,6 +1586,7 @@ const normalizeStateV3 = normalizeStateV4;
 const normalizeStateV5 = normalizeStateV4;
 const normalizeStateV6 = normalizeStateV4;
 const normalizeStateV7 = normalizeStateV4;
+const normalizeStateV8 = normalizeStateV4;
 
 module.exports = {
   CURRENT_SCHEMA_VERSION,
@@ -1598,6 +1615,7 @@ module.exports = {
   normalizeStateV5,
   normalizeStateV6,
   normalizeStateV7,
+  normalizeStateV8,
   updateUiSettingsInState,
   upsertConnectorConnectionInState,
   appendConnectorExecutionInState,

@@ -493,21 +493,21 @@
                   <span data-icon="check"></span>
                   签到任务
                 </button>
+                <button class="automation-tab" type="button" data-automation-tab="scripts" aria-selected="false">
+                  <span data-icon="code"></span>
+                  网页脚本
+                </button>
                 <button class="automation-tab" type="button" data-automation-tab="assistants" aria-selected="false">
                   <span data-icon="spark"></span>
                   站点助手
                 </button>
-                <button class="automation-tab" type="button" data-automation-tab="workflows" aria-selected="false">
-                  <span data-icon="workflow"></span>
-                  工作流
+                <button class="automation-tab" type="button" data-automation-tab="schedules" aria-selected="false">
+                  <span data-icon="clock"></span>
+                  定时任务
                 </button>
                 <button class="automation-tab" type="button" data-automation-tab="logs" aria-selected="false">
                   <span data-icon="clock"></span>
                   执行记录
-                </button>
-                <button class="automation-tab" type="button" data-automation-tab="extension" aria-selected="false">
-                  <span data-icon="chrome"></span>
-                  浏览器扩展
                 </button>
               </nav>
 
@@ -600,6 +600,30 @@
               </div>
               </section>
 
+              <section class="automation-tab-panel" id="automationScriptsPanel" data-automation-panel="scripts" hidden>
+                <div class="automation-panel-heading userscript-panel-heading">
+                  <div>
+                    <span class="section-kicker">USER SCRIPTS</span>
+                    <h2>网页脚本</h2>
+                    <p>脚本在隔离世界运行，不获得 Node、Electron、Cookie、密码或任意 IPC。安装和更新都需要你明确确认。</p>
+                  </div>
+                  <div class="userscript-heading-actions">
+                    <button class="secondary-button compact-button" id="importUserScriptFile" type="button"><span data-icon="folder"></span>本地文件</button>
+                    <button class="secondary-button compact-button" id="openRemoteUserScript" type="button"><span data-icon="link"></span>远程 URL</button>
+                    <button class="primary-button compact-button" id="openPastedUserScript" type="button"><span data-icon="plus"></span>粘贴脚本</button>
+                  </div>
+                </div>
+                <div class="userscript-security-note">
+                  <span data-icon="shield"></span>
+                  <div><strong>远程脚本不会静默更新</strong><small>仅允许 HTTPS；检查到变更后先显示新 Hash、权限和代码摘要，再由你确认替换。</small></div>
+                </div>
+                <div class="userscript-list" id="userScriptList"></div>
+                <section class="userscript-execution-section">
+                  <div class="workspace-section-title workspace-section-title--compact"><div><span class="section-kicker">RECENT RUNS</span><h2>最近执行</h2></div></div>
+                  <div class="userscript-execution-list" id="userScriptExecutionList"></div>
+                </section>
+              </section>
+
               <section class="automation-tab-panel" id="automationAssistantsPanel" data-automation-panel="assistants" hidden>
                 <div class="automation-panel-heading">
                   <div>
@@ -618,13 +642,13 @@
                 </div>
               </section>
 
-              <section class="automation-tab-panel" id="automationWorkflowsPanel" data-automation-panel="workflows" hidden>
+              <section class="automation-tab-panel" id="automationWorkflowsPanel" data-automation-panel="schedules" hidden>
                 <div class="extension-empty-state">
                   <span class="extension-empty-icon" data-icon="workflow"></span>
                   <div>
-                    <span class="section-kicker">WORKFLOWS</span>
-                    <h2>工作流尚未配置</h2>
-                    <p>工作流功能将在后续版本中用于连接多个站点动作。</p>
+                    <span class="section-kicker">SCHEDULED AUTOMATION</span>
+                    <h2>定时任务尚未配置</h2>
+                    <p>本阶段只保留现有签到调度与本地提醒；通用定时网页脚本不会在后台静默运行。</p>
                     <span class="status-pill status-pill--preview">后续版本</span>
                   </div>
                 </div>
@@ -1104,6 +1128,11 @@
                   </div>
                   <div class="page-action-list" id="pageActionList"></div>
                 </section>
+                <section class="page-action-section page-userscript-actions">
+                  <div class="page-action-section-heading"><span>网页脚本</span><span class="status-pill" id="pageUserScriptStatus">隔离运行</span></div>
+                  <button class="page-action-item" id="runRestoreCopyScript" type="button"><span data-icon="copy"></span><span><strong>临时恢复复制与选择</strong><small>仅当前页面；不读取输入框、不访问网络</small></span><span data-icon="chevron-right"></span></button>
+                  <div class="page-action-list" id="pageUserScriptCommands"></div>
+                </section>
                 <div class="zoho-context-assistant is-hidden" id="zohoContextAssistant">
                   <section class="page-action-section zoho-ticket-context-section">
                     <div class="page-action-section-heading"><span>当前工单</span><span class="status-pill" id="zohoContextStatus">正在读取</span></div>
@@ -1174,6 +1203,31 @@
           <label class="form-field"><span>标签 <small>用逗号分隔</small></span><input id="taskTags" maxlength="500" placeholder="客户, SAP, 跟进" /></label>
           <div class="modal-actions"><button class="text-button text-button--quiet is-hidden" id="deleteTaskButton" type="button">删除任务</button><button class="secondary-button" type="button" data-close-modal="taskModal">取消</button><button class="primary-button" type="submit">保存任务</button></div>
         </form>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="userScriptInstallModal" role="dialog" aria-modal="true" aria-labelledby="userScriptInstallTitle">
+      <div class="modal-card userscript-install-modal">
+        <div class="modal-header"><div><span class="section-kicker">INSTALL USER SCRIPT</span><h2 id="userScriptInstallTitle">检查用户脚本</h2></div><button class="icon-button" type="button" data-close-modal="userScriptInstallModal" aria-label="关闭"><span data-icon="close"></span></button></div>
+        <form id="userScriptInstallForm">
+          <input id="userScriptInstallType" type="hidden" value="pasted" />
+          <label class="form-field" id="userScriptRemoteField" hidden><span>HTTPS 用户脚本 URL</span><input id="userScriptRemoteUrl" type="url" placeholder="https://example.com/helper.user.js" /></label>
+          <label class="form-field" id="userScriptSourceField"><span>脚本源码</span><textarea id="userScriptSourceCode" rows="16" spellcheck="false" placeholder="// ==UserScript==&#10;// @name My Script&#10;// @match https://example.com/*&#10;// ==/UserScript=="></textarea></label>
+          <p class="form-hint">只检查并生成安装摘要；此步骤不会执行脚本。</p>
+          <div class="modal-actions"><button class="secondary-button" type="button" data-close-modal="userScriptInstallModal">取消</button><button class="primary-button" type="submit">检查权限与兼容性</button></div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="userScriptReviewModal" role="dialog" aria-modal="true" aria-labelledby="userScriptReviewTitle">
+      <div class="modal-card userscript-review-modal">
+        <div class="modal-header"><div><span class="section-kicker">REVIEW BEFORE INSTALL</span><h2 id="userScriptReviewTitle">安装前确认</h2></div><button class="icon-button" type="button" data-close-modal="userScriptReviewModal" aria-label="关闭"><span data-icon="close"></span></button></div>
+        <div class="userscript-review-summary" id="userScriptReviewSummary"></div>
+        <div class="userscript-review-groups"><section><strong>网址范围</strong><div id="userScriptReviewMatches"></div></section><section><strong>权限与跨域</strong><div id="userScriptReviewPermissions"></div></section></div>
+        <div class="userscript-compatibility" id="userScriptCompatibility"></div>
+        <details class="userscript-source-preview"><summary>查看源码摘要与 Hash</summary><code id="userScriptSourcePreview"></code></details>
+        <label class="userscript-confirm-row"><input id="confirmUserScriptPermissions" type="checkbox" /><span>我已核对适用域名、权限、跨域范围和代码摘要，确认安装到本机。</span></label>
+        <div class="modal-actions"><button class="secondary-button" type="button" data-close-modal="userScriptReviewModal">取消</button><button class="primary-button" id="confirmUserScriptInstall" type="button" disabled>确认安装</button></div>
       </div>
     </div>
 

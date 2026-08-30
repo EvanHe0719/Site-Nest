@@ -69,6 +69,18 @@ contextBridge.exposeInMainWorld("siteNest", {
   snoozeTaskReminder: (reminderId, minutes) => ipcRenderer.invoke("tasks:snooze", { reminderId, minutes }),
   dismissTaskReminder: (reminderId) => ipcRenderer.invoke("tasks:dismiss-reminder", reminderId),
   updateTaskSettings: (patch) => ipcRenderer.invoke("tasks:update-settings", patch),
+  getUserScripts: () => ipcRenderer.invoke("userscripts:list"),
+  reviewPastedUserScript: (sourceCode, options = {}) => ipcRenderer.invoke("userscripts:review-pasted", { sourceCode, ...options }),
+  reviewRemoteUserScript: (sourceUrl, options = {}) => ipcRenderer.invoke("userscripts:review-remote", { sourceUrl, ...options }),
+  reviewLocalUserScriptFile: () => ipcRenderer.invoke("userscripts:review-local-file"),
+  confirmUserScriptInstall: (reviewToken) => ipcRenderer.invoke("userscripts:confirm-install", reviewToken),
+  setUserScriptEnabled: (scriptId, enabled) => ipcRenderer.invoke("userscripts:set-enabled", { scriptId, enabled }),
+  setUserScriptSiteApproved: (scriptId, approved) => ipcRenderer.invoke("userscripts:set-site-approved", { scriptId, approved }),
+  removeUserScript: (scriptId) => ipcRenderer.invoke("userscripts:remove", scriptId),
+  checkUserScriptUpdate: (scriptId) => ipcRenderer.invoke("userscripts:check-update", scriptId),
+  getUserScriptCommands: () => ipcRenderer.invoke("userscripts:commands"),
+  executeUserScriptCommand: (scriptId, commandId) => ipcRenderer.invoke("userscripts:execute-command", { scriptId, commandId }),
+  runRestoreCopyScript: () => ipcRenderer.invoke("userscripts:run-restore-copy"),
   duplicateSiteTab: (siteId, bounds) =>
     ipcRenderer.invoke("sites:duplicate-tab", { siteId, bounds }),
   closeBrowserTab: (tabId, bounds) =>
@@ -119,6 +131,21 @@ contextBridge.exposeInMainWorld("siteNest", {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on("tasks:open", listener);
     return () => ipcRenderer.removeListener("tasks:open", listener);
+  },
+  onUserScriptsChanged: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("userscripts:changed", listener);
+    return () => ipcRenderer.removeListener("userscripts:changed", listener);
+  },
+  onUserScriptExecution: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("userscripts:execution", listener);
+    return () => ipcRenderer.removeListener("userscripts:execution", listener);
+  },
+  onUserScriptCommandsChanged: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("userscripts:commands-changed", listener);
+    return () => ipcRenderer.removeListener("userscripts:commands-changed", listener);
   },
   onAppCommand: (callback) => {
     const listener = (_event, value) => callback(value);

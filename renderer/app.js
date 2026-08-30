@@ -39,6 +39,7 @@ const ICONS = {
   cloud: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 18.5h10.4a4.1 4.1 0 0 0 .5-8.2A6.4 6.4 0 0 0 5.8 9a4.8 4.8 0 0 0 1.4 9.5Z"/></svg>',
   language: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/><path d="m15.5 16.5 2 2 3.5-4"/></svg>',
   calendar: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2.8v4.4M17 2.8v4.4M3 9h18M7 13h.01M12 13h.01M17 13h.01M7 17h.01M12 17h.01"/></svg>',
+  code: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 7-5 5 5 5M15.5 7l5 5-5 5M14 4l-4 16"/></svg>',
 };
 
 const FALLBACK_WORKSPACES = [
@@ -263,6 +264,28 @@ const dom = {
   naixiLastRun: document.getElementById("naixiLastRun"),
   runNaixiAutomation: document.getElementById("runNaixiAutomation"),
   automationTabs: document.getElementById("automationTabs"),
+  userScriptList: document.getElementById("userScriptList"),
+  userScriptExecutionList: document.getElementById("userScriptExecutionList"),
+  importUserScriptFile: document.getElementById("importUserScriptFile"),
+  openRemoteUserScript: document.getElementById("openRemoteUserScript"),
+  openPastedUserScript: document.getElementById("openPastedUserScript"),
+  userScriptInstallModal: document.getElementById("userScriptInstallModal"),
+  userScriptInstallForm: document.getElementById("userScriptInstallForm"),
+  userScriptInstallTitle: document.getElementById("userScriptInstallTitle"),
+  userScriptInstallType: document.getElementById("userScriptInstallType"),
+  userScriptRemoteField: document.getElementById("userScriptRemoteField"),
+  userScriptRemoteUrl: document.getElementById("userScriptRemoteUrl"),
+  userScriptSourceField: document.getElementById("userScriptSourceField"),
+  userScriptSourceCode: document.getElementById("userScriptSourceCode"),
+  userScriptReviewModal: document.getElementById("userScriptReviewModal"),
+  userScriptReviewTitle: document.getElementById("userScriptReviewTitle"),
+  userScriptReviewSummary: document.getElementById("userScriptReviewSummary"),
+  userScriptReviewMatches: document.getElementById("userScriptReviewMatches"),
+  userScriptReviewPermissions: document.getElementById("userScriptReviewPermissions"),
+  userScriptCompatibility: document.getElementById("userScriptCompatibility"),
+  userScriptSourcePreview: document.getElementById("userScriptSourcePreview"),
+  confirmUserScriptPermissions: document.getElementById("confirmUserScriptPermissions"),
+  confirmUserScriptInstall: document.getElementById("confirmUserScriptInstall"),
   assistantCountBadge: document.getElementById("assistantCountBadge"),
   assistantList: document.getElementById("assistantList"),
   executionLogList: document.getElementById("executionLogList"),
@@ -279,6 +302,9 @@ const dom = {
   pageAssistantStatus: document.getElementById("pageAssistantStatus"),
   pageAssistantSummary: document.getElementById("pageAssistantSummary"),
   pageActionList: document.getElementById("pageActionList"),
+  pageUserScriptStatus: document.getElementById("pageUserScriptStatus"),
+  pageUserScriptCommands: document.getElementById("pageUserScriptCommands"),
+  runRestoreCopyScript: document.getElementById("runRestoreCopyScript"),
   pageActionPermissions: document.getElementById("pageActionPermissions"),
   pageActionLastResult: document.getElementById("pageActionLastResult"),
   zohoContextAssistant: document.getElementById("zohoContextAssistant"),
@@ -318,6 +344,10 @@ let appState = {
   localTasks: [],
   taskReminders: [],
   taskSettings: {},
+  userScripts: [],
+  userScriptPermissions: [],
+  userScriptExecutions: [],
+  userScriptValues: {},
 };
 let currentRoute = "home";
 let currentSite = null;
@@ -330,6 +360,8 @@ let pageActionRequestId = 0;
 let pageActionRefreshTimer = 0;
 let translationStatusCache = null;
 let taskState = { tasks: [], reminders: [], settings: {}, timeZone: "UTC" };
+let userScriptState = { scripts: [], executions: [] };
+let pendingUserScriptReview = null;
 let currentTaskView = "week";
 let taskWeekAnchor = new Date();
 let taskMonthAnchor = new Date();
@@ -1498,6 +1530,7 @@ function navigateTo(route) {
       renderNaixiAutomation(status?.naixi),
     );
     if (currentAutomationTab === "assistants") void loadAssistants();
+    if (currentAutomationTab === "scripts") void loadUserScripts();
     if (currentAutomationTab === "logs") void loadExecutionLogs();
   }
   updateActiveNavigation();
@@ -3568,9 +3601,280 @@ async function loadSystemInfo() {
   }
 }
 
+function userScriptSourceLabel(sourceType) {
+  return { builtIn: "内置", localFile: "本地文件", pasted: "粘贴", remoteUrl: "远程 URL" }[sourceType] || "本地";
+}
+
+function userScriptRunAtLabel(runAt) {
+  return { "document-start": "文档开始", "document-end": "文档完成", "document-idle": "页面空闲" }[runAt] || runAt;
+}
+
+function renderUserScriptExecutions() {
+  if (!dom.userScriptExecutionList) return;
+  dom.userScriptExecutionList.replaceChildren();
+  const values = (userScriptState.executions || []).slice(0, 12);
+  if (!values.length) {
+    const empty = document.createElement("div");
+    empty.className = "automation-empty-state";
+    empty.innerHTML = '<strong>暂无脚本执行记录</strong><small>只记录脚本、域名、状态、耗时和脱敏摘要。</small>';
+    dom.userScriptExecutionList.appendChild(empty);
+    return;
+  }
+  for (const execution of values) {
+    const script = userScriptState.scripts.find((item) => item.id === execution.scriptId);
+    const row = document.createElement("article");
+    row.className = "userscript-execution-row";
+    row.dataset.status = execution.status;
+    const copy = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = script?.name || execution.scriptId;
+    const detail = document.createElement("small");
+    detail.textContent = `${execution.hostname || "unknown"} · ${execution.durationMs || 0} ms · ${execution.sanitizedMessage || execution.status}`;
+    copy.append(title, detail);
+    const status = document.createElement("span");
+    status.className = `status-pill${execution.status === "success" ? " status-pill--ready" : execution.status === "failure" || execution.status === "timeout" ? " status-pill--error" : ""}`;
+    status.textContent = execution.status;
+    row.append(copy, status);
+    dom.userScriptExecutionList.appendChild(row);
+  }
+}
+
+function renderUserScripts() {
+  if (!dom.userScriptList) return;
+  dom.userScriptList.replaceChildren();
+  if (!userScriptState.scripts.length) {
+    const empty = document.createElement("div");
+    empty.className = "automation-empty-state";
+    empty.textContent = "尚未安装用户脚本";
+    dom.userScriptList.appendChild(empty);
+    return;
+  }
+  for (const script of userScriptState.scripts) {
+    const card = document.createElement("article");
+    card.className = "userscript-card";
+    card.dataset.enabled = String(script.enabled);
+    const top = document.createElement("div");
+    top.className = "userscript-card-main";
+    const icon = createIconElement("code", "userscript-icon");
+    const copy = document.createElement("div");
+    const heading = document.createElement("div");
+    heading.className = "userscript-card-title";
+    const name = document.createElement("h3");
+    name.textContent = script.name;
+    const version = document.createElement("span");
+    version.className = "status-pill";
+    version.textContent = `v${script.version}`;
+    const source = document.createElement("span");
+    source.className = "status-pill";
+    source.textContent = userScriptSourceLabel(script.sourceType);
+    heading.append(name, version, source);
+    const description = document.createElement("p");
+    description.textContent = script.description || "没有脚本说明";
+    const meta = document.createElement("div");
+    meta.className = "userscript-meta";
+    const domains = [...(script.matches || []), ...(script.includes || [])];
+    [
+      userScriptRunAtLabel(script.runAt),
+      domains.length ? domains.slice(0, 2).join("、") : "无匹配网址",
+      script.grants?.length ? `${script.grants.length} 项权限` : "无宿主权限",
+      script.connects?.length ? `${script.connects.length} 个跨域范围` : "不访问跨域网络",
+    ].forEach((value) => { const span = document.createElement("span"); span.textContent = value; meta.appendChild(span); });
+    copy.append(heading, description, meta);
+    const toggle = document.createElement("label");
+    toggle.className = "toggle-control userscript-toggle";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    const currentHost = hostFromUrl(browserSnapshot.url || "").toLowerCase();
+    const isBuiltIn = script.sourceType === "builtIn";
+    input.checked = isBuiltIn
+      ? Boolean(currentHost && script.approvedSites?.includes(currentHost))
+      : script.enabled === true;
+    const track = document.createElement("span");
+    track.className = "toggle-track";
+    track.appendChild(document.createElement("span"));
+    toggle.append(input, track, document.createTextNode(isBuiltIn ? "当前网站" : script.enabled ? "已启用" : "已停用"));
+    input.addEventListener("change", async () => {
+      const nextEnabled = input.checked;
+      if (nextEnabled) {
+        const permissionSummary = [...(script.grants || []), ...(script.connects || []).map((item) => `connect:${item}`)];
+        const approved = window.confirm(isBuiltIn
+          ? `在当前网站 ${currentHost || "（未打开网页）"} 启用“${script.name}”？\n\n仅保存当前域名授权；登录、支付、密码和 OAuth 回调页面仍会被阻止。`
+          : `启用“${script.name}”？\n\n网址：${domains.join("、") || "无自动匹配"}\n权限：${permissionSummary.join("、") || "无"}\n\n登录、支付、密码和 OAuth 回调页面仍会被阻止。`);
+        if (!approved) { input.checked = false; return; }
+      }
+      input.disabled = true;
+      try {
+        const snapshot = isBuiltIn
+          ? await window.siteNest.setUserScriptSiteApproved(script.id, nextEnabled)
+          : await window.siteNest.setUserScriptEnabled(script.id, nextEnabled);
+        applyUserScriptSnapshot(snapshot);
+        showToast(
+          nextEnabled ? "脚本已启用" : "脚本已停用",
+          isBuiltIn ? `${snapshot.hostname || currentHost} · 刷新页面后生效` : nextEnabled ? "刷新匹配页面后运行" : "后续页面不会再注入",
+        );
+      } catch (error) {
+        input.checked = !nextEnabled;
+        showToast("无法更新脚本", error?.message || "请稍后重试", "error");
+      } finally { input.disabled = false; }
+    });
+    top.append(icon, copy, toggle);
+    const actions = document.createElement("div");
+    actions.className = "userscript-card-actions";
+    if (script.sourceType === "builtIn") {
+      const temporary = document.createElement("button");
+      temporary.type = "button";
+      temporary.className = "secondary-button compact-button";
+      temporary.textContent = "当前页面临时运行";
+      temporary.addEventListener("click", () => void runRestoreCopyScript());
+      actions.appendChild(temporary);
+      if (script.approvedSites?.length) {
+        const sites = document.createElement("span");
+        sites.className = "userscript-site-approvals";
+        sites.textContent = `已允许：${script.approvedSites.join("、")}`;
+        actions.appendChild(sites);
+      }
+    }
+    if (script.sourceType === "remoteUrl") {
+      const update = document.createElement("button");
+      update.type = "button";
+      update.className = "secondary-button compact-button";
+      update.textContent = "检查更新";
+      update.addEventListener("click", () => void reviewUserScriptUpdate(script, update));
+      actions.appendChild(update);
+    }
+    if (script.sourceType !== "builtIn") {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "text-button text-button--danger";
+      remove.textContent = "卸载";
+      remove.addEventListener("click", () => void removeInstalledUserScript(script));
+      actions.appendChild(remove);
+    }
+    const hash = document.createElement("code");
+    hash.className = "userscript-hash";
+    hash.textContent = `SHA-256 ${script.sourceHash.slice(0, 12)}… · 自动更新关闭`;
+    actions.prepend(hash);
+    card.append(top, actions);
+    dom.userScriptList.appendChild(card);
+  }
+  renderUserScriptExecutions();
+}
+
+function applyUserScriptSnapshot(snapshot = {}) {
+  userScriptState = {
+    scripts: Array.isArray(snapshot.scripts) ? snapshot.scripts : userScriptState.scripts,
+    executions: Array.isArray(snapshot.executions) ? snapshot.executions : userScriptState.executions,
+  };
+  renderUserScripts();
+}
+
+async function loadUserScripts() {
+  if (typeof window.siteNest?.getUserScripts !== "function") return;
+  try { applyUserScriptSnapshot(await window.siteNest.getUserScripts()); }
+  catch (error) { showToast("无法读取网页脚本", error?.message || "请稍后重试", "error"); }
+}
+
+function openUserScriptInstall(type) {
+  dom.userScriptInstallForm.reset();
+  dom.userScriptInstallType.value = type;
+  dom.userScriptInstallTitle.textContent = type === "remoteUrl" ? "检查远程脚本" : "检查粘贴脚本";
+  dom.userScriptRemoteField.hidden = type !== "remoteUrl";
+  dom.userScriptSourceField.hidden = type === "remoteUrl";
+  openModal(dom.userScriptInstallModal);
+}
+
+function renderUserScriptReview(review) {
+  pendingUserScriptReview = review;
+  dom.userScriptReviewSummary.replaceChildren();
+  const title = document.createElement("h3");
+  title.textContent = `${review.name} · v${review.version}`;
+  const description = document.createElement("p");
+  description.textContent = review.description || "没有脚本说明";
+  const author = document.createElement("small");
+  author.textContent = `作者：${review.author || "未声明"} · ${review.sourceBytes} 字节 · ${userScriptSourceLabel(review.sourceType)}`;
+  dom.userScriptReviewSummary.append(title, description, author);
+  dom.userScriptReviewMatches.textContent = [...(review.matches || []), ...(review.includes || [])].join("\n") || "未声明（不会自动运行）";
+  dom.userScriptReviewPermissions.textContent = [
+    ...(review.grants || []).map((item) => `@grant ${item}`),
+    ...(review.connects || []).map((item) => `@connect ${item}`),
+  ].join("\n") || "无宿主权限；不允许跨域请求";
+  const issues = review.compatibility?.unsupported || [];
+  const warnings = review.compatibility?.warnings || [];
+  dom.userScriptCompatibility.className = `userscript-compatibility${issues.length ? " is-error" : " is-ready"}`;
+  dom.userScriptCompatibility.textContent = issues.length
+    ? `不兼容：${issues.join("；")}`
+    : warnings.length ? `可以安装；注意：${warnings.join("；")}` : "兼容性检查通过";
+  const diff = review.updateOf && review.diff
+    ? `\n\n代码差异：新增 ${review.diff.addedLines} 行，删除 ${review.diff.removedLines} 行${review.diff.truncated ? "（摘要已截断）" : ""}\n${review.diff.preview}`
+    : "";
+  dom.userScriptSourcePreview.textContent = `SHA-256 ${review.sourceHash}${diff}\n\n新源码摘要：\n${review.sourcePreview}`;
+  dom.confirmUserScriptPermissions.checked = false;
+  dom.confirmUserScriptInstall.disabled = true;
+  dom.confirmUserScriptInstall.textContent = review.updateOf ? "确认更新" : "确认安装";
+  if (review.updateOf && review.changed === false) {
+    dom.userScriptCompatibility.textContent = "当前本地副本已是最新 Hash，不需要替换。";
+  }
+  openModal(dom.userScriptReviewModal);
+}
+
+async function reviewUserScriptUpdate(script, button) {
+  button.disabled = true;
+  try { renderUserScriptReview(await window.siteNest.checkUserScriptUpdate(script.id)); }
+  catch (error) { showToast("无法检查脚本更新", error?.message || "请稍后重试", "error"); }
+  finally { button.disabled = false; }
+}
+
+async function removeInstalledUserScript(script) {
+  if (!window.confirm(`卸载“${script.name}”？脚本专属本地存储和执行记录也会删除。`)) return;
+  try { applyUserScriptSnapshot(await window.siteNest.removeUserScript(script.id)); showToast("脚本已卸载", script.name); }
+  catch (error) { showToast("无法卸载脚本", error?.message || "请稍后重试", "error"); }
+}
+
+async function runRestoreCopyScript() {
+  if (typeof window.siteNest?.runRestoreCopyScript !== "function" || !browserSnapshot.hasOpenPage) {
+    showToast("当前没有可处理的网页", "请先打开目标页面", "error");
+    return;
+  }
+  try {
+    const result = await window.siteNest.runRestoreCopyScript();
+    if (!result?.ok) throw new Error(result?.message || "脚本未完成");
+    showToast("已临时恢复复制与选择", "仅对当前页面生效，刷新后需要重新运行");
+    if (dom.pageActionLastResult) dom.pageActionLastResult.textContent = "恢复复制与选择脚本执行完成";
+  } catch (error) { showToast("无法恢复复制限制", error?.message || "当前页面不允许执行", "error"); }
+}
+
+async function refreshPageUserScriptCommands() {
+  if (!dom.pageUserScriptCommands || typeof window.siteNest?.getUserScriptCommands !== "function") return;
+  dom.pageUserScriptCommands.replaceChildren();
+  try {
+    const commands = await window.siteNest.getUserScriptCommands();
+    dom.pageUserScriptStatus.textContent = commands.length ? `${commands.length} 个命令` : "隔离运行";
+    for (const command of commands) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "page-action-item";
+      button.append(createIconElement("code"));
+      const copy = document.createElement("span");
+      const title = document.createElement("strong"); title.textContent = command.name;
+      const detail = document.createElement("small"); detail.textContent = command.scriptName;
+      copy.append(title, detail);
+      button.append(copy, createIconElement("chevron-right"));
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try { await window.siteNest.executeUserScriptCommand(command.scriptId, command.commandId); showToast("脚本命令已执行", command.name); }
+        catch (error) { showToast("脚本命令执行失败", error?.message || "页面已变化", "error"); }
+        finally { button.disabled = false; }
+      });
+      dom.pageUserScriptCommands.appendChild(button);
+    }
+  } catch { dom.pageUserScriptStatus.textContent = "不可用"; }
+}
+
 function selectAutomationTab(tab, options = {}) {
-  const allowed = new Set(["checkins", "assistants", "workflows", "logs", "extension"]);
-  currentAutomationTab = allowed.has(tab) ? tab : "checkins";
+  const aliases = { workflows: "schedules", extension: "scripts" };
+  const requested = aliases[tab] || tab;
+  const allowed = new Set(["checkins", "scripts", "assistants", "schedules", "logs"]);
+  currentAutomationTab = allowed.has(requested) ? requested : "checkins";
   dom.automationTabs.querySelectorAll("[data-automation-tab]").forEach((button) => {
     const active = button.dataset.automationTab === currentAutomationTab;
     button.classList.toggle("is-active", active);
@@ -3582,6 +3886,7 @@ function selectAutomationTab(tab, options = {}) {
     panel.hidden = !active;
   });
   if (options.load === false) return;
+  if (currentAutomationTab === "scripts") void loadUserScripts();
   if (currentAutomationTab === "assistants") void loadAssistants();
   if (currentAutomationTab === "logs") void loadExecutionLogs();
 }
@@ -4076,10 +4381,12 @@ async function refreshPageActions() {
     if (requestId !== pageActionRequestId) return;
     renderPageActions(result);
     void refreshZohoTicketContext();
+    void refreshPageUserScriptCommands();
   } catch (error) {
     if (requestId !== pageActionRequestId) return;
     renderPageActions(null, error?.message || "无法读取当前页面动作");
     void refreshZohoTicketContext();
+    void refreshPageUserScriptCommands();
   }
 }
 
@@ -4568,6 +4875,48 @@ function bindEvents() {
     const button = event.target.closest("[data-automation-tab]");
     if (button) selectAutomationTab(button.dataset.automationTab);
   });
+  dom.openPastedUserScript.addEventListener("click", () => openUserScriptInstall("pasted"));
+  dom.openRemoteUserScript.addEventListener("click", () => openUserScriptInstall("remoteUrl"));
+  dom.importUserScriptFile.addEventListener("click", async () => {
+    dom.importUserScriptFile.disabled = true;
+    try {
+      const review = await window.siteNest.reviewLocalUserScriptFile();
+      if (review) renderUserScriptReview(review);
+    } catch (error) { showToast("无法读取本地脚本", error?.message || "请检查文件", "error"); }
+    finally { dom.importUserScriptFile.disabled = false; }
+  });
+  dom.userScriptInstallForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = event.submitter || dom.userScriptInstallForm.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      const type = dom.userScriptInstallType.value;
+      const review = type === "remoteUrl"
+        ? await window.siteNest.reviewRemoteUserScript(dom.userScriptRemoteUrl.value.trim())
+        : await window.siteNest.reviewPastedUserScript(dom.userScriptSourceCode.value);
+      closeModal(dom.userScriptInstallModal);
+      renderUserScriptReview(review);
+    } catch (error) { showToast("脚本检查失败", error?.message || "请检查 metadata 和来源", "error"); }
+    finally { submit.disabled = false; }
+  });
+  dom.confirmUserScriptPermissions.addEventListener("change", () => {
+    const compatible = pendingUserScriptReview?.compatibility?.compatible === true;
+    const needsChange = !pendingUserScriptReview?.updateOf || pendingUserScriptReview?.changed !== false;
+    dom.confirmUserScriptInstall.disabled = !dom.confirmUserScriptPermissions.checked || !compatible || !needsChange;
+  });
+  dom.confirmUserScriptInstall.addEventListener("click", async () => {
+    if (!pendingUserScriptReview?.reviewToken || !dom.confirmUserScriptPermissions.checked) return;
+    dom.confirmUserScriptInstall.disabled = true;
+    try {
+      const result = await window.siteNest.confirmUserScriptInstall(pendingUserScriptReview.reviewToken);
+      applyUserScriptSnapshot(result);
+      closeModal(dom.userScriptReviewModal);
+      showToast(pendingUserScriptReview.updateOf ? "脚本已更新" : "脚本已安装并保持停用", result.installed?.name || "用户脚本");
+      pendingUserScriptReview = null;
+    } catch (error) { showToast("无法安装脚本", error?.message || "请重新检查", "error"); }
+    finally { dom.confirmUserScriptInstall.disabled = false; }
+  });
+  dom.runRestoreCopyScript.addEventListener("click", () => void runRestoreCopyScript());
   dom.refreshExecutionLogs.addEventListener("click", () => void loadExecutionLogs());
   [
     "pageImportButton",
@@ -4964,6 +5313,13 @@ function bindEvents() {
       if (task) openTaskModal(task);
     }
   });
+  window.siteNest?.onUserScriptCommandsChanged?.(() => {
+    if (pageActionPanelOpen) void refreshPageUserScriptCommands();
+  });
+  window.siteNest?.onUserScriptsChanged?.((snapshot) => applyUserScriptSnapshot(snapshot));
+  window.siteNest?.onUserScriptExecution?.(() => {
+    if (currentAutomationTab === "scripts") void loadUserScripts();
+  });
   window.siteNest?.onAutomationStatus(({ naixi }) => renderNaixiAutomation(naixi));
 }
 
@@ -4980,6 +5336,7 @@ async function initialize() {
     await loadGoogleSyncStatus();
     await loadTranslationStatus();
     await loadTasks();
+    await loadUserScripts();
     await loadZohoConnectorStatus();
     if (activeWorkspaceId() === "work") void loadZohoDashboard();
     const persistedBrowser = appState.workspaceBrowserStates?.[activeWorkspaceId()];

@@ -293,11 +293,11 @@ test("priority ordering is explainable: overdue before due soon before waiting",
   assert.deepEqual(prioritizeTickets(tickets)[0].reasons.map((item) => item.code), ["sla-overdue"]);
 });
 
-test("v7 migration keeps sites separate from sessions and is idempotent", () => {
+test("v8 migration keeps sites separate from sessions and is idempotent", () => {
   const initial = createInitialState({ now: NOW, defaultSites: [
     { id: "site-a", name: "站点 A", url: "https://a.example/", workspaceId: "work" },
   ] });
-  assert.equal(initial.version, 7);
+  assert.equal(initial.version, 8);
   assert.equal(initial.sites.length, 1);
   assert.equal(initial.workspaceBrowserStates.work.tabs.length, 0);
   assert.deepEqual(initial.uiSettings, {
