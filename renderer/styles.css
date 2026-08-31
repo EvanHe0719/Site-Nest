@@ -6702,6 +6702,18 @@ svg {
   white-space: nowrap;
 }
 
+.usage-home-heatmap-wrap {
+  min-width: 0;
+}
+
+.usage-home-heatmap-wrap > strong {
+  display: block;
+  margin-bottom: 10px;
+  color: #697772;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .usage-mini-heatmap,
 .habit-heatmap {
   min-width: 0;

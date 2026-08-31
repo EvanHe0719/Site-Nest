@@ -267,9 +267,12 @@
                   <h2>栖页使用轨迹</h2>
                   <p>只统计前台且非空闲的有效使用，不记录输入内容、网页正文或后台自动化。</p>
                   <div class="usage-home-stats" id="usageHomeStats"></div>
-                  <button class="text-button" id="openUsageDetails" type="button">打开详细统计 <span data-icon="arrow-right"></span></button>
+                  <button class="text-button" id="openUsageDetails" type="button">查看完整使用热力图 <span data-icon="arrow-right"></span></button>
                 </div>
-                <div class="usage-mini-heatmap" id="usageHomeHeatmap" aria-label="当前年度栖页使用热力图"></div>
+                <div class="usage-home-heatmap-wrap">
+                  <strong>当前年度使用热力图</strong>
+                  <div class="usage-mini-heatmap" id="usageHomeHeatmap" aria-label="当前年度栖页使用热力图"></div>
+                </div>
               </section>
 
               <div class="feature-grid">
@@ -482,10 +485,10 @@
               <section class="plan-view-panel habit-panel" id="habitPanel" data-task-panel="habits" hidden>
                 <div class="habit-summary-bar">
                   <div><span class="section-kicker">LONG-TERM GOALS</span><h2>习惯打卡</h2><p id="habitTodaySummary">读取今日计划…</p></div>
-                  <div class="habit-summary-actions"><button class="secondary-button compact-button" type="button" data-open-content-tags><span data-icon="tag"></span>内容标签</button><button class="secondary-button compact-button" id="openUsageTrackButton" type="button">使用轨迹</button><button class="primary-button compact-button" id="habitAddButton" type="button"><span data-icon="plus"></span>创建长期目标</button></div>
+                  <div class="habit-summary-actions"><button class="secondary-button compact-button" type="button" data-open-content-tags><span data-icon="tag"></span>内容标签</button><button class="secondary-button compact-button" id="openUsageTrackButton" type="button">栖页使用热力图</button><button class="primary-button compact-button" id="habitAddButton" type="button"><span data-icon="plus"></span>创建长期目标</button></div>
                 </div>
                 <section class="usage-detail-card is-hidden" id="usageDetailCard">
-                  <div class="usage-detail-header"><div><h3>栖页使用轨迹</h3><p>与习惯热力图完全分开，不产生坚持星。</p></div><div><label class="settings-switch-row"><span><strong>使用统计</strong><small>仅前台有效使用</small></span><input id="usageTrackingToggle" type="checkbox" checked /></label><button class="text-button text-button--danger" id="clearUsageStats" type="button">清除统计</button></div></div>
+                  <div class="usage-detail-header"><div><h3>栖页使用热力图</h3><p>与每个长期目标的习惯热力图完全分开，不产生坚持星。</p></div><div><label class="settings-switch-row"><span><strong>使用统计</strong><small>仅前台有效使用</small></span><input id="usageTrackingToggle" type="checkbox" checked /></label><button class="text-button text-button--danger" id="clearUsageStats" type="button">清除统计</button></div></div>
                   <div class="usage-detail-stats" id="usageDetailStats"></div>
                   <div class="habit-heatmap habit-heatmap--usage" id="usageDetailHeatmap"></div>
                 </section>
@@ -568,8 +571,8 @@
                 <label class="select-field sites-workspace-filter-field">
                   <span data-icon="grid"></span>
                   <select id="siteWorkspaceFilter" aria-label="筛选所属空间">
-                    <option value="current">当前空间</option>
                     <option value="all">全部空间</option>
+                    <option value="current">当前空间</option>
                   </select>
                   <span data-icon="chevron-down"></span>
                 </label>

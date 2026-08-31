@@ -5512,6 +5512,12 @@ function renderUsage() {
     mode: "usage",
     ariaLabel: `${year} 年栖页使用详情热力图`,
   });
+  if (dom.openUsageTrackButton) {
+    dom.openUsageTrackButton.textContent = usageDetailsVisible
+      ? "收起使用热力图"
+      : "栖页使用热力图";
+    dom.openUsageTrackButton.setAttribute("aria-expanded", String(usageDetailsVisible));
+  }
   dom.usageDetailCard?.classList.toggle("is-hidden", !usageDetailsVisible);
 }
 
@@ -5633,7 +5639,7 @@ function renderHabits() {
     const empty = document.createElement("div");
     empty.className = "habit-empty-state";
     const copy = document.createElement("div");
-    copy.innerHTML = "<strong>还没有长期目标</strong><small>创建一个长期目标，例如健身、阅读或英语学习。</small>";
+    copy.innerHTML = "<strong>还没有长期目标</strong><small>创建后，每个目标都会显示独立的年度热力图、连续记录和坚持星。</small>";
     const button = document.createElement("button");
     button.type = "button";
     button.className = "primary-button compact-button";
@@ -6315,11 +6321,13 @@ function createSiteAction(icon, title, handler, options = {}) {
 
 function renderSiteLibrary() {
   const matches = filteredSites();
-  const scope = dom.siteWorkspaceFilter.value === "all" ? appState.sites : sitesForWorkspace();
+  const allWorkspaces = dom.siteWorkspaceFilter.value === "all";
+  const scope = allWorkspaces ? appState.sites : sitesForWorkspace();
   const queryActive = Boolean(dom.siteSearch.value.trim() || dom.siteFilter.value !== "all");
+  const scopeLabel = allWorkspaces ? "全部空间" : workspaceName(activeWorkspaceId());
   dom.siteLibraryTotal.textContent = queryActive
-    ? `${matches.length} / ${scope.length} 个站点`
-    : `${scope.length} 个站点`;
+    ? `${scopeLabel} · ${matches.length} / ${scope.length} 个站点`
+    : `${scopeLabel} · ${scope.length} 个站点`;
   dom.siteLibraryGrid.replaceChildren();
 
   if (!matches.length) {
@@ -6651,8 +6659,8 @@ function renderAll() {
   renderPlan();
   renderWorkspaceTaskWidgets();
   renderTaskSettings();
-  const workspaceSiteCount = sitesForWorkspace().length;
-  dom.sidebarSiteCount.textContent = workspaceSiteCount > 99 ? "99+" : String(workspaceSiteCount);
+  const siteCount = appState.sites.length;
+  dom.sidebarSiteCount.textContent = siteCount > 99 ? "99+" : String(siteCount);
   renderQuickSites();
   renderWorkHome();
   renderResearchHome();
