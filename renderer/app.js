@@ -38,6 +38,9 @@ const ICONS = {
   link: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.4 14.6 5.2-5.2"/><path d="M7.8 17.8 5.5 20a3.5 3.5 0 0 1-5-5l3.3-3.3a3.5 3.5 0 0 1 4.9 0"/><path d="m16.2 6.2 2.3-2.2a3.5 3.5 0 1 1 5 5l-3.3 3.3a3.5 3.5 0 0 1-4.9 0"/></svg>',
   cloud: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 18.5h10.4a4.1 4.1 0 0 0 .5-8.2A6.4 6.4 0 0 0 5.8 9a4.8 4.8 0 0 0 1.4 9.5Z"/></svg>',
   language: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/><path d="m15.5 16.5 2 2 3.5-4"/></svg>',
+  volume: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg>',
+  muted: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="m17 10 5 5M22 10l-5 5"/></svg>',
+  more: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none"/></svg>',
   calendar: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2.8v4.4M17 2.8v4.4M3 9h18M7 13h.01M12 13h.01M17 13h.01M7 17h.01M12 17h.01"/></svg>',
   code: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 7-5 5 5 5M15.5 7l5 5-5 5M14 4l-4 16"/></svg>',
   tag: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 5.5v5.2L13 20.2a1.8 1.8 0 0 0 2.5 0l4.7-4.7a1.8 1.8 0 0 0 0-2.5L10.7 3.5H5.5a2 2 0 0 0-2 2Z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg>',
@@ -162,8 +165,8 @@ const dom = {
   browserPage: document.getElementById("browserPage"),
   browserTabBar: document.getElementById("browserTabBar"),
   browserTabList: document.getElementById("browserTabList"),
-  browserTabHint: document.getElementById("browserTabHint"),
-  browserOrganizeTabs: document.getElementById("browserOrganizeTabs"),
+  newBrowserTabButton: document.getElementById("newBrowserTabButton"),
+  dataStatusButton: document.getElementById("dataStatusButton"),
   webviewFrame: document.getElementById("webviewFrame"),
   webviewPlaceholder: document.getElementById("webviewPlaceholder"),
   webviewPlaceholderSpinner: document.getElementById("webviewPlaceholderSpinner"),
@@ -508,9 +511,8 @@ const dom = {
   refreshExecutionLogs: document.getElementById("refreshExecutionLogs"),
   browserContent: document.getElementById("browserContent"),
   pageActionsButton: document.getElementById("pageActionsButton"),
-  duplicateCurrentTab: document.getElementById("duplicateCurrentTab"),
-  detachCurrentTab: document.getElementById("detachCurrentTab"),
-  detachCurrentTabLabel: document.getElementById("detachCurrentTabLabel"),
+  browserAudioButton: document.getElementById("browserAudioButton"),
+  browserMoreMenu: document.getElementById("browserMoreMenu"),
   closePageActions: document.getElementById("closePageActions"),
   pageActionPanel: document.getElementById("pageActionPanel"),
   pageActionTitle: document.getElementById("pageActionTitle"),
@@ -715,6 +717,8 @@ let settingsCardRegistry = new Map();
 let activeSettingsSection = "general";
 let expandedSettingsPanel = null;
 let zohoFormEventsBound = false;
+let browserBoundsFrame = 0;
+let lastBrowserBoundsKey = "";
 const dirtySettingsPanels = new Set();
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "site-nest.sidebar-collapsed";
@@ -2058,6 +2062,8 @@ function normalizeWorkspaceBrowserState(value, workspaceId = activeWorkspaceId()
       tabGroupId: tab.tabGroupId ? String(tab.tabGroupId) : null,
       groupSortOrder: Number.isFinite(Number(tab.groupSortOrder)) ? Number(tab.groupSortOrder) : 0,
       lifecycleState: String(tab.lifecycleState || ""),
+      audible: tab.audible === true,
+      muted: tab.muted === true,
     }));
   const rawGroups = Array.isArray(incoming.tabGroups)
     ? incoming.tabGroups
@@ -2176,21 +2182,20 @@ function updateBrowserTabContentState(value = browserSnapshot) {
     ? "点击独立标签可聚焦窗口，也可以使用“合回”按钮返回栖页主窗口。"
     : "浏览视图会立即显示，网页内容将渐进载入";
   dom.pageActionsButton.disabled = noAttachedTab;
-  dom.duplicateCurrentTab.disabled = !activeTab;
-  dom.duplicateCurrentTab.dataset.tabId = activeTab?.tabId || "";
-  dom.detachCurrentTab.disabled = !activeTab;
-  dom.detachCurrentTab.dataset.tabId = activeTab?.tabId || "";
-  dom.detachCurrentTab.dataset.tabAction = activeTab?.detached ? "reattach" : "detach";
-  dom.detachCurrentTabLabel.textContent = activeTab?.detached ? "合回空间" : "独立窗口";
-  const detachIcon = dom.detachCurrentTab.querySelector("[data-icon]");
-  if (detachIcon) {
-    detachIcon.dataset.icon = activeTab?.detached ? "route" : "external";
-    detachIcon.dataset.iconMounted = "true";
-    detachIcon.innerHTML = iconMarkup(detachIcon.dataset.icon);
+  dom.browserMoreMenu.disabled = !activeTab;
+  dom.browserMoreMenu.dataset.tabId = activeTab?.tabId || "";
+  const audioVisible = Boolean(activeTab && (activeTab.audible || activeTab.muted));
+  dom.browserAudioButton.classList.toggle("is-hidden", !audioVisible);
+  dom.browserAudioButton.disabled = !activeTab;
+  dom.browserAudioButton.dataset.tabId = activeTab?.tabId || "";
+  dom.browserAudioButton.title = activeTab?.muted ? "取消静音当前页" : "静音当前页";
+  dom.browserAudioButton.setAttribute("aria-label", dom.browserAudioButton.title);
+  const audioIcon = dom.browserAudioButton.querySelector("[data-icon]");
+  if (audioIcon) {
+    audioIcon.dataset.icon = activeTab?.muted ? "muted" : "volume";
+    audioIcon.dataset.iconMounted = "true";
+    audioIcon.innerHTML = iconMarkup(audioIcon.dataset.icon);
   }
-  dom.detachCurrentTab.title = activeTab?.detached
-    ? "将当前独立标签合回主窗口"
-    : "将当前标签拆到独立窗口";
   if (noAttachedTab && activeTab) {
     dom.browserBack.disabled = true;
     dom.browserForward.disabled = true;
@@ -2463,7 +2468,6 @@ async function openDuplicateTabsDialog(workspaceId = activeWorkspaceId()) {
 
 function renderBrowserTabs(value = browserSnapshot) {
   const snapshot = normalizeWorkspaceBrowserState(value, value?.workspaceId || activeWorkspaceId());
-  dom.browserTabHint.textContent = `${workspaceName(snapshot.workspaceId)}空间 · 按住标签向下拖可拆出`;
   dom.browserTabList.replaceChildren();
   const appendBrowserTab = (tab, target) => {
     const item = document.createElement("div");
@@ -2503,18 +2507,6 @@ function renderBrowserTabs(value = browserSnapshot) {
 
     const actions = document.createElement("span");
     actions.className = "browser-tab-actions";
-    const windowAction = document.createElement("button");
-    windowAction.type = "button";
-    windowAction.className = "browser-tab-action";
-    windowAction.dataset.tabAction = tab.detached ? "reattach" : "detach";
-    windowAction.title = tab.detached ? "合回主窗口" : "拆到独立窗口";
-    windowAction.setAttribute("aria-label", windowAction.title);
-    windowAction.appendChild(createIconElement(tab.detached ? "route" : "external"));
-    windowAction.addEventListener("click", (event) => {
-      event.stopPropagation();
-      if (tab.detached) void reattachBrowserTab(tab.tabId);
-      else void detachBrowserTabToWindow(tab.tabId);
-    });
     const close = document.createElement("button");
     close.type = "button";
     close.className = "browser-tab-action";
@@ -2526,7 +2518,7 @@ function renderBrowserTabs(value = browserSnapshot) {
       event.stopPropagation();
       void closeBrowserTab(tab.tabId);
     });
-    actions.append(windowAction, close);
+    actions.append(close);
     item.append(main, actions);
 
     item.addEventListener("contextmenu", (event) => {
@@ -3334,8 +3326,16 @@ function browserBounds() {
 }
 
 function syncBrowserBounds() {
-  if (!currentSite || !dom.browserPage.classList.contains("is-visible")) return;
-  window.siteNest?.setBrowserBounds(browserBounds());
+  if (browserBoundsFrame) return;
+  browserBoundsFrame = window.requestAnimationFrame(() => {
+    browserBoundsFrame = 0;
+    if (!currentSite || !dom.browserPage.classList.contains("is-visible")) return;
+    const bounds = browserBounds();
+    const key = `${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}`;
+    if (key === lastBrowserBoundsKey) return;
+    lastBrowserBoundsKey = key;
+    window.siteNest?.setBrowserBounds(bounds);
+  });
 }
 
 function formatAutomationTime(value) {
@@ -3530,6 +3530,10 @@ function switchWorkspace(workspaceId) {
 }
 
 function updateActiveNavigation() {
+  dom.appShell.classList.toggle(
+    "is-browser-active",
+    dom.browserPage.classList.contains("is-visible"),
+  );
   document.querySelectorAll("[data-route]").forEach((button) => {
     const route = ["bookmarks", "chromeBookmarks", "chrome-bookmarks"].includes(button.dataset.route)
       ? "settings"
@@ -3862,6 +3866,12 @@ async function executeSessionContextAction(session, action) {
     await copySessionUrl(session.tabId);
   } else if (action === "open-external") {
     await openSessionExternally(session.tabId);
+  } else if (action === "detach") {
+    await detachBrowserTabToWindow(session.tabId);
+  } else if (action === "reattach") {
+    await reattachBrowserTab(session.tabId);
+  } else if (action === "toggle-mute") {
+    commitBrowserTabResult(await window.siteNest.toggleBrowserTabMute(session.tabId));
   } else if (action === "keep-running" || action === "allow-sleep") {
     browserLifecycleState = await window.siteNest.setBrowserTabKeepRunning(session.tabId, action === "keep-running");
     renderBrowserMemorySettings();
@@ -8845,7 +8855,7 @@ function bindEvents() {
     workspaceId: activeWorkspaceId(),
     siteKind: defaultSiteKind(),
   }));
-  dom.browserOrganizeTabs.addEventListener("click", () => void openDuplicateTabsDialog(activeWorkspaceId()));
+  dom.newBrowserTabButton.addEventListener("click", () => openGlobalSearchPalette());
   dom.tabGroupForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const groupId = dom.tabGroupId.value;
@@ -9180,18 +9190,18 @@ function bindEvents() {
   document.getElementById("openExternal").addEventListener("click", () =>
     void window.siteNest.browserAction("external"),
   );
-  dom.duplicateCurrentTab.addEventListener("click", () => {
-    const tabId = dom.duplicateCurrentTab.dataset.tabId;
-    if (tabId) void duplicateExistingBrowserTab(tabId);
-  });
-  dom.detachCurrentTab.addEventListener("click", () => {
-    const tabId = dom.detachCurrentTab.dataset.tabId;
+  dom.browserAudioButton.addEventListener("click", async () => {
+    const tabId = dom.browserAudioButton.dataset.tabId;
     if (!tabId) return;
-    if (dom.detachCurrentTab.dataset.tabAction === "reattach") {
-      void reattachBrowserTab(tabId);
-    } else {
-      void detachBrowserTabToWindow(tabId);
+    try {
+      commitBrowserTabResult(await window.siteNest.toggleBrowserTabMute(tabId));
+    } catch (error) {
+      showToast("无法切换静音", error?.message || "请稍后重试", "error");
     }
+  });
+  dom.browserMoreMenu.addEventListener("click", () => {
+    const activeTab = activeBrowserTab(browserSnapshot);
+    if (activeTab) void openTopTabContextMenu(activeTab);
   });
   dom.pageActionsButton.addEventListener("click", () => {
     const next = !pageActionPanelOpen;

@@ -194,6 +194,7 @@ const APP_ID = "local.qiye.sitehub";
 const SITE_PARTITION = "persist:qiye-sites";
 const SAP_SITE_PARTITION = "persist:qiye-sap-support";
 const DETACHED_HEADER_HEIGHT = 56;
+const MAIN_TITLE_TAB_ROW_HEIGHT = 38;
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 const CAPTURE_PATH = process.env.QIYE_CAPTURE_PATH;
 const CAPTURE_ROUTE = process.env.QIYE_CAPTURE_ROUTE || "home";
@@ -670,6 +671,8 @@ function tabSummary(tab, activeTabId) {
     groupSortOrder: Number(tab.groupSortOrder) || 0,
     keepRunning: Boolean(tab.keepRunning),
     lifecycleState: tab.runtimeState?.state || (tab.view ? "warm" : "suspended"),
+    audible: Boolean(tab.view?.webContents?.isCurrentlyAudible?.()),
+    muted: Boolean(tab.view?.webContents?.isAudioMuted?.()),
     active: tab.tabId === activeTabId,
   };
 }
@@ -2612,6 +2615,13 @@ function ensureSiteView(context = activeBrowserContext()) {
       context,
     );
   });
+  const emitAudioState = () => compactBrowserState({
+    audible: view.webContents.isCurrentlyAudible?.() || false,
+    muted: view.webContents.isAudioMuted?.() || false,
+  }, context);
+  view.webContents.on("media-started-playing", emitAudioState);
+  view.webContents.on("media-paused", emitAudioState);
+  view.webContents.on("audio-state-changed", emitAudioState);
   view.webContents.on("dom-ready", () => {
     if (context.navigationTraceId) {
       navigationPerformanceTracer.mark(context.navigationTraceId, "domReadyAt");
@@ -3741,6 +3751,15 @@ function showBrowserTabContextMenu(event, payload) {
       { label: "复制页签", click: () => select("duplicate") },
       { label: "复制页面链接", click: () => select("copy-url") },
       { label: "在外部浏览器打开", click: () => select("open-external") },
+      {
+        label: source.detached ? "合回空间" : "在独立窗口打开",
+        click: () => select(source.detached ? "reattach" : "detach"),
+      },
+      {
+        label: source.view?.webContents?.isAudioMuted?.() ? "取消静音" : "静音页签",
+        enabled: Boolean(source.view && !source.view.webContents.isDestroyed()),
+        click: () => select("toggle-mute"),
+      },
       { type: "separator" },
       {
         label: "添加到分组",
@@ -3964,6 +3983,13 @@ async function browserActionForContext(context, action, value) {
     case "external":
       if (isSafeWebUrl(contents.getURL())) await shell.openExternal(contents.getURL());
       break;
+    case "toggle-mute":
+      contents.setAudioMuted(!contents.isAudioMuted());
+      compactBrowserState({
+        muted: contents.isAudioMuted(),
+        audible: contents.isCurrentlyAudible?.() || false,
+      }, context);
+      break;
     case "site-login": {
       const host = new URL(contents.getURL()).hostname;
       if (host === "nodeseek.com" || host.endsWith(".nodeseek.com")) {
@@ -3997,6 +4023,22 @@ async function browserAction(action, value) {
   const context = activeBrowserContext(workspace);
   await browserActionForContext(context, action, value);
   return workspace ? emitWorkspaceBrowserState(workspace) : emptyBrowserState(activeBrowserWorkspaceId);
+}
+
+function toggleBrowserTabMute(payload) {
+  const found = findRuntimeTab(payload?.tabId || payload);
+  const contents = found?.tab?.view?.webContents;
+  if (!contents || contents.isDestroyed()) throw new Error("当前页签尚未载入，无法切换静音");
+  contents.setAudioMuted(!contents.isAudioMuted());
+  compactBrowserState({
+    muted: contents.isAudioMuted(),
+    audible: contents.isCurrentlyAudible?.() || false,
+  }, found.tab);
+  return {
+    tabId: found.tab.tabId,
+    muted: contents.isAudioMuted(),
+    browserState: emitWorkspaceBrowserState(found.workspace),
+  };
 }
 
 function applyDetachedViewBounds(tab) {
@@ -5912,6 +5954,9 @@ function registerIpc() {
   ipcMain.handle("browser:open-tab-external", (_event, payload) =>
     openBrowserTabExternal(payload),
   );
+  ipcMain.handle("browser:toggle-tab-mute", (_event, payload) =>
+    toggleBrowserTabMute(payload),
+  );
   ipcMain.handle("browser:show-tab-context-menu", (event, payload) =>
     showBrowserTabContextMenu(event, payload),
   );
@@ -6471,7 +6516,7 @@ function createMainWindow() {
     titleBarOverlay: {
       color: "#f8f7f4",
       symbolColor: "#56605d",
-      height: 48,
+      height: MAIN_TITLE_TAB_ROW_HEIGHT,
     },
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),

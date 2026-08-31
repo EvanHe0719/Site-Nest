@@ -1577,8 +1577,9 @@ async function runTabsCopyUiScenario(window) {
     pageActionsDisplay: getComputedStyle(dom.pageActionsButton).display,
     pageActionPanelDisplay: getComputedStyle(dom.pageActionPanel).display,
     hasConnectionStrip: Boolean(document.querySelector('.browser-context-bar')),
-    duplicateButtonVisible: !dom.duplicateCurrentTab.hidden,
-    detachLabel: dom.detachCurrentTabLabel.textContent,
+    duplicateButtonVisible: Boolean(document.getElementById('duplicateCurrentTab')),
+    detachLabel: document.getElementById('detachCurrentTabLabel')?.textContent || '',
+    hasMoreMenu: Boolean(dom.browserMoreMenu),
   }))()`);
   const pageActions = await window.webContents.executeJavaScript(`(async () => {
     dom.pageActionsButton.click();

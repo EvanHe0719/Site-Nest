@@ -12,7 +12,7 @@
   </head>
   <body>
     <div class="app-shell">
-      <header class="titlebar">
+      <header class="titlebar" id="browserChromeHeader">
         <div class="brand-lockup">
           <div class="brand-mark" aria-hidden="true">
             <svg viewBox="0 0 36 36" role="img">
@@ -24,13 +24,19 @@
           <span class="brand-name">栖页</span>
           <span class="brand-version" id="brandVersion">0.5.5 DEV</span>
         </div>
+        <div class="browser-tabbar" id="browserTabBar" aria-label="当前空间标签组">
+          <div class="browser-tab-list" id="browserTabList" role="tablist" aria-label="网页标签"></div>
+          <button class="browser-tabbar-tool" id="newBrowserTabButton" type="button" title="新建页签" aria-label="新建页签"><span data-icon="plus"></span></button>
+        </div>
         <div class="titlebar-center">
           <button class="titlebar-search-trigger" id="globalSearchTrigger" type="button" aria-haspopup="dialog" aria-controls="globalSearchPalette" data-action-id="search.open">
             <span data-icon="search"></span>
             <span>搜索</span>
             <kbd>Ctrl K</kbd>
           </button>
-          <span class="titlebar-privacy"><span class="privacy-dot"></span><span>数据仅保存在本机</span></span>
+          <button class="titlebar-data-status" id="dataStatusButton" type="button" title="本地数据正常" aria-label="查看数据与同步状态" aria-haspopup="dialog" aria-expanded="false">
+            <span class="privacy-dot"></span>
+          </button>
         </div>
       </header>
 
@@ -1222,11 +1228,6 @@
           </section>
 
           <section class="browser-page" id="browserPage" aria-label="网站阅读区">
-            <div class="browser-tabbar" id="browserTabBar" aria-label="当前空间标签组">
-              <div class="browser-tab-list" id="browserTabList" role="tablist" aria-label="网页标签"></div>
-              <button class="browser-tabbar-tool" id="browserOrganizeTabs" type="button" title="整理重复页签" aria-label="整理重复页签"><span data-icon="folder"></span></button>
-              <span class="browser-tabbar-hint" id="browserTabHint">个人空间 · 按住标签向下拖可拆出</span>
-            </div>
             <div class="browser-toolbar">
               <div class="browser-nav-buttons">
                 <button class="toolbar-button" id="browserBack" type="button" title="后退" disabled>
@@ -1254,14 +1255,6 @@
                 <button class="toolbar-button" id="translatePageButton" type="button" title="翻译本页">
                   <span data-icon="language"></span>
                 </button>
-                <button class="toolbar-button toolbar-button--labeled" id="duplicateCurrentTab" type="button" title="复制当前页签">
-                  <span data-icon="copy"></span>
-                  <span>复制页签</span>
-                </button>
-                <button class="toolbar-button toolbar-button--labeled" id="detachCurrentTab" type="button" title="将当前标签拆到独立窗口">
-                  <span data-icon="external"></span>
-                  <span id="detachCurrentTabLabel">独立窗口</span>
-                </button>
                 <button
                   class="toolbar-button page-actions-button"
                   id="pageActionsButton"
@@ -1272,6 +1265,9 @@
                   aria-expanded="false"
                 >
                   <span data-icon="spark"></span>
+                </button>
+                <button class="toolbar-button is-hidden" id="browserAudioButton" type="button" title="静音当前页" aria-label="静音当前页">
+                  <span data-icon="volume"></span>
                 </button>
                 <div class="zoom-control">
                   <button class="toolbar-button" id="zoomOut" type="button" title="缩小">
@@ -1284,6 +1280,9 @@
                 </div>
                 <button class="toolbar-button" id="openExternal" type="button" title="在默认浏览器打开">
                   <span data-icon="external"></span>
+                </button>
+                <button class="toolbar-button" id="browserMoreMenu" type="button" title="更多网页操作" aria-label="更多网页操作" aria-haspopup="menu">
+                  <span data-icon="more"></span>
                 </button>
                 <button class="toolbar-button toolbar-button--labeled is-hidden" id="siteLoginButton" type="button">
                   <span data-icon="cookie"></span>

@@ -65,6 +65,8 @@ contextBridge.exposeInMainWorld("siteNest", {
     ipcRenderer.invoke("browser:copy-tab-url", { tabId }),
   openBrowserTabExternal: (tabId) =>
     ipcRenderer.invoke("browser:open-tab-external", { tabId }),
+  toggleBrowserTabMute: (tabId) =>
+    ipcRenderer.invoke("browser:toggle-tab-mute", { tabId }),
   showBrowserTabContextMenu: (tabId) =>
     ipcRenderer.invoke("browser:show-tab-context-menu", { tabId }),
   showBrowserTabGroupContextMenu: (groupId) =>

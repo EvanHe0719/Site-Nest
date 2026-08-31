@@ -235,7 +235,7 @@ test("detaching, focusing and reattaching a tab preserves its identity and rende
   assert.equal(result.detached.noAttachedTab, true);
   assert.match(result.detached.placeholderTitle, /独立窗口/);
   assert.equal(result.detached.tabDom[0].mainAction, "focus");
-  assert.equal(result.detached.tabDom[0].windowAction, "reattach");
+  assert.equal(result.detached.tabDom[0].windowAction, "close");
   assert.deepEqual(result.trace.focusedDetachedTabs, [tabId]);
 
   assert.equal(result.reattached.browserSnapshot.activeTabId, tabId);
@@ -295,8 +295,9 @@ test("top and sidebar session menus share duplicate behavior and target inactive
   assert.notEqual(result.chrome.pageActionsDisplay, "none");
   assert.equal(result.chrome.pageActionPanelDisplay, "none");
   assert.equal(result.chrome.hasConnectionStrip, false);
-  assert.equal(result.chrome.duplicateButtonVisible, true);
-  assert.equal(result.chrome.detachLabel, "独立窗口");
+  assert.equal(result.chrome.duplicateButtonVisible, false);
+  assert.equal(result.chrome.detachLabel, "");
+  assert.equal(result.chrome.hasMoreMenu, true);
   assert.equal(result.pageActions.opened.hidden, false);
   assert.notEqual(result.pageActions.opened.display, "none");
   assert.equal(result.pageActions.opened.ariaHidden, "false");
