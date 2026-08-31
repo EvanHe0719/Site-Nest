@@ -555,13 +555,15 @@ test("Google sync card exposes the full account flow and rerenders cloud-restore
   assert.deepEqual(result.trace.googleActions, ["sign-in", "sync", "restore", "sign-out"]);
 });
 
-test("Google sync renders a real conflict and requires an explicit resolution", async () => {
+test("Google sync renders record conflicts without offering unsafe whole-dataset overwrite", async () => {
   const result = await runHarness("google-sync-conflict-ui");
   assert.equal(result.conflict.driveStatus, "存在同步冲突");
-  assert.match(result.conflict.toasts.join(" "), /发现同步冲突/);
-  assert.equal(result.resolved.driveStatus, "已同步");
-  assert.match(result.resolved.toasts.join(" "), /同步冲突已处理/);
-  assert.deepEqual(result.trace.googleActions, ["sign-in", "sync", "conflict:merge"]);
+  assert.match(result.conflict.toasts.join(" "), /发现记录冲突/);
+  assert.equal(result.details.status, "conflict");
+  assert.match(result.details.text, /task-work-report/);
+  assert.match(result.details.text, /title/);
+  assert.equal(result.details.hasUnsafeOverwriteButtons, false);
+  assert.deepEqual(result.trace.googleActions, ["sign-in", "sync", "conflict:details"]);
 });
 
 test("Chrome bookmarks live in Settings, legacy and home entries focus the module, and explicit maintenance preserves then clears data", async () => {

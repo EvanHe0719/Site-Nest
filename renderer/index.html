@@ -193,13 +193,11 @@
                   <button class="google-sync-signout" id="googleSignOutButton" type="button">退出 Google</button>
                 </div>
                 <div class="google-sync-conflict is-hidden" id="googleSyncConflict">
-                  <strong>本地数据和云端数据都发生了变化。</strong>
+                  <strong>存在需要逐条确认的记录冲突。</strong>
+                  <p>栖页不会用整库覆盖来隐藏冲突。你可以查看对象和差异摘要，稍后再处理。</p>
                   <div class="google-sync-actions">
-                    <button class="primary-button google-sync-action" type="button" data-google-conflict="merge">智能合并</button>
-                    <button class="secondary-button google-sync-action" type="button" data-google-conflict="local">使用本地</button>
-                    <button class="secondary-button google-sync-action" type="button" data-google-conflict="cloud">使用云端</button>
-                    <button class="secondary-button google-sync-action" type="button" data-google-conflict="details">查看差异</button>
-                    <button class="google-sync-signout" type="button" data-google-conflict="cancel">取消</button>
+                    <button class="primary-button google-sync-action" type="button" data-google-conflict="details">查看记录冲突</button>
+                    <button class="google-sync-signout" type="button" data-google-conflict="cancel">稍后处理</button>
                   </div>
                 </div>
               </section>

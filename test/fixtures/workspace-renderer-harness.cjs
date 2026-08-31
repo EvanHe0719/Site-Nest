@@ -780,7 +780,7 @@ function registerHarnessIpc() {
       Object.assign(googleSyncState, {
         status: "conflict",
         drive: { status: "conflict", grantedScopes: { identity: true, driveAppData: true } },
-        conflict: { localRevision: "local-revision", remoteRevision: "remote-revision" },
+        conflict: { count: 1, detectedAt: "2026-08-29T12:44:00.000Z" },
         error: "",
       });
       return { ...clone(googleSyncState), syncResult: { action: "conflict", message: "本地数据和云端数据都发生了变化。" } };
@@ -833,14 +833,19 @@ function registerHarnessIpc() {
   }));
   ipcMain.handle("workspace-harness:google-resolve-conflict", (_event, payload) => {
     trace.googleActions.push(`conflict:${payload?.strategy || "cancel"}`);
-    Object.assign(googleSyncState, {
-      status: "synced",
-      drive: { status: "synced", grantedScopes: { identity: true, driveAppData: true } },
-      conflict: null,
-      lastSyncAt: "2026-08-29T12:45:00.000Z",
-      error: "",
-    });
-    return { ...clone(googleSyncState), state: clone(state), syncResult: { action: payload?.strategy || "cancel", message: "测试冲突已处理" } };
+    return {
+      ...clone(googleSyncState),
+      conflicts: [{
+        id: "conflict-task-1",
+        entityType: "task",
+        entityId: "task-work-report",
+        localVersion: { title: "本机周报", updatedAt: "2026-08-29T12:40:00.000Z" },
+        remoteVersion: { title: "云端周报", updatedAt: "2026-08-29T12:41:00.000Z" },
+        conflictType: "task-concurrent-update",
+        detectedAt: "2026-08-29T12:44:00.000Z",
+      }],
+      diff: { records: [] },
+    };
   });
   ipcMain.handle("workspace-harness:set-active", async (_event, rawWorkspaceId) => {
     const workspaceId = String(rawWorkspaceId || "");
@@ -1977,10 +1982,18 @@ async function runGoogleSyncConflictScenario(window) {
   await window.webContents.executeJavaScript("dom.googleSyncNowButton.click()");
   await waitForRendererCondition(window, "googleSyncState.drive?.status === 'conflict' && !dom.googleSyncConflict.classList.contains('is-hidden')", "Google conflict did not render");
   const conflict = await window.webContents.executeJavaScript(googleSyncUiSnapshotScript("google-conflict"));
-  await window.webContents.executeJavaScript("dom.googleSyncConflict.querySelector('[data-google-conflict=merge]').click()");
-  await waitForRendererCondition(window, "googleSyncState.drive?.status === 'synced' && dom.googleSyncConflict.classList.contains('is-hidden')", "Google conflict did not resolve");
-  const resolved = await window.webContents.executeJavaScript(googleSyncUiSnapshotScript("google-conflict-resolved"));
-  return { conflict, resolved, trace: clone(trace) };
+  await window.webContents.executeJavaScript(`(() => {
+    window.__conflictDetails = '';
+    window.alert = (message) => { window.__conflictDetails = String(message); };
+    dom.googleSyncConflict.querySelector('[data-google-conflict=details]').click();
+  })()`);
+  await waitForRendererCondition(window, "!googleSyncBusyAction && window.__conflictDetails.includes('task-work-report')", "record conflict details did not render");
+  const details = await window.webContents.executeJavaScript(`(() => ({
+    status: googleSyncState.drive?.status,
+    text: window.__conflictDetails,
+    hasUnsafeOverwriteButtons: Boolean(dom.googleSyncConflict.querySelector('[data-google-conflict=merge], [data-google-conflict=local], [data-google-conflict=cloud]')),
+  }))()`);
+  return { conflict, details, trace: clone(trace) };
 }
 
 function sessionSidebarSnapshotScript(label) {

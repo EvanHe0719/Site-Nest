@@ -3465,7 +3465,7 @@ async function runGoogleSyncAction(action) {
       renderGoogleSync();
     }
     if (googleSyncState.status === "conflict") {
-      showToast("发现同步冲突", "请选择智能合并、使用本地或使用云端", "info", { key: "google-sync", durationMs: 3600 });
+      showToast("发现记录冲突", "栖页不会整库覆盖；请查看冲突记录并逐条确认", "info", { key: "google-sync", durationMs: 3600 });
       return;
     }
     if (googleSyncState.errorCode && googleSyncState.error) {
@@ -3493,9 +3493,9 @@ async function runGoogleSyncAction(action) {
 
 async function resolveGoogleConflict(strategy) {
   if (googleSyncBusyAction || typeof window.siteNest?.googleResolveConflict !== "function") return;
-  if (["local", "cloud"].includes(strategy)) {
-    const label = strategy === "local" ? "使用本地数据覆盖云端" : "使用云端数据覆盖本地";
-    if (!window.confirm(`${label}？\n\n操作前会在本机创建快照。`)) return;
+  if (strategy === "cancel") {
+    setGoogleSyncPopoverOpen(false, { focusCard: true });
+    return;
   }
   googleSyncBusyAction = "conflict";
   renderGoogleSync();
@@ -3507,10 +3507,16 @@ async function resolveGoogleConflict(strategy) {
       renderAll();
     }
     if (strategy === "details") {
-      const diff = result?.diff || {};
-      window.alert(`本地版本：${diff.localRevision || "未知"}\n云端版本：${diff.remoteRevision || "未知"}\n\n本地模块：${(diff.localModules || []).join("、")}\n云端模块：${(diff.remoteModules || []).join("、")}`);
-    } else if (strategy !== "cancel") {
-      showToast("同步冲突已处理", result?.syncResult?.message || "已完成", "success");
+      const records = Array.isArray(result?.conflicts) ? result.conflicts : (result?.diff?.records || []);
+      const lines = records.slice(0, 20).map((record, index) => {
+        const local = record.localVersion || {};
+        const remote = record.remoteVersion || {};
+        const title = local.title || local.name || remote.title || remote.name || record.entityId;
+        const changedKeys = Array.from(new Set([...Object.keys(local), ...Object.keys(remote)]))
+          .filter((key) => JSON.stringify(local[key]) !== JSON.stringify(remote[key]) && !/token|secret|password|cookie|authorization/i.test(key));
+        return `${index + 1}. ${record.entityType} · ${title}\n   对象：${record.entityId}\n   差异字段：${changedKeys.slice(0, 8).join("、") || "需要人工核对"}`;
+      });
+      window.alert(`未解决记录冲突：${records.length} 条\n\n${lines.join("\n\n") || "当前没有可显示的冲突记录。"}${records.length > 20 ? "\n\n仅显示前 20 条。" : ""}`);
     }
   } catch (error) {
     showToast("无法处理同步冲突", googleSyncErrorMessage(error), "error");
