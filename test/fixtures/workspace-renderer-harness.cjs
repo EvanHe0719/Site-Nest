@@ -19,6 +19,8 @@ const {
   undoTabGroupMerge,
   updateTabGroup,
 } = require("../../electron/browser/tab-organization.cjs");
+const { createUIActionRegistry } = require("../../electron/ui-actions/index.cjs");
+const { ShortcutDispatcher, ShortcutRegistry } = require("../../electron/shortcuts/index.cjs");
 
 const scenario = process.env.QIYE_WORKSPACE_HARNESS_SCENARIO || "isolation";
 const width = Number(process.env.QIYE_WORKSPACE_HARNESS_WIDTH) || 1480;
@@ -166,7 +168,13 @@ const state = {
       lastSuccessDate: null,
     },
   },
+  shortcutProfiles: [],
+  shortcutBindings: [],
 };
+
+const harnessUIActions = createUIActionRegistry();
+const harnessShortcutRegistry = new ShortcutRegistry(harnessUIActions, { platform: "windows" });
+const harnessShortcutDispatcher = new ShortcutDispatcher(harnessShortcutRegistry, harnessUIActions);
 
 const googleSyncScenario =
   scenario === "google-sync-ui" || scenario === "google-sync-visual" || scenario === "google-sync-conflict-ui";
@@ -406,6 +414,26 @@ function delayForWorkspace(workspaceId) {
 
 function registerHarnessIpc() {
   ipcMain.handle("workspace-harness:get-state", () => clone(state));
+  ipcMain.handle("workspace-harness:get-shortcuts", () => harnessShortcutRegistry.snapshot(state, "windows"));
+  ipcMain.handle("workspace-harness:update-shortcut", (_event, input = {}) => {
+    const result = harnessShortcutRegistry.updateState(state, { ...input, platform: "windows" });
+    if (result.requiresResolution) {
+      return {
+        ...harnessShortcutRegistry.snapshot(state, "windows"),
+        requiresResolution: true,
+        pendingBinding: result.binding,
+        conflictBindings: result.conflicts,
+      };
+    }
+    Object.assign(state, result.state);
+    return harnessShortcutRegistry.snapshot(state, "windows");
+  });
+  ipcMain.handle("workspace-harness:reset-shortcuts", (_event, options = {}) => {
+    Object.assign(state, harnessShortcutRegistry.resetState(state, { ...options, platform: "windows" }));
+    return harnessShortcutRegistry.snapshot(state, "windows");
+  });
+  ipcMain.handle("workspace-harness:dispatch-shortcut", (_event, request = {}) =>
+    harnessShortcutDispatcher.authorize(state, { ...request, platform: "windows" }));
   ipcMain.handle("workspace-harness:get-search-state", () =>
     globalSearchService.snapshot(state.uiSettings.search, state.searchHistory));
   ipcMain.handle("workspace-harness:resolve-search-input", (_event, payload = {}) =>
@@ -2309,6 +2337,43 @@ async function runSettings055Scenario(window) {
   await waitForRendererCondition(window, "activeSettingsSection === 'search'", "settings history back did not restore section");
   const historyBackSection = await window.webContents.executeJavaScript("activeSettingsSection");
 
+  await window.webContents.executeJavaScript("showSettingsSection('shortcuts', '', { force: true })");
+  await waitForRendererCondition(window, "shortcutSnapshot.bindings.length > 20 && document.querySelectorAll('.shortcut-row').length > 20", "shortcut settings did not render");
+  const shortcutInitial = await window.webContents.executeJavaScript(`(() => ({
+    section: activeSettingsSection,
+    bindingCount: shortcutSnapshot.bindings.length,
+    categoryCount: shortcutSnapshot.categories.length,
+    searchAccelerator: shortcutSnapshot.bindings.find((item) => item.actionId === 'search.open')?.displayAccelerator,
+    visibleGroups: document.querySelectorAll('.shortcut-group').length,
+  }))()`);
+  await window.webContents.executeJavaScript(`(() => {
+    document.querySelector('[data-shortcut-action-id="search.open"] .shortcut-capture-button').click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', ctrlKey: true, shiftKey: true, bubbles: true }));
+  })()`);
+  await waitForRendererCondition(window, "shortcutSnapshot.bindings.find((item) => item.actionId === 'search.open')?.accelerator === 'Mod+Shift+J'", "shortcut recorder did not persist");
+  await window.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', ctrlKey: true, shiftKey: true, bubbles: true }))`);
+  await waitForRendererCondition(window, "globalSearchOpen === true", "updated shortcut did not apply immediately");
+  const shortcutModified = await window.webContents.executeJavaScript(`(async () => {
+    const persisted = await window.siteNest.getState();
+    return {
+      globalSearchOpen,
+      accelerator: shortcutSnapshot.bindings.find((item) => item.actionId === 'search.open')?.displayAccelerator,
+      stateLabel: document.querySelector('[data-shortcut-action-id="search.open"] .shortcut-modified-state')?.textContent.trim(),
+      persistedBindings: persisted.shortcutBindings?.length || 0,
+    };
+  })()`);
+  await window.webContents.executeJavaScript(`(() => {
+    closeGlobalSearchPalette();
+    document.querySelector('[data-shortcut-action-id="search.open"] .shortcut-row-actions button:last-child').click();
+  })()`);
+  await waitForRendererCondition(window, "shortcutSnapshot.bindings.find((item) => item.actionId === 'search.open')?.accelerator === 'Mod+K'", "shortcut reset did not restore default");
+  const shortcutReset = await window.webContents.executeJavaScript(`(() => ({
+    accelerator: shortcutSnapshot.bindings.find((item) => item.actionId === 'search.open')?.displayAccelerator,
+    isDefault: shortcutSnapshot.bindings.find((item) => item.actionId === 'search.open')?.isDefault,
+    renderedAccelerator: document.querySelector('[data-shortcut-action-id="search.open"] .shortcut-capture-button')?.textContent.trim(),
+    renderedState: document.querySelector('[data-shortcut-action-id="search.open"] .shortcut-modified-state')?.textContent.trim(),
+  }))()`);
+
   return {
     initial,
     connectionsCollapsed,
@@ -2320,6 +2385,9 @@ async function runSettings055Scenario(window) {
     emptySearchText,
     legacyRoute,
     historyBackSection,
+    shortcutInitial,
+    shortcutModified,
+    shortcutReset,
   };
 }
 

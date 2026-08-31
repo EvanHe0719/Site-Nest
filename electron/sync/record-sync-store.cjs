@@ -217,10 +217,41 @@ class RecordSyncStore {
       for (const entity of entities.values()) {
         insert.run(entity.entityType, entity.entityId, 1, json(entity.payload), entity.payloadHash, entity.updatedAt, this.deviceId);
       }
+      this._replaceShortcutTables(state);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
+    }
+  }
+
+  _replaceShortcutTables(state) {
+    const profiles = Array.isArray(state?.shortcutProfiles) ? state.shortcutProfiles : [];
+    const bindings = Array.isArray(state?.shortcutBindings) ? state.shortcutBindings : [];
+    this.db.prepare("DELETE FROM shortcut_bindings").run();
+    this.db.prepare("DELETE FROM shortcut_profiles").run();
+    const insertProfile = this.db.prepare("INSERT INTO shortcut_profiles(id,platform,name,updated_at) VALUES(?,?,?,?)");
+    const validProfileIds = new Set();
+    for (const profile of profiles) {
+      const id = String(profile?.id || "").trim();
+      const platform = String(profile?.platform || "").trim();
+      if (!id || !["windows", "macos", "linux"].includes(platform)) continue;
+      insertProfile.run(id, platform, String(profile.name || `${platform} shortcuts`).slice(0, 160), String(profile.updatedAt || nowIso(this.now)));
+      validProfileIds.add(id);
+    }
+    const insertBinding = this.db.prepare(`INSERT INTO shortcut_bindings
+      (id,profile_id,action_id,platform,scope,accelerator,enabled,is_default,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?)`);
+    for (const binding of bindings) {
+      const profileId = String(binding?.profileId || "").trim();
+      if (!validProfileIds.has(profileId)) continue;
+      insertBinding.run(
+        String(binding.id || randomUUID()), profileId, String(binding.actionId || "").slice(0, 128),
+        String(binding.platform || "").slice(0, 20), String(binding.scope || "app").slice(0, 20),
+        binding.accelerator == null ? null : String(binding.accelerator).slice(0, 100),
+        binding.enabled === false ? 0 : 1, binding.isDefault === true ? 1 : 0,
+        String(binding.updatedAt || nowIso(this.now)),
+      );
     }
   }
 
@@ -291,6 +322,7 @@ class RecordSyncStore {
         .run(json(state), Number(state?.version) || this.schemaVersion, timestamp);
       this.db.prepare("UPDATE sync_state SET local_revision=? WHERE provider_id=?")
         .run(localRevision, DEFAULT_PROVIDER_ID);
+      this._replaceShortcutTables(state);
       this.db.exec("COMMIT");
       return { state, changeCount, localRevision, deviceId: this.deviceId };
     } catch (error) {
@@ -438,6 +470,7 @@ class RecordSyncStore {
         .run(json(state), Number(state.version) || this.schemaVersion, timestamp);
       this.db.prepare("UPDATE sync_state SET last_downloaded_revision=last_downloaded_revision+?,status=? WHERE provider_id=?")
         .run(appliedCount, conflictCount ? "conflict" : "idle", DEFAULT_PROVIDER_ID);
+      this._replaceShortcutTables(state);
       this.db.exec("COMMIT");
       return { state, appliedCount, conflictCount };
     } catch (error) {

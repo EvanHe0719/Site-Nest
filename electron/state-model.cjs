@@ -983,6 +983,8 @@ function createInitialState(options = {}) {
     userScriptExecutions: [],
     userScriptVersions: [],
     userScriptValues: {},
+    shortcutProfiles: [],
+    shortcutBindings: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -1167,6 +1169,8 @@ function normalizeStateV4(value, options = {}) {
     userScriptExecutions: normalizeUserScriptExecutions(input.userScriptExecutions, userScriptIds),
     userScriptVersions: normalizeUserScriptVersions(input.userScriptVersions, userScriptIds),
     userScriptValues: normalizeUserScriptValues(input.userScriptValues, userScriptIds),
+    shortcutProfiles: Array.isArray(input.shortcutProfiles) ? cloneValue(input.shortcutProfiles) : [],
+    shortcutBindings: Array.isArray(input.shortcutBindings) ? cloneValue(input.shortcutBindings) : [],
     createdAt: typeof input.createdAt === "string" ? input.createdAt : now,
     updatedAt:
       typeof input.updatedAt === "string"

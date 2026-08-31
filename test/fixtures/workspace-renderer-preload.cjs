@@ -2,6 +2,10 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("siteNest", {
   getState: () => ipcRenderer.invoke("workspace-harness:get-state"),
+  getShortcuts: () => ipcRenderer.invoke("workspace-harness:get-shortcuts"),
+  updateShortcut: (input) => ipcRenderer.invoke("workspace-harness:update-shortcut", input),
+  resetShortcuts: (options) => ipcRenderer.invoke("workspace-harness:reset-shortcuts", options),
+  dispatchShortcut: (request) => ipcRenderer.invoke("workspace-harness:dispatch-shortcut", request),
   getSearchState: () => ipcRenderer.invoke("workspace-harness:get-search-state"),
   resolveSearchInput: (input, engineId) =>
     ipcRenderer.invoke("workspace-harness:resolve-search-input", { input, engineId }),
@@ -105,5 +109,6 @@ contextBridge.exposeInMainWorld("siteNest", {
     ipcRenderer.on("workspace-harness:browser-state", listener);
     return () => ipcRenderer.removeListener("workspace-harness:browser-state", listener);
   },
+  onShortcutTrigger: () => () => undefined,
   onAutomationStatus: () => () => undefined,
 });

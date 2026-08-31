@@ -886,6 +886,29 @@
                   </div>
                 </article>
 
+                <article class="settings-card settings-card--wide shortcut-settings-card" data-settings-section="shortcuts" data-settings-panel="shortcuts">
+                  <div class="settings-card-icon" data-icon="settings"></div>
+                  <div class="settings-card-copy">
+                    <div class="settings-title-row">
+                      <div><span class="section-kicker">KEYBOARD SHORTCUTS</span><h3>快捷键</h3></div>
+                      <span class="status-pill" id="shortcutPlatformStatus">当前平台</span>
+                    </div>
+                    <p>自定义栖页中的搜索、导航、页签、计划和网页操作快捷键。这里只显示已经注册并可调用的真实界面动作。</p>
+                    <div class="shortcut-toolbar">
+                      <label class="shortcut-search"><span data-icon="search"></span><input id="shortcutSearchInput" type="search" placeholder="搜索快捷键" autocomplete="off" /></label>
+                      <select id="shortcutCategoryFilter" aria-label="按分类筛选"><option value="">全部分类</option></select>
+                      <label class="shortcut-modified-filter"><input id="shortcutModifiedOnly" type="checkbox" /> 仅显示已修改</label>
+                      <button class="secondary-button compact-button" id="checkShortcutConflicts" type="button">检查冲突</button>
+                    </div>
+                    <div class="shortcut-summary" id="shortcutSummary">正在读取当前平台快捷键…</div>
+                    <div class="shortcut-group-list" id="shortcutGroupList"></div>
+                    <div class="shortcut-reset-actions">
+                      <button class="secondary-button compact-button" id="resetShortcutCategory" type="button">恢复当前分类默认值</button>
+                      <button class="text-button text-button--quiet" id="resetAllShortcuts" type="button">恢复全部默认值</button>
+                    </div>
+                  </div>
+                </article>
+
                 <article class="settings-card" data-settings-section="general" data-settings-panel="sessions">
                   <div class="settings-card-icon" data-icon="grid"></div>
                   <div class="settings-card-copy">

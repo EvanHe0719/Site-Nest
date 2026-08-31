@@ -6275,6 +6275,73 @@ svg {
 .titlebar-data-status.is-syncing .privacy-dot {
   animation: data-status-pulse 1.2s ease-in-out infinite;
 }
+
+.shortcut-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 180px auto auto;
+  gap: 8px;
+  align-items: center;
+  margin: 14px 0 10px;
+}
+.shortcut-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #d9e2dd;
+  border-radius: 10px;
+  background: #fff;
+}
+.shortcut-search > [data-icon] { width: 14px; height: 14px; color: var(--accent); }
+.shortcut-search input { width: 100%; border: 0; outline: 0; background: transparent; }
+.shortcut-toolbar select { height: 36px; border: 1px solid #d9e2dd; border-radius: 10px; background: #fff; }
+.shortcut-modified-filter,
+.shortcut-enabled { display: inline-flex; align-items: center; gap: 6px; color: #63716b; font-size: 11px; white-space: nowrap; }
+.shortcut-summary { margin: 6px 0 12px; color: #76837d; font-size: 11px; }
+.shortcut-group-list { display: grid; gap: 10px; }
+.shortcut-group { overflow: hidden; border: 1px solid #dfe6e2; border-radius: 13px; background: #fbfcfa; }
+.shortcut-group > summary { padding: 10px 12px; cursor: pointer; color: #45554e; font-size: 12px; font-weight: 720; }
+.shortcut-list { border-top: 1px solid #e7ece9; }
+.shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 170px 64px auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 58px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #edf0ee;
+}
+.shortcut-row:last-child { border-bottom: 0; }
+.shortcut-row.is-modified { background: rgba(38, 125, 103, 0.035); }
+.shortcut-row-copy { min-width: 0; }
+.shortcut-row-title { display: flex; align-items: center; gap: 7px; }
+.shortcut-row-copy strong,
+.shortcut-row-copy small { display: block; }
+.shortcut-row-copy strong { color: #35463f; font-size: 12px; }
+.shortcut-row-copy small { margin-top: 3px; overflow: hidden; color: #82908a; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.shortcut-modified-state { padding: 1px 5px; border-radius: 999px; background: #edf1ef; color: #7a8781; font-size: 9px; font-weight: 650; }
+.shortcut-modified-state.is-modified { background: #e3f2ec; color: #25745f; }
+.shortcut-capture-button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #d5dfda;
+  border-radius: 9px;
+  background: #fff;
+  color: #3f5149;
+  font: 650 11px/1 inherit;
+  cursor: pointer;
+}
+.shortcut-capture-button:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(38, 125, 103, 0.09); outline: 0; }
+.shortcut-row-actions { display: flex; justify-content: flex-end; gap: 4px; }
+.shortcut-row-actions button { font-size: 10px; }
+.shortcut-reset-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 12px; }
+.shortcut-empty { padding: 22px; border: 1px dashed #d9e1dd; border-radius: 12px; color: #7c8983; text-align: center; }
+@media (max-width: 1180px) {
+  .shortcut-toolbar { grid-template-columns: 1fr 160px; }
+  .shortcut-row { grid-template-columns: minmax(150px, 1fr) 155px 58px; }
+  .shortcut-row-actions { grid-column: 1 / -1; }
+}
 @keyframes data-status-pulse {
   0%, 100% { box-shadow: 0 0 0 3px rgba(80, 168, 141, 0.12); }
   50% { box-shadow: 0 0 0 6px rgba(80, 168, 141, 0.04); }

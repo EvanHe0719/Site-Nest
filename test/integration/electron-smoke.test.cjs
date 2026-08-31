@@ -311,8 +311,8 @@ test(
     const line = probe.stdout.split(/\r?\n/).find((item) => item.includes('"uiActionAuditProbe"'));
     assert.ok(line, probe.stdout);
     const result = JSON.parse(line).uiActionAuditProbe;
-    assert.equal(result.totalActions, 57);
-    assert.equal(result.registeredActions, 57);
+    assert.equal(result.totalActions, 73);
+    assert.equal(result.registeredActions, 73);
     assert.equal(result.missingHandlers, 0);
     assert.equal(result.invalidIpcChannels, 0);
     assert.equal(result.missingTests, 0);

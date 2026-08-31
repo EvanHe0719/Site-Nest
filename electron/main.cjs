@@ -191,6 +191,7 @@ const {
   UI_ACTION_IDS,
   createUIActionRegistry,
 } = require("./ui-actions/index.cjs");
+const { ShortcutDispatcher, ShortcutRegistry, electronInputAccelerator } = require("./shortcuts/index.cjs");
 
 const APP_ID = "local.qiye.sitehub";
 const SITE_PARTITION = "persist:qiye-sites";
@@ -202,6 +203,8 @@ const CAPTURE_PATH = process.env.QIYE_CAPTURE_PATH;
 const CAPTURE_ROUTE = process.env.QIYE_CAPTURE_ROUTE || "home";
 const TAB_PROBE_BASE_URL = process.env.QIYE_TAB_PROBE_BASE_URL || "";
 const uiActionRegistry = createUIActionRegistry();
+const shortcutRegistry = new ShortcutRegistry(uiActionRegistry, { platform: process.platform });
+const shortcutDispatcher = new ShortcutDispatcher(shortcutRegistry, uiActionRegistry);
 
 async function createUIActionAuditReport() {
   const audit = new UIActionAuditService({
@@ -2688,6 +2691,21 @@ function ensureSiteView(context = activeBrowserContext()) {
       },
       browserOwnerWindow(context),
     );
+  });
+  view.webContents.on("before-input-event", (event, input) => {
+    const accelerator = electronInputAccelerator(input, process.platform);
+    if (!accelerator) return;
+    const binding = shortcutRegistry.bindings(cachedState || {}, process.platform)
+      .find((item) => item.enabled && item.accelerator === accelerator && item.scope !== "modal");
+    if (!binding) return;
+    event.preventDefault();
+    if (input.isAutoRepeat || !mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send("shortcuts:trigger", {
+      actionId: binding.actionId,
+      accelerator,
+      tabId: context.tabId,
+      workspaceId: context.workspaceId,
+    });
   });
   view.webContents.on("will-navigate", (event, url) => {
     rememberSapNavigation(context, url);
@@ -5718,6 +5736,28 @@ async function maybeOfferUserScriptInstall(context, rawUrl) {
 function registerIpc() {
   ipcMain.handle("ui-actions:list", async () => uiActionRegistry.snapshot({}));
   ipcMain.handle("ui-actions:audit", async () => createUIActionAuditReport());
+  ipcMain.handle("shortcuts:get", async (_event, platform) =>
+    shortcutRegistry.snapshot(await getState(), platform));
+  ipcMain.handle("shortcuts:update", async (_event, input) => {
+    const result = shortcutRegistry.updateState(await getState(), input);
+    if (result.requiresResolution) {
+      return {
+        ...shortcutRegistry.snapshot(result.state, input?.platform),
+        requiresResolution: true,
+        pendingBinding: result.binding,
+        conflictBindings: result.conflicts,
+      };
+    }
+    await commitStateCandidate(result.state);
+    return shortcutRegistry.snapshot(cachedState, input?.platform);
+  });
+  ipcMain.handle("shortcuts:reset", async (_event, options) => {
+    const state = shortcutRegistry.resetState(await getState(), options);
+    await commitStateCandidate(state);
+    return shortcutRegistry.snapshot(cachedState, options?.platform);
+  });
+  ipcMain.handle("shortcuts:dispatch", async (_event, request) =>
+    shortcutDispatcher.authorize(await getState(), request));
   ipcMain.handle("state:get", async () => {
     const state = await getState();
     return {

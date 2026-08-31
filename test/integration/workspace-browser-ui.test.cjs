@@ -456,7 +456,7 @@ test("0.5.5 settings mounts one category, lazy-loads Zoho, searches the registry
   assert.equal(result.initial.section, "general");
   assert.deepEqual(result.initial.mountedSections, ["general"]);
   assert.deepEqual(result.initial.navigation, [
-    "常规", "搜索与新标签页", "浏览与性能", "翻译", "计划与通知", "连接与集成", "账号与同步", "数据与备份", "开发与诊断", "关于",
+    "常规", "搜索与新标签页", "快捷键", "浏览与性能", "翻译", "计划与通知", "连接与集成", "账号与同步", "数据与备份", "开发与诊断", "关于",
   ]);
   assert.equal(result.initial.zohoMounted, false);
   assert.equal(result.initial.contentOverflowY, "auto");
@@ -482,6 +482,19 @@ test("0.5.5 settings mounts one category, lazy-loads Zoho, searches the registry
   assert.equal(result.legacyRoute.section, "connections");
   assert.equal(result.legacyRoute.zohoMounted, true);
   assert.equal(result.historyBackSection, "search");
+  assert.equal(result.shortcutInitial.section, "shortcuts");
+  assert.ok(result.shortcutInitial.bindingCount > 20);
+  assert.ok(result.shortcutInitial.categoryCount >= 6);
+  assert.equal(result.shortcutInitial.searchAccelerator, "Ctrl+K");
+  assert.ok(result.shortcutInitial.visibleGroups >= 6);
+  assert.equal(result.shortcutModified.globalSearchOpen, true);
+  assert.equal(result.shortcutModified.accelerator, "Ctrl+Shift+J");
+  assert.equal(result.shortcutModified.stateLabel, "已修改");
+  assert.ok(result.shortcutModified.persistedBindings >= 1);
+  assert.equal(result.shortcutReset.accelerator, "Ctrl+K");
+  assert.equal(result.shortcutReset.isDefault, true);
+  assert.equal(result.shortcutReset.renderedAccelerator, "Ctrl+K");
+  assert.equal(result.shortcutReset.renderedState, "默认");
 
   const narrow = await runHarness("settings-055", { width: 900, height: 760 });
   assert.notEqual(narrow.initial.mobileSelectDisplay, "none");

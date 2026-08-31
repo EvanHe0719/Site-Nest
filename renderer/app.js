@@ -218,6 +218,15 @@ const dom = {
   settingsSectionDescription: document.getElementById("settingsSectionDescription"),
   settingsSearchInput: document.getElementById("settingsSearchInput"),
   settingsSearchResults: document.getElementById("settingsSearchResults"),
+  shortcutSearchInput: document.getElementById("shortcutSearchInput"),
+  shortcutCategoryFilter: document.getElementById("shortcutCategoryFilter"),
+  shortcutModifiedOnly: document.getElementById("shortcutModifiedOnly"),
+  shortcutPlatformStatus: document.getElementById("shortcutPlatformStatus"),
+  shortcutSummary: document.getElementById("shortcutSummary"),
+  shortcutGroupList: document.getElementById("shortcutGroupList"),
+  checkShortcutConflicts: document.getElementById("checkShortcutConflicts"),
+  resetShortcutCategory: document.getElementById("resetShortcutCategory"),
+  resetAllShortcuts: document.getElementById("resetAllShortcuts"),
   contentTagsSettingsCard: document.getElementById("contentTagsSettingsCard"),
   contentTagTotal: document.getElementById("contentTagTotal"),
   contentTagsStatus: document.getElementById("contentTagsStatus"),
@@ -692,6 +701,8 @@ let googleSyncState = {
 };
 let googleSyncBusyAction = "";
 let googleSyncPopoverOpen = false;
+let shortcutSnapshot = { platform: "windows", bindings: [], categories: [], conflicts: [] };
+let shortcutCaptureActionId = "";
 let zohoDashboard = null;
 let zohoConnectorStatus = null;
 let zohoDashboardLoading = false;
@@ -726,6 +737,7 @@ const TAB_DETACH_DRAG_THRESHOLD = 44;
 const SETTINGS_SECTIONS = Object.freeze([
   { id: "general", title: "常规", kicker: "GENERAL", icon: "settings", description: "空间、会话和界面行为。" },
   { id: "search", title: "搜索与新标签页", kicker: "SEARCH", icon: "search", description: "默认搜索引擎、搜索历史和全局搜索入口。" },
+  { id: "shortcuts", title: "快捷键", kicker: "SHORTCUTS", icon: "settings", description: "按功能分组管理当前平台的应用快捷键。" },
   { id: "browsing", title: "浏览与性能", kicker: "BROWSING", icon: "window", description: "网页内存、新窗口、登录弹窗与浏览身份。" },
   { id: "translation", title: "翻译", kicker: "TRANSLATION", icon: "language", description: "划词与整页翻译 Provider 和隐私边界。" },
   { id: "notifications", title: "计划与通知", kicker: "NOTIFICATIONS", icon: "calendar", description: "桌面提醒、托盘和随系统启动。" },
@@ -739,6 +751,7 @@ const SETTINGS_SECTIONS = Object.freeze([
 const SETTINGS_SEARCH_INDEX = Object.freeze([
   { section: "general", panel: "sessions", title: "当前会话", description: "切换空间和会话显示方式" },
   { section: "search", panel: "search-engine", title: "默认搜索引擎", description: "Google、Bing、百度、DuckDuckGo 与搜索历史" },
+  { section: "shortcuts", panel: "shortcuts", title: "快捷键", description: "搜索、导航、页签、工作空间和计划快捷键" },
   { section: "browsing", panel: "memory", title: "网页视图内存", description: "内存模式、后台自动休眠和保持运行" },
   { section: "browsing", panel: "popup-policy", title: "新窗口与登录弹窗", description: "OAuth、SSO、POST 和站点弹窗策略" },
   { section: "translation", panel: "translation", title: "划词与整页翻译", description: "翻译 Provider、目标语言与敏感网站确认" },
@@ -1206,6 +1219,7 @@ function showSettingsSection(sectionId, panelId = "", options = {}) {
   }
   if (definition.id === "connections") void loadZohoConnectorStatus({ preserveForm: true });
   if (definition.id === "accounts") renderGoogleSettingsStatus();
+  if (definition.id === "shortcuts") void loadShortcuts();
   if (definition.id === "data") void loadContentTags();
   if (definition.id === "diagnostics") void loadUIActionAudit();
 }
@@ -1373,6 +1387,208 @@ function renderGoogleSettingsStatus() {
     input.checked = appState.uiSettings?.googleSync?.[input.dataset.googleSyncModule] === true ||
       (input.dataset.googleSyncModule !== "notifications" && appState.uiSettings?.googleSync?.[input.dataset.googleSyncModule] !== false);
   });
+}
+
+function eventAccelerator(event) {
+  if (["Control", "Shift", "Alt", "Meta"].includes(event.key)) return "";
+  const modifiers = [];
+  const modPressed = shortcutSnapshot.platform === "macos" ? event.metaKey : event.ctrlKey;
+  if (modPressed) modifiers.push("Mod");
+  if (event.ctrlKey && shortcutSnapshot.platform === "macos") modifiers.push("Ctrl");
+  if (event.altKey) modifiers.push("Alt");
+  if (event.shiftKey) modifiers.push("Shift");
+  if (event.metaKey && shortcutSnapshot.platform !== "macos") modifiers.push("Meta");
+  const key = event.key === " " ? "Space"
+    : event.key.length === 1 ? event.key.toUpperCase()
+      : event.key;
+  return [...modifiers, key].join("+");
+}
+
+async function loadShortcuts() {
+  if (typeof window.siteNest?.getShortcuts !== "function") return shortcutSnapshot;
+  shortcutSnapshot = await window.siteNest.getShortcuts();
+  renderShortcuts();
+  return shortcutSnapshot;
+}
+
+function shortcutBindingsVisible() {
+  const query = String(dom.shortcutSearchInput?.value || "").trim().toLocaleLowerCase("zh-CN");
+  const category = dom.shortcutCategoryFilter?.value || "";
+  return (shortcutSnapshot.bindings || []).filter((binding) =>
+    (!category || binding.category === category) &&
+    (!dom.shortcutModifiedOnly?.checked || !binding.isDefault) &&
+    (!query || `${binding.label} ${binding.description} ${binding.displayAccelerator} ${binding.category}`.toLocaleLowerCase("zh-CN").includes(query)));
+}
+
+function shortcutButton(label, className, action) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.textContent = label;
+  button.addEventListener("click", action);
+  return button;
+}
+
+async function updateShortcutBinding(actionId, patch) {
+  try {
+    let result = await window.siteNest.updateShortcut({ actionId, platform: shortcutSnapshot.platform, ...patch });
+    if (result?.requiresResolution) {
+      const conflict = result.conflictBindings?.[0];
+      const replace = window.confirm(`该快捷键已用于：${conflict?.label || conflict?.actionId || "其他动作"}\n\n确定替换原快捷键吗？选择取消会保留原配置。`);
+      if (!replace) return;
+      result = await window.siteNest.updateShortcut({ actionId, platform: shortcutSnapshot.platform, ...patch, replaceConflict: true });
+    }
+    shortcutSnapshot = result;
+    dirtySettingsPanels.delete("shortcuts");
+    shortcutCaptureActionId = "";
+    renderShortcuts();
+  } catch (error) {
+    showToast("无法保存快捷键", googleSyncErrorMessage(error, "快捷键无效或被系统保留"), "error");
+  }
+}
+
+function beginShortcutCapture(actionId) {
+  shortcutCaptureActionId = actionId;
+  dirtySettingsPanels.add("shortcuts");
+  renderShortcuts();
+}
+
+function renderShortcuts() {
+  if (!dom.shortcutGroupList) return;
+  dom.shortcutPlatformStatus.textContent = { windows: "Windows", macos: "macOS", linux: "Linux" }[shortcutSnapshot.platform] || shortcutSnapshot.platform;
+  const selectedCategory = dom.shortcutCategoryFilter.value;
+  dom.shortcutCategoryFilter.replaceChildren(new Option("全部分类", ""), ...(shortcutSnapshot.categories || []).map((category) => new Option(category, category)));
+  dom.shortcutCategoryFilter.value = (shortcutSnapshot.categories || []).includes(selectedCategory) ? selectedCategory : "";
+  const visible = shortcutBindingsVisible();
+  const modified = (shortcutSnapshot.bindings || []).filter((item) => !item.isDefault).length;
+  dom.shortcutSummary.textContent = `${shortcutSnapshot.bindings?.length || 0} 个真实动作 · 已修改 ${modified} 个 · 冲突 ${shortcutSnapshot.conflicts?.length || 0} 个`;
+  dom.shortcutGroupList.replaceChildren();
+  for (const category of shortcutSnapshot.categories || []) {
+    const bindings = visible.filter((item) => item.category === category);
+    if (!bindings.length) continue;
+    const group = document.createElement("details");
+    group.className = "shortcut-group";
+    group.open = true;
+    const summary = document.createElement("summary");
+    summary.textContent = `${category} · ${bindings.length}`;
+    group.append(summary);
+    const list = document.createElement("div");
+    list.className = "shortcut-list";
+    for (const binding of bindings) {
+      const row = document.createElement("div");
+      row.className = "shortcut-row";
+      row.dataset.shortcutActionId = binding.actionId;
+      if (!binding.isDefault) row.classList.add("is-modified");
+      const copy = document.createElement("div");
+      copy.className = "shortcut-row-copy";
+      const titleRow = document.createElement("div");
+      titleRow.className = "shortcut-row-title";
+      const title = document.createElement("strong");
+      title.textContent = binding.label;
+      const modified = document.createElement("span");
+      modified.className = `shortcut-modified-state${binding.isDefault ? "" : " is-modified"}`;
+      modified.textContent = binding.isDefault ? "默认" : "已修改";
+      const detail = document.createElement("small");
+      detail.textContent = `${binding.description} · ${binding.scope}${shortcutCaptureActionId === binding.actionId ? " · Esc 取消 · Backspace 清除" : ""}`;
+      titleRow.append(title, modified);
+      copy.append(titleRow, detail);
+      const capture = shortcutButton(
+        shortcutCaptureActionId === binding.actionId ? "请按下新的快捷键" : (binding.displayAccelerator || "未设置"),
+        "shortcut-capture-button",
+        () => beginShortcutCapture(binding.actionId),
+      );
+      capture.setAttribute("aria-label", `编辑 ${binding.label} 快捷键`);
+      const enabled = document.createElement("label");
+      enabled.className = "shortcut-enabled";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = binding.enabled;
+      checkbox.addEventListener("change", () => void updateShortcutBinding(binding.actionId, { accelerator: binding.accelerator, enabled: checkbox.checked }));
+      enabled.append(checkbox, document.createTextNode("启用"));
+      const actions = document.createElement("div");
+      actions.className = "shortcut-row-actions";
+      actions.append(
+        shortcutButton("清除", "text-button text-button--quiet", () => void updateShortcutBinding(binding.actionId, { accelerator: "", enabled: true })),
+        shortcutButton("恢复默认", "text-button text-button--quiet", () => void window.siteNest.resetShortcuts({ platform: shortcutSnapshot.platform, actionId: binding.actionId }).then((snapshot) => { shortcutSnapshot = snapshot; renderShortcuts(); })),
+      );
+      row.append(copy, capture, enabled, actions);
+      list.append(row);
+    }
+    group.append(list);
+    dom.shortcutGroupList.append(group);
+  }
+  if (!visible.length) {
+    const empty = document.createElement("p");
+    empty.className = "shortcut-empty";
+    empty.textContent = "没有符合当前筛选条件的快捷键。";
+    dom.shortcutGroupList.append(empty);
+  }
+}
+
+function captureShortcutKey(event) {
+  if (!shortcutCaptureActionId) return false;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (event.key === "Escape") {
+    shortcutCaptureActionId = "";
+    dirtySettingsPanels.delete("shortcuts");
+    renderShortcuts();
+    return true;
+  }
+  if (event.key === "Backspace") {
+    void updateShortcutBinding(shortcutCaptureActionId, { accelerator: "", enabled: true });
+    return true;
+  }
+  const accelerator = eventAccelerator(event);
+  if (accelerator) void updateShortcutBinding(shortcutCaptureActionId, { accelerator, enabled: true });
+  return true;
+}
+
+async function executeShortcutAction(actionId) {
+  const activeTab = activeBrowserTab(browserSnapshot);
+  if (actionId === "search.open" || actionId === "tab.new") openGlobalSearchPalette();
+  else if (actionId === "browser.focus-address") { dom.addressInput.focus(); dom.addressInput.select(); }
+  else if (actionId === "settings.open") navigateTo("settings");
+  else if (actionId === "sidebar.toggle") applySidebarCollapsed(!dom.appShell.classList.contains("is-sidebar-collapsed"));
+  else if (["browser.back", "browser.forward", "browser.reload"].includes(actionId)) await window.siteNest.browserAction(actionId.split(".")[1]);
+  else if (actionId === "session.close" && activeTab) await closeBrowserTab(activeTab.tabId);
+  else if (actionId === "tab.restore-closed") await restoreRecentlyClosedBrowserTab();
+  else if (actionId === "tab.duplicate" && activeTab) await duplicateExistingBrowserTab(activeTab.tabId);
+  else if (["tab.next", "tab.previous"].includes(actionId) && browserSnapshot.tabs?.length > 1) {
+    const index = browserSnapshot.tabs.findIndex((item) => item.tabId === browserSnapshot.activeTabId);
+    const offset = actionId === "tab.next" ? 1 : -1;
+    const target = browserSnapshot.tabs[(index + offset + browserSnapshot.tabs.length) % browserSnapshot.tabs.length];
+    await activateBrowserTab(target.tabId);
+  } else if (actionId.startsWith("workspace.")) await switchWorkspace(actionId.slice("workspace.".length));
+  else if (actionId === "home.open") navigateTo("home");
+  else if (actionId === "task.quick-create") { navigateTo("plan"); openTaskModal(); }
+  else if (actionId === "plan.open") navigateTo("plan");
+  else if (actionId === "timeline.quick-create") { currentTaskView = "timeline"; navigateTo("plan"); openTimelineEventModal(); }
+  else if (actionId === "automation.open") navigateTo("automations");
+  else if (actionId === "page-actions.open") setPageActionPanelOpen(true);
+  else if (actionId === "translation.page") await window.siteNest.showTranslationPageMenu();
+  else if (actionId === "google.sync") await runGoogleSyncAction("sync");
+  else throw new Error("当前界面没有这个动作的可执行入口");
+}
+
+function invokeConfiguredShortcut(actionId, accelerator) {
+  void window.siteNest.dispatchShortcut({ actionId, accelerator, platform: shortcutSnapshot.platform, context: { route: currentRoute, hasBrowser: Boolean(currentSite) } }).then(async (result) => {
+    if (!result?.ok) throw new Error(result?.message || "快捷键当前不可用");
+    await executeShortcutAction(result.actionId);
+  }).catch((error) => showToast("快捷键执行失败", googleSyncErrorMessage(error, "当前无法执行该动作"), "error"));
+}
+
+function dispatchConfiguredShortcut(event) {
+  if (shortcutCaptureActionId || event.defaultPrevented) return false;
+  const accelerator = eventAccelerator(event);
+  const binding = (shortcutSnapshot.bindings || []).find((item) => item.enabled && item.accelerator === accelerator);
+  if (!binding) return false;
+  const editable = event.target.closest?.("input, textarea, select, [contenteditable='true']");
+  if (editable && !["search.open", "browser.focus-address"].includes(binding.actionId)) return false;
+  if (document.querySelector(".modal-backdrop.is-open") && binding.scope !== "modal") return false;
+  event.preventDefault();
+  invokeConfiguredShortcut(binding.actionId, accelerator);
+  return true;
 }
 
 const CONTENT_TAG_OBJECT_LABELS = Object.freeze({
@@ -8864,6 +9080,32 @@ function bindEvents() {
       showToast("无法保存同步设置", error?.message || "请稍后重试", "error");
     }
   });
+  document.addEventListener("keydown", captureShortcutKey, true);
+  window.siteNest.onShortcutTrigger?.((payload) => {
+    if (!payload?.actionId || !payload?.accelerator) return;
+    invokeConfiguredShortcut(payload.actionId, payload.accelerator);
+  });
+  dom.shortcutSearchInput?.addEventListener("input", renderShortcuts);
+  dom.shortcutCategoryFilter?.addEventListener("change", renderShortcuts);
+  dom.shortcutModifiedOnly?.addEventListener("change", renderShortcuts);
+  dom.checkShortcutConflicts?.addEventListener("click", () => {
+    const count = shortcutSnapshot.conflicts?.length || 0;
+    showToast(count ? "发现快捷键冲突" : "快捷键检查完成", count ? `${count} 组快捷键上下文重叠，请逐项修改。` : "当前平台没有重复或上下文重叠的组合。", count ? "error" : "success");
+  });
+  dom.resetShortcutCategory?.addEventListener("click", async () => {
+    const category = dom.shortcutCategoryFilter.value;
+    if (!category) {
+      showToast("请先选择分类", "选择一个快捷键分类后再恢复该分类默认值");
+      return;
+    }
+    shortcutSnapshot = await window.siteNest.resetShortcuts({ platform: shortcutSnapshot.platform, category });
+    renderShortcuts();
+  });
+  dom.resetAllShortcuts?.addEventListener("click", async () => {
+    if (!window.confirm("恢复当前平台的全部默认快捷键？\n\n所有自定义组合和禁用状态都会被清除。")) return;
+    shortcutSnapshot = await window.siteNest.resetShortcuts({ platform: shortcutSnapshot.platform });
+    renderShortcuts();
+  });
   dom.workConnectorSettings.addEventListener("click", () => navigateTo("settings?section=connections&panel=zoho"));
   dom.workRefreshTickets.addEventListener("click", () => {
     if (zohoDashboardLoading) void cancelZohoDashboardRefresh();
@@ -9368,20 +9610,7 @@ function bindEvents() {
   });
 
   window.addEventListener("keydown", (event) => {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-      event.preventDefault();
-      openGlobalSearchPalette();
-      return;
-    }
-    if (
-      (event.ctrlKey || event.metaKey) &&
-      event.shiftKey &&
-      event.key.toLowerCase() === "t"
-    ) {
-      event.preventDefault();
-      void restoreRecentlyClosedBrowserTab();
-      return;
-    }
+    if (dispatchConfiguredShortcut(event)) return;
     if (event.key === "Escape") {
       if (globalSearchOpen) {
         event.preventDefault();
@@ -9413,22 +9642,9 @@ function bindEvents() {
       return;
     }
     if (!currentSite) return;
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "l") {
-      event.preventDefault();
-      dom.addressInput.focus();
-      dom.addressInput.select();
-    } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "r") {
+    if (event.key === "F5") {
       event.preventDefault();
       void window.siteNest.browserAction("reload");
-    } else if (event.key === "F5") {
-      event.preventDefault();
-      void window.siteNest.browserAction("reload");
-    } else if (event.altKey && event.key === "ArrowLeft") {
-      event.preventDefault();
-      void window.siteNest.browserAction("back");
-    } else if (event.altKey && event.key === "ArrowRight") {
-      event.preventDefault();
-      void window.siteNest.browserAction("forward");
     }
   });
 
@@ -9534,6 +9750,7 @@ async function initialize() {
   bindEvents();
   try {
     appState = await window.siteNest.getState();
+    await loadShortcuts();
     timelineState = {
       ...timelineState,
       tracks: Array.isArray(appState.timelineTracks) ? appState.timelineTracks : [],

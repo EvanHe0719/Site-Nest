@@ -29,6 +29,8 @@ const ARRAY_SPECS = Object.freeze({
   contentTagAlias: { stateKey: "contentTagAliases", id: (item) => item.id },
   externalObjectLink: { stateKey: "externalObjectLinks", id: (item) => item.id },
   userScriptMetadata: { stateKey: "userScripts", id: (item) => item.id },
+  shortcutProfile: { stateKey: "shortcutProfiles", id: (item) => item.id },
+  shortcutBinding: { stateKey: "shortcutBindings", id: (item) => item.id },
 });
 
 const MAP_SPECS = Object.freeze({
@@ -49,8 +51,6 @@ const SINGLETON_SPECS = Object.freeze({
     }),
   },
   taskSetting: { stateKey: "taskSettings", entityId: "default" },
-  shortcutProfile: { stateKey: "shortcutProfiles", entityId: "profiles" },
-  shortcutBinding: { stateKey: "shortcutBindings", entityId: "bindings" },
 });
 
 const EXCLUDED_USER_SCRIPT_KEYS = new Set([

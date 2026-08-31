@@ -132,3 +132,42 @@ test("sync entity allowlist excludes browser identity, cookies, tokens, and user
   assert.equal(serialized.includes("secret.invalid"), false);
   assert.equal(entities.has("userScriptMetadata:script-1"), true);
 });
+
+test("shortcut profiles and bindings persist in SQLite and sync as individual platform records", () => {
+  const temp = tempDatabase("shortcut-store");
+  const store = new RecordSyncStore(temp.filePath, { deviceName: "A", schemaVersion: 17 });
+  try {
+    const state = stateFixture();
+    store.initialize(state);
+    const changed = structuredClone(state);
+    changed.shortcutProfiles = [{
+      id: "shortcut-profile-windows",
+      platform: "windows",
+      name: "Windows",
+      updatedAt: "2026-09-01T05:00:00.000Z",
+    }];
+    changed.shortcutBindings = [{
+      id: "binding-search",
+      profileId: "shortcut-profile-windows",
+      actionId: "search.open",
+      platform: "windows",
+      scope: "app",
+      accelerator: "Mod+Shift+K",
+      enabled: true,
+      isDefault: false,
+      updatedAt: "2026-09-01T05:00:00.000Z",
+    }];
+    store.commitState(changed);
+
+    assert.equal(store.db.prepare("SELECT COUNT(*) count FROM shortcut_profiles").get().count, 1);
+    assert.equal(store.db.prepare("SELECT accelerator FROM shortcut_bindings WHERE id='binding-search'").get().accelerator, "Mod+Shift+K");
+    const shortcutOperations = store.pendingOperations().filter((item) => item.entityType.startsWith("shortcut"));
+    assert.deepEqual(shortcutOperations.map((item) => `${item.entityType}:${item.entityId}`).sort(), [
+      "shortcutBinding:binding-search",
+      "shortcutProfile:shortcut-profile-windows",
+    ]);
+  } finally {
+    store.close();
+    fs.rmSync(temp.directory, { recursive: true, force: true });
+  }
+});
