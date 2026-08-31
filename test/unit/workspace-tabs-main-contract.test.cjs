@@ -60,6 +60,10 @@ test("tab controls are exposed through narrow preload methods and registered IPC
     assert.match(mainSource, new RegExp(`ipcMain\\.handle\\(["']${channel}["']`));
   }
 
+  assert.match(
+    preloadSource,
+    /browser:close-tab["'],\s*\{\s*tabId,\s*bounds,\s*userInitiated:\s*true\s*\}/,
+  );
   assert.doesNotMatch(preloadSource, /WebContentsView|BrowserWindow|require\([^)]*main/);
 });
 

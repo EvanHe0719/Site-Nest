@@ -81,6 +81,7 @@ const {
   isSapSessionUrl,
   isAuthenticationUrl,
   sapRetryUrl,
+  tabCloseDecision,
 } = require("./browser/index.cjs");
 const {
   GlobalSearchService,
@@ -4172,7 +4173,41 @@ async function closeBrowserTab(payload) {
   const { workspace, tab } = found;
   if (payload?.force !== true) {
     const protection = await runtimeTabProtection(tab);
-    if (protection.protected) throw new Error(`页面暂不能关闭：${protection.reason}`);
+    let decision = tabCloseDecision({
+      protection,
+      userInitiated: payload?.userInitiated === true,
+    });
+    if (decision.action === "block") {
+      throw new Error(`页面暂不能关闭：${decision.reason}`);
+    }
+    if (decision.action === "confirm") {
+      const owner = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+      const options = {
+        type: "warning",
+        title: "关闭页签",
+        message: "这个页签可能有尚未完成的操作",
+        detail: `原因：${decision.reason}。关闭后可能中断下载或丢失未保存内容。`,
+        buttons: ["仍要关闭", "取消"],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      };
+      const confirmation = owner
+        ? await dialog.showMessageBox(owner, options)
+        : await dialog.showMessageBox(options);
+      decision = tabCloseDecision({
+        protection,
+        userInitiated: true,
+        confirmed: confirmation.response === 0,
+      });
+      if (decision.action !== "close") {
+        return {
+          ...emitWorkspaceBrowserState(workspace),
+          closeCancelled: true,
+          closeBlockedReason: decision.reason,
+        };
+      }
+    }
   }
   const orderedTabs = Array.from(workspace.tabs.values());
   const closedIndex = orderedTabs.findIndex((item) => item === tab);

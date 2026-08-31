@@ -18,6 +18,7 @@ const { WindowOpenPolicyService, isAuthenticationUrl, normalizeSitePopupPolicies
 const { standardChromiumUserAgent } = require("./browser-user-agent.cjs");
 const { NavigationPerformanceTracer } = require("./navigation-performance-tracer.cjs");
 const { PageCapabilityOrchestrator } = require("./page-capability-orchestrator.cjs");
+const { tabCloseDecision } = require("./tab-close-policy.cjs");
 const {
   clearSapAuthenticationState,
   hasSapLoginRejection,
@@ -45,6 +46,7 @@ module.exports = {
   standardChromiumUserAgent,
   NavigationPerformanceTracer,
   PageCapabilityOrchestrator,
+  tabCloseDecision,
   resolveNavigationTarget,
   securityStateForUrl,
   clearSapAuthenticationState,

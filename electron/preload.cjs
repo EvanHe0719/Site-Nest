@@ -153,7 +153,7 @@ contextBridge.exposeInMainWorld("siteNest", {
   duplicateSiteTab: (siteId, bounds) =>
     ipcRenderer.invoke("sites:duplicate-tab", { siteId, bounds }),
   closeBrowserTab: (tabId, bounds) =>
-    ipcRenderer.invoke("browser:close-tab", { tabId, bounds }),
+    ipcRenderer.invoke("browser:close-tab", { tabId, bounds, userInitiated: true }),
   restoreRecentlyClosedBrowserTab: (closedId, bounds) =>
     ipcRenderer.invoke("browser:restore-closed-tab", { closedId, bounds }),
   detachBrowserTab: (tabId, windowBounds) =>
