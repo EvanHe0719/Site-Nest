@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld("siteNest", {
     ipcRenderer.invoke("chrome:import", profileId),
   clearChromeBookmarks: () => ipcRenderer.invoke("chrome:clear-import"),
   googleSyncStatus: () => ipcRenderer.invoke("google:sync-status"),
+  showDataStatusMenu: () => ipcRenderer.invoke("data-status:show-menu"),
   googleSignIn: () => ipcRenderer.invoke("google:sign-in"),
   googleSignOut: () => ipcRenderer.invoke("google:sign-out"),
   googleSyncNow: () => ipcRenderer.invoke("google:sync-now"),
@@ -189,6 +190,16 @@ contextBridge.exposeInMainWorld("siteNest", {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on("browser:state", listener);
     return () => ipcRenderer.removeListener("browser:state", listener);
+  },
+  onDataStatusUpdated: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("data-status:updated", listener);
+    return () => ipcRenderer.removeListener("data-status:updated", listener);
+  },
+  onDataStatusAction: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("data-status:action", listener);
+    return () => ipcRenderer.removeListener("data-status:action", listener);
   },
   onBrowserNotice: (callback) => {
     const listener = (_event, value) => callback(value);

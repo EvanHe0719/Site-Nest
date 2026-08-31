@@ -1,6 +1,7 @@
 const { IncrementalSyncEngine, MANIFEST_FILE_NAME, PROTOCOL_VERSION, checksum, validateEnvelope } = require("./incremental-sync-engine.cjs");
 const { RecordSyncStore, DATABASE_SCHEMA_VERSION, DEFAULT_PROVIDER_ID } = require("./record-sync-store.cjs");
 const { applyEntityOperationToState, buildSyncEntities, conflictPolicyFor, payloadHash, sanitizeUrl, stableSerialize } = require("./entity-adapters.cjs");
+const { DATA_HEALTH_STATES, SYNC_RUNTIME_STATES, deriveDataHealthStatus } = require("./runtime-state.cjs");
 
 module.exports = {
   DATABASE_SCHEMA_VERSION,
@@ -9,6 +10,8 @@ module.exports = {
   MANIFEST_FILE_NAME,
   PROTOCOL_VERSION,
   RecordSyncStore,
+  DATA_HEALTH_STATES,
+  SYNC_RUNTIME_STATES,
   applyEntityOperationToState,
   buildSyncEntities,
   checksum,
@@ -17,4 +20,5 @@ module.exports = {
   sanitizeUrl,
   stableSerialize,
   validateEnvelope,
+  deriveDataHealthStatus,
 };

@@ -3007,11 +3007,12 @@ function mergeGoogleSyncState(value) {
   const source = value && typeof value === "object" ? value : {};
   const sourceHasStatus = Object.prototype.hasOwnProperty.call(source, "status");
   const next = { ...googleSyncState };
-  for (const key of ["configured", "signedIn", "email", "lastSyncAt", "lastRestoreAt", "remoteRevision", "localRevision", "deviceName", "oauthConfigPath", "status", "error", "errorCode", "conflict"]) {
+  for (const key of ["configured", "signedIn", "email", "lastSyncAt", "lastRestoreAt", "remoteRevision", "localRevision", "deviceName", "oauthConfigPath", "status", "error", "errorCode", "conflict", "dataHealth", "syncRuntime", "topTone", "animated"]) {
     if (Object.prototype.hasOwnProperty.call(source, key)) next[key] = source[key];
   }
   if (source.identity && typeof source.identity === "object") next.identity = { ...(next.identity || {}), ...source.identity };
   if (source.drive && typeof source.drive === "object") next.drive = { ...(next.drive || {}), ...source.drive };
+  if (source.incremental && typeof source.incremental === "object") next.incremental = { ...(next.incremental || {}), ...source.incremental };
   next.configured = Boolean(next.configured);
   next.signedIn = Boolean(next.signedIn);
   next.email = String(next.email || "");
@@ -3025,6 +3026,24 @@ function mergeGoogleSyncState(value) {
   }
   googleSyncState = next;
   return next;
+}
+
+function renderDataStatus() {
+  if (!dom.dataStatusButton) return;
+  const tone = googleSyncState.topTone || "neutral";
+  const runtime = googleSyncState.syncRuntime || "notConfigured";
+  const lastSync = formatGoogleSyncTime(googleSyncState.incremental?.lastSuccessfulSyncAt || googleSyncState.lastSyncAt)
+    .replace("上次同步 ", "已同步 · ");
+  const title = tone === "error"
+    ? runtime === "conflict" ? "存在同步冲突\n点击查看详情" : runtime === "authRequired" ? "Google 授权已失效\n点击查看详情" : "数据或同步失败\n点击查看详情"
+    : runtime === "offline" ? "数据正常\n离线，等待同步" : runtime === "notConfigured" ? "本地数据正常\nGoogle Drive 未配置" : `数据正常\n${lastSync}`;
+  dom.dataStatusButton.classList.toggle("is-healthy", tone === "healthy");
+  dom.dataStatusButton.classList.toggle("is-error", tone === "error");
+  dom.dataStatusButton.classList.toggle("is-neutral", tone === "neutral");
+  dom.dataStatusButton.classList.toggle("is-syncing", googleSyncState.animated === true);
+  dom.dataStatusButton.dataset.health = tone;
+  dom.dataStatusButton.title = title;
+  dom.dataStatusButton.setAttribute("aria-label", title.replace("\n", "，"));
 }
 
 function googleSyncErrorMessage(error, fallback = "Google 同步操作失败") {
@@ -3130,6 +3149,7 @@ function renderGoogleSync() {
   dom.googleTestConnectionButton.disabled = busy || !driveReady;
   dom.googleSignOutButton.disabled = busy || !signedIn;
   dom.googleSyncPopover.setAttribute("aria-busy", String(busy));
+  renderDataStatus();
   renderGoogleSettingsStatus();
 }
 
@@ -8810,6 +8830,12 @@ function bindEvents() {
   dom.googleSyncCard.addEventListener("click", () => {
     setGoogleSyncPopoverOpen(!googleSyncPopoverOpen);
   });
+  dom.dataStatusButton?.addEventListener("click", async () => {
+    if (typeof window.siteNest?.showDataStatusMenu !== "function") return;
+    const result = await window.siteNest.showDataStatusMenu();
+    mergeGoogleSyncState(result);
+    renderGoogleSync();
+  });
   dom.closeGoogleSyncPopover.addEventListener("click", () => {
     setGoogleSyncPopoverOpen(false, { focusCard: true });
   });
@@ -9430,6 +9456,18 @@ function bindEvents() {
 
   new ResizeObserver(syncBrowserBounds).observe(dom.webviewFrame);
   window.siteNest?.onBrowserState(handleBrowserState);
+  window.siteNest?.onDataStatusUpdated?.((snapshot) => {
+    mergeGoogleSyncState(snapshot);
+    renderGoogleSync();
+  });
+  window.siteNest?.onDataStatusAction?.((action) => {
+    if (action === "conflicts") {
+      navigateTo("settings?section=accounts&panel=google");
+      setGoogleSyncPopoverOpen(true);
+    } else if (action === "settings") {
+      navigateTo("settings?section=accounts&panel=google");
+    }
+  });
   window.siteNest?.onBrowserNotice?.((notice) => {
     showToast(
       notice?.tone === "error" ? "浏览安全提示" : "浏览提示",

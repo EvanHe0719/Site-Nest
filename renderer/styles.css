@@ -6260,6 +6260,25 @@ svg {
 }
 .titlebar-data-status:hover { background: rgba(38, 125, 103, .08); }
 .titlebar-data-status .privacy-dot { width: 8px; height: 8px; }
+.titlebar-data-status.is-neutral .privacy-dot {
+  background: #a7afab;
+  box-shadow: 0 0 0 3px rgba(140, 151, 146, 0.12);
+}
+.titlebar-data-status.is-healthy .privacy-dot {
+  background: #50a88d;
+  box-shadow: 0 0 0 3px rgba(80, 168, 141, 0.12);
+}
+.titlebar-data-status.is-error .privacy-dot {
+  background: #c5685c;
+  box-shadow: 0 0 0 3px rgba(197, 104, 92, 0.13);
+}
+.titlebar-data-status.is-syncing .privacy-dot {
+  animation: data-status-pulse 1.2s ease-in-out infinite;
+}
+@keyframes data-status-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(80, 168, 141, 0.12); }
+  50% { box-shadow: 0 0 0 6px rgba(80, 168, 141, 0.04); }
+}
 
 .workspace-search-form,
 .browser-empty-search {
@@ -7043,7 +7062,8 @@ button.heatmap-cell:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .habit-star-badge,
-  .habit-progress-track span {
+  .habit-progress-track span,
+  .titlebar-data-status.is-syncing .privacy-dot {
     transition: none;
     animation: none;
   }

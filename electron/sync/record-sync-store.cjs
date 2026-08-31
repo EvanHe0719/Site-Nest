@@ -529,6 +529,7 @@ class RecordSyncStore {
   runtimeSummary() {
     this.open();
     const state = this.db.prepare("SELECT * FROM sync_state WHERE provider_id=?").get(DEFAULT_PROVIDER_ID) || {};
+    const appState = this.db.prepare("SELECT updated_at FROM app_state WHERE id='primary'").get() || {};
     const pendingUploadCount = Number(this.db.prepare("SELECT COUNT(*) value FROM sync_outbox WHERE state='pending'").get().value) || 0;
     const conflictCount = Number(this.db.prepare("SELECT COUNT(*) value FROM sync_conflicts WHERE resolved_at IS NULL").get().value) || 0;
     return {
@@ -545,6 +546,7 @@ class RecordSyncStore {
       lastSyncAt: state.last_sync_at || null,
       lastSuccessfulSyncAt: state.last_successful_sync_at || null,
       lastErrorCode: state.last_error_code || null,
+      lastLocalSaveAt: appState.updated_at || null,
       pendingUploadCount,
       pendingApplyCount: 0,
       conflictCount,

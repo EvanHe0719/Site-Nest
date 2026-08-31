@@ -41,7 +41,11 @@ const {
 } = require("./state-model.cjs");
 const { atomicWriteJson, createStateStore } = require("./state-store.cjs");
 const { GoogleDriveSyncService } = require("./google-drive-sync.cjs");
-const { IncrementalSyncEngine, RecordSyncStore } = require("./sync/index.cjs");
+const {
+  IncrementalSyncEngine,
+  RecordSyncStore,
+  deriveDataHealthStatus,
+} = require("./sync/index.cjs");
 const {
   AssistantExecutionService,
   AssistantMatcher,
@@ -1448,6 +1452,14 @@ function googleSyncUiStatus(serviceStatus, meta = {}) {
     identity: ["openid", "email", "profile"].every((scope) => grantedScopeList.includes(scope)),
     driveAppData: grantedScopeList.includes("https://www.googleapis.com/auth/drive.appdata"),
   };
+  const health = deriveDataHealthStatus({
+    configured,
+    signedIn: identity.status === "signedIn",
+    driveStatus,
+    errorCode: meta.lastErrorCode || statusError?.code || drive.lastErrorCode || null,
+    online: net.isOnline(),
+    incremental,
+  });
   return {
     configured,
     identity: { ...identity, status: identity.status || "signedOut" },
@@ -1481,6 +1493,7 @@ function googleSyncUiStatus(serviceStatus, meta = {}) {
     error: sanitizedError,
     errorCode: meta.lastErrorCode || statusError?.code || drive.lastErrorCode || null,
     incremental,
+    ...health,
   };
 }
 
@@ -1550,6 +1563,74 @@ async function googleSyncStatus() {
     loadGoogleSyncMeta(),
   ]);
   return googleSyncUiStatus(serviceStatus, meta);
+}
+
+function compactStatusTime(value) {
+  if (!value || !Number.isFinite(Date.parse(value))) return "尚无记录";
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+async function showDataStatusMenu() {
+  const status = await googleSyncStatus();
+  const runtime = status.incremental || {};
+  const syncLabels = {
+    notConfigured: "Google Drive 未配置",
+    idle: "同步正常",
+    syncing: "正在同步",
+    offline: "离线，等待同步",
+    authRequired: "需要重新授权",
+    conflict: "存在记录冲突",
+    failed: "同步失败",
+  };
+  const title = status.topTone === "error" ? "数据需要处理" : status.topTone === "neutral" ? "本地数据正常" : "数据正常";
+  const template = [
+    { label: title, enabled: false },
+    { type: "separator" },
+    { label: `本地数据库：${status.dataHealth === "healthy" ? "正常" : "失败"}`, enabled: false },
+    { label: `最后本地保存：${compactStatusTime(runtime.lastLocalSaveAt)}`, enabled: false },
+    { type: "separator" },
+    { label: `Google Drive：${syncLabels[status.syncRuntime] || "状态未知"}`, enabled: false },
+    { label: `账号：${status.email || "未连接"}`, enabled: false },
+    { label: `最后成功：${compactStatusTime(runtime.lastSuccessfulSyncAt || status.lastSyncAt)}`, enabled: false },
+    { label: `待上传 ${runtime.pendingUploadCount || 0} · 待应用 ${runtime.pendingApplyCount || 0} · 冲突 ${runtime.conflictCount || 0}`, enabled: false },
+    { type: "separator" },
+    {
+      label: "立即同步",
+      enabled: status.signedIn && ["idle", "offline", "failed"].includes(status.syncRuntime),
+      click: () => {
+        void syncGoogleNow().then((result) => {
+          mainWindow?.webContents.send("data-status:updated", result);
+        });
+      },
+    },
+    {
+      label: "查看同步冲突",
+      enabled: (runtime.conflictCount || 0) > 0,
+      click: () => mainWindow?.webContents.send("data-status:action", "conflicts"),
+    },
+    {
+      label: "打开同步设置",
+      click: () => mainWindow?.webContents.send("data-status:action", "settings"),
+    },
+  ];
+  if (status.error) {
+    template.push({
+      label: "查看错误详情",
+      click: () => void dialog.showMessageBox(mainWindow, {
+        type: "error",
+        title: "数据与同步状态",
+        message: status.errorCode || "同步失败",
+        detail: String(status.error).slice(0, 800),
+      }),
+    });
+  }
+  Menu.buildFromTemplate(template).popup({ window: mainWindow });
+  return status;
 }
 
 function runGoogleSyncOperation(task) {
@@ -1743,7 +1824,8 @@ async function runAutomaticIncrementalSync() {
   try {
     const status = await getGoogleDriveSyncService().status();
     if (!status.signedIn || status.drive?.status !== "ready") return;
-    await syncGoogleNow({ automatic: true });
+    const result = await syncGoogleNow({ automatic: true });
+    mainWindow?.webContents.send("data-status:updated", result);
   } catch (error) {
     console.warn("Background Google incremental sync skipped:", error?.message || error);
   }
@@ -5806,6 +5888,7 @@ function registerIpc() {
   );
   ipcMain.handle("chrome:clear-import", () => clearImportedChromeBookmarks());
   ipcMain.handle("google:sync-status", () => googleSyncStatus());
+  ipcMain.handle("data-status:show-menu", () => showDataStatusMenu());
   ipcMain.handle("google:sign-in", () => signInGoogle());
   ipcMain.handle("google:sign-out", () => signOutGoogle());
   ipcMain.handle("google:sync-now", () => syncGoogleNow());
