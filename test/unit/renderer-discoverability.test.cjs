@@ -21,3 +21,13 @@ test("usage and habit heatmaps have explicit visible entry copy", () => {
   assert.match(app, /每个目标都会显示独立的年度热力图、连续记录和坚持星/);
   assert.match(app, /setAttribute\("aria-expanded", String\(usageDetailsVisible\)\)/);
 });
+
+test("habit target form only shows the field used by the selected target type", () => {
+  assert.match(html, /id="habitEndDateField"/);
+  assert.match(html, /id="habitTargetValueField"/);
+  assert.match(app, /habitTargetValueField\.hidden = !usesCountTarget/);
+  assert.match(app, /habitEndDateField\.hidden = !usesEndDate/);
+  assert.match(app, /endDate: targetType === "endDate"/);
+  assert.match(app, /targetValue: targetType === "totalCheckIns"/);
+  assert.match(app, /habitTargetType\?\.addEventListener\("change", syncHabitTargetFields\)/);
+});

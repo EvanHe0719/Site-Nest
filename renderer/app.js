@@ -366,9 +366,11 @@ const dom = {
   habitWeeklyTarget: document.getElementById("habitWeeklyTarget"),
   habitWeekdays: document.getElementById("habitWeekdays"),
   habitStartDate: document.getElementById("habitStartDate"),
+  habitEndDateField: document.getElementById("habitEndDateField"),
   habitEndDate: document.getElementById("habitEndDate"),
   habitReminderTime: document.getElementById("habitReminderTime"),
   habitTargetType: document.getElementById("habitTargetType"),
+  habitTargetValueField: document.getElementById("habitTargetValueField"),
   habitTargetValue: document.getElementById("habitTargetValue"),
   habitPartialReward: document.getElementById("habitPartialReward"),
   habitTagIds: document.getElementById("habitTagIds"),
@@ -5680,6 +5682,18 @@ function syncHabitFrequencyFields() {
   dom.habitWeekdays.hidden = frequency !== "customWeekdays";
 }
 
+function syncHabitTargetFields() {
+  const targetType = dom.habitTargetType.value;
+  const usesCountTarget = targetType === "totalCheckIns";
+  const usesEndDate = targetType === "endDate";
+  dom.habitTargetValueField.hidden = !usesCountTarget;
+  dom.habitTargetValue.disabled = !usesCountTarget;
+  dom.habitTargetValue.required = usesCountTarget;
+  dom.habitEndDateField.hidden = !usesEndDate;
+  dom.habitEndDate.disabled = !usesEndDate;
+  dom.habitEndDate.required = usesEndDate;
+}
+
 function openHabitModal(habit = null) {
   dom.habitForm.reset();
   dom.habitModalTitle.textContent = habit ? "编辑长期目标" : "创建长期目标";
@@ -5701,10 +5715,12 @@ function openHabitModal(habit = null) {
   renderContentTagPicker("habit", habit?.tagIds || []);
   dom.deleteHabitButton.classList.toggle("is-hidden", !habit);
   syncHabitFrequencyFields();
+  syncHabitTargetFields();
   openModal(dom.habitModal);
 }
 
 function habitFormPayload() {
+  const targetType = dom.habitTargetType.value;
   return {
     id: dom.habitId.value || undefined,
     name: dom.habitName.value.trim(),
@@ -5715,11 +5731,11 @@ function habitFormPayload() {
     weekdays: Array.from(dom.habitWeekdays.querySelectorAll('input[type="checkbox"]:checked')).map((input) => Number(input.value)),
     weeklyTarget: Number(dom.habitWeeklyTarget.value) || 1,
     startDate: dom.habitStartDate.value,
-    endDate: dom.habitEndDate.value || null,
+    endDate: targetType === "endDate" ? dom.habitEndDate.value || null : null,
     reminderTime: dom.habitReminderTime.value || null,
     reminderOffsets: dom.habitReminderTime.value ? [0] : [],
-    targetType: dom.habitTargetType.value,
-    targetValue: Number(dom.habitTargetValue.value) || null,
+    targetType,
+    targetValue: targetType === "totalCheckIns" ? Number(dom.habitTargetValue.value) || null : null,
     partialRewardEnabled: dom.habitPartialReward.checked,
     tagIds: tagIdsForPicker("habit"),
   };
@@ -8491,6 +8507,7 @@ function bindEvents() {
     }
   });
   dom.habitFrequency?.addEventListener("change", syncHabitFrequencyFields);
+  dom.habitTargetType?.addEventListener("change", syncHabitTargetFields);
   dom.habitForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const payload = habitFormPayload();
