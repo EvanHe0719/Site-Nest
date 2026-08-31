@@ -50,9 +50,9 @@ test("schema 16 adds empty script version history idempotently without inventing
   delete legacy.userScriptVersions;
   const once = migrateState(legacy, { now: NOW, defaultSites: [] });
   const twice = migrateState(once.state, { now: NOW, defaultSites: [] });
-  assert.equal(CURRENT_SCHEMA_VERSION, 16);
+  assert.equal(CURRENT_SCHEMA_VERSION, 17);
   assert.equal(once.fromVersion, 15);
-  assert.equal(once.toVersion, 16);
+  assert.equal(once.toVersion, 17);
   assert.deepEqual(once.state.userScriptVersions, []);
   assert.equal(once.state.userScripts.filter((item) => item.sourceType !== "builtIn").length, 0);
   assert.deepEqual(twice.state, once.state);

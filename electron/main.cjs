@@ -21,6 +21,7 @@ const os = require("node:os");
 const path = require("node:path");
 const {
   DEFAULT_BROWSER_PROFILE_ID,
+  CURRENT_SCHEMA_VERSION,
   MAX_RECENTLY_CLOSED_TABS,
   SAP_BROWSER_PROFILE_ID,
   addSiteToState,
@@ -36,14 +37,11 @@ const {
   upsertConnectorConnectionInState,
   appendConnectorExecutionInState,
   updateSiteInState,
+  migrateState,
 } = require("./state-model.cjs");
 const { atomicWriteJson, createStateStore } = require("./state-store.cjs");
 const { GoogleDriveSyncService } = require("./google-drive-sync.cjs");
-const {
-  createSyncEnvelope,
-  normalizeRemoteEnvelope,
-} = require("./google-drive-sync-data.cjs");
-const { applyRemoteEnvelopeToState } = require("./google-sync-state.cjs");
+const { IncrementalSyncEngine, RecordSyncStore } = require("./sync/index.cjs");
 const {
   AssistantExecutionService,
   AssistantMatcher,
@@ -292,6 +290,7 @@ let cachedState;
 let lastTabGroupMergeUndo = null;
 let stateLoadPromise;
 let stateStore;
+let recordSyncStore;
 let writeQueue = Promise.resolve();
 let assistantRegistry;
 let assistantExecutionService;
@@ -301,6 +300,9 @@ let automationWindow;
 let googleDriveSyncService;
 let googleSyncMeta;
 let googleSyncQueue = Promise.resolve();
+let incrementalSyncEngine;
+let incrementalSyncTimer;
+let incrementalSyncDebounceTimer;
 let connectorRegistry;
 let connectorConnectionService;
 let zohoConnectorService;
@@ -322,6 +324,7 @@ let desktopNotificationService;
 let trayService;
 let appBackgroundService;
 let isQuitting = false;
+let quitSyncAttempted = false;
 let userScriptEngine;
 let userScriptSourceService;
 let userScriptMetricsFlushTimer;
@@ -353,6 +356,10 @@ const IMMEDIATE_CAPABILITY_IDS = Object.freeze([
 
 function dataFilePath() {
   return path.join(app.getPath("userData"), "site-nest-data.json");
+}
+
+function syncDatabasePath() {
+  return path.join(app.getPath("userData"), "site-nest.db");
 }
 
 function googleOAuthConfigPath() {
@@ -777,13 +784,52 @@ function getStateStore() {
   return stateStore;
 }
 
+function getRecordSyncStore() {
+  if (!recordSyncStore) {
+    recordSyncStore = new RecordSyncStore(syncDatabasePath(), {
+      deviceName: os.hostname(),
+      platform: process.platform,
+      appVersion: app.getVersion(),
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+    });
+  }
+  return recordSyncStore;
+}
+
+async function mirrorCompatibilityState(state) {
+  try {
+    return await getStateStore().save(state);
+  } catch (error) {
+    console.error("Unable to update JSON compatibility mirror:", error?.message || error);
+    return state;
+  }
+}
+
+async function commitPrimaryState(state, options = {}) {
+  const normalized = migrateState(state, { defaultSites: DEFAULT_SITES }).state;
+  getRecordSyncStore().commitState(normalized, {
+    emitOutbox: options.emitOutbox !== false,
+  });
+  await mirrorCompatibilityState(normalized);
+  if (options.scheduleSync !== false) scheduleIncrementalGoogleSync();
+  return normalized;
+}
+
 async function getState() {
   if (cachedState) return cachedState;
   if (!stateLoadPromise) {
     stateLoadPromise = getStateStore()
       .load()
-      .then((loaded) => {
-        cachedState = loaded.state;
+      .then(async (loaded) => {
+        const primary = getRecordSyncStore().initialize(loaded.state);
+        const migration = migrateState(primary.state, { defaultSites: DEFAULT_SITES });
+        cachedState = migration.state;
+        if (migration.changed) {
+          getRecordSyncStore().commitState(cachedState, { emitOutbox: false });
+        }
+        if (!primary.migrated || migration.changed) {
+          await mirrorCompatibilityState(cachedState);
+        }
         if (loaded.migrated) {
           console.info(
             `State migrated safely from v${loaded.fromVersion} to v${loaded.toVersion}`,
@@ -804,7 +850,7 @@ function persistState() {
   writeQueue = writeQueue
     .catch(() => undefined)
     .then(async () => {
-      await getStateStore().save(JSON.parse(snapshot));
+      await commitPrimaryState(JSON.parse(snapshot));
     });
   return writeQueue;
 }
@@ -833,7 +879,7 @@ async function commitStateCandidate(candidate) {
   writeQueue = writeQueue
     .catch(() => undefined)
     .then(async () => {
-      saved = await getStateStore().save(snapshot);
+      saved = await commitPrimaryState(snapshot);
       return saved;
     });
   await writeQueue;
@@ -1296,6 +1342,32 @@ function getGoogleDriveSyncService() {
   return googleDriveSyncService;
 }
 
+function getIncrementalSyncEngine() {
+  if (!incrementalSyncEngine) {
+    incrementalSyncEngine = new IncrementalSyncEngine({
+      store: getRecordSyncStore(),
+      appVersion: app.getVersion(),
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+    });
+  }
+  return incrementalSyncEngine;
+}
+
+function incrementalSyncRuntime() {
+  try {
+    return getRecordSyncStore().runtimeSummary();
+  } catch (error) {
+    return {
+      databaseHealthy: false,
+      status: "failed",
+      pendingUploadCount: 0,
+      pendingApplyCount: 0,
+      conflictCount: 0,
+      lastErrorCode: String(error?.code || "LOCAL_DATABASE_ERROR"),
+    };
+  }
+}
+
 async function loadGoogleSyncMeta() {
   if (googleSyncMeta) return googleSyncMeta;
   try {
@@ -1353,6 +1425,7 @@ async function saveGoogleSyncMeta(patch) {
 }
 
 function googleSyncUiStatus(serviceStatus, meta = {}) {
+  const incremental = incrementalSyncRuntime();
   const statusError = serviceStatus?.error;
   const configured = Boolean(serviceStatus?.configured);
   const identity = serviceStatus?.identity || {
@@ -1364,9 +1437,11 @@ function googleSyncUiStatus(serviceStatus, meta = {}) {
     grantedScopes: [],
     requiredScopes: [],
   };
-  const driveStatus = meta.conflict
+  const driveStatus = meta.conflict || incremental.conflictCount > 0
     ? "conflict"
-    : meta.errorStatus || (statusError ? "error" : drive.status);
+    : incremental.status === "syncing"
+      ? "syncing"
+      : meta.errorStatus || (statusError ? "error" : drive.status);
   const sanitizedError = meta.lastErrorMessage || statusError?.message || drive.sanitizedErrorMessage || "";
   const grantedScopeList = Array.isArray(drive.grantedScopes) ? drive.grantedScopes : [];
   const publicGrantedScopes = {
@@ -1386,6 +1461,11 @@ function googleSyncUiStatus(serviceStatus, meta = {}) {
       localRevision: meta.localRevision || null,
       lastErrorCode: meta.lastErrorCode || statusError?.code || drive.lastErrorCode || null,
       sanitizedErrorMessage: sanitizedError,
+      pendingUploadCount: incremental.pendingUploadCount,
+      pendingApplyCount: incremental.pendingApplyCount,
+      conflictCount: incremental.conflictCount,
+      databaseHealthy: incremental.databaseHealthy,
+      deviceId: incremental.deviceId || null,
     },
     signedIn: identity.status === "signedIn",
     email: identity.email || null,
@@ -1400,6 +1480,7 @@ function googleSyncUiStatus(serviceStatus, meta = {}) {
     status: driveStatus,
     error: sanitizedError,
     errorCode: meta.lastErrorCode || statusError?.code || drive.lastErrorCode || null,
+    incremental,
   };
 }
 
@@ -1481,18 +1562,6 @@ async function backupStateBeforeGoogleRestore(state) {
   await atomicWriteJson(googleSyncBackupPath(), state);
 }
 
-async function applyGoogleRemoteEnvelope(remoteEnvelope) {
-  await writeQueue.catch(() => undefined);
-  const localState = await getState();
-  await backupStateBeforeGoogleRestore(localState);
-  const applied = applyRemoteEnvelopeToState(localState, remoteEnvelope, {
-    defaultSites: DEFAULT_SITES,
-  });
-  cachedState = await getStateStore().save(applied.state);
-  await activateWorkspaceBrowserContext(cachedState.activeWorkspaceId);
-  return cachedState;
-}
-
 async function signInGoogle() {
   return runGoogleSyncOperation(async () => {
     try {
@@ -1515,6 +1584,8 @@ async function signInGoogle() {
       });
       await service.healthCheck();
       const meta = await clearGoogleFailure({ conflict: null });
+      getRecordSyncStore().setRuntimeState({ status: "idle" });
+      scheduleIncrementalGoogleSync(1_500);
       return googleSyncUiStatus(serviceStatus, meta);
     } catch (error) {
       return rememberGoogleFailure(error);
@@ -1527,6 +1598,7 @@ async function signOutGoogle() {
     try {
       const serviceStatus = await getGoogleDriveSyncService().signOut();
       const meta = await clearGoogleFailure({ conflict: null });
+      getRecordSyncStore().setRuntimeState({ status: "notConfigured", accountId: null });
       return googleSyncUiStatus(serviceStatus, meta);
     } catch (error) {
       return rememberGoogleFailure(error);
@@ -1547,18 +1619,23 @@ async function testGoogleDriveConnection() {
   });
 }
 
-async function googleLocalEnvelope(meta, state = undefined) {
-  const localState = state || await getState();
-  return createSyncEnvelope(localState, {
-    appVersion: app.getVersion(),
-    deviceId: meta.deviceId,
-    deviceName: meta.deviceName,
-    tombstones: meta.tombstones,
-    syncOptions: localState.uiSettings?.googleSync,
-  });
+async function applyIncrementalSyncResult(result, options = {}) {
+  if (!result?.state) return cachedState || getState();
+  if (options.backup !== false && cachedState) {
+    await backupStateBeforeGoogleRestore(cachedState);
+  }
+  const migration = migrateState(result.state, { defaultSites: DEFAULT_SITES });
+  cachedState = migration.state;
+  if (migration.changed) {
+    getRecordSyncStore().commitState(cachedState, { emitOutbox: false });
+  }
+  await mirrorCompatibilityState(cachedState);
+  await activateWorkspaceBrowserContext(cachedState.activeWorkspaceId);
+  mainWindow?.webContents.send("state:changed", cachedState);
+  return cachedState;
 }
 
-async function syncGoogleNow() {
+async function syncGoogleNow(options = {}) {
   return runGoogleSyncOperation(async () => {
     try {
       const service = getGoogleDriveSyncService();
@@ -1573,115 +1650,44 @@ async function syncGoogleNow() {
           code: currentStatus.drive?.lastErrorCode || "DRIVE_SCOPE_MISSING",
         });
       }
-      await service.healthCheck();
-      const remoteFile = await service.readRemote();
-      const currentMeta = await loadGoogleSyncMeta();
-      const localEnvelope = await googleLocalEnvelope(currentMeta);
-      const remoteEnvelope = remoteFile.found
-        ? normalizeRemoteEnvelope(remoteFile.data)
-        : null;
-      const localRevision = localEnvelope.manifest.revision;
-      const remoteRevision = remoteEnvelope?.manifest?.revision || null;
-      const same = remoteRevision && remoteRevision === localRevision;
-      const last = currentMeta.lastSyncRevision;
-      const localChanged = !last || localRevision !== last;
-      const remoteChanged = Boolean(remoteRevision && (!last || remoteRevision !== last));
-      if (remoteEnvelope && !same && localChanged && remoteChanged) {
-        const conflict = {
-          detectedAt: new Date().toISOString(),
-          localRevision,
-          remoteRevision,
-          message: "本地数据和云端数据都发生了变化。",
-        };
-        const meta = await clearGoogleFailure({ conflict, localRevision, remoteRevision });
-        return {
-          ...googleSyncUiStatus(await service.status(), meta),
-          syncResult: { action: "conflict", direction: "noop", reason: "both-changed", message: conflict.message },
-        };
-      }
-      const decision = !remoteEnvelope
-        ? { action: "first-upload", direction: "upload", reason: "remote-missing" }
-        : same
-          ? { action: "same", direction: "noop", reason: "same-snapshot" }
-          : remoteChanged && !localChanged
-            ? { action: "download", direction: "download", reason: "remote-newer" }
-            : { action: "upload", direction: "upload", reason: "local-newer" };
-      let message;
-      let state = await getState();
-      if (decision.direction === "upload") {
-        await service.writeRemote(localEnvelope);
-        message = decision.action === "first-upload"
-          ? "已创建栖页云端同步数据"
-          : "已将较新的本机数据同步到 Google Drive";
-      } else if (decision.direction === "download") {
-        state = await applyGoogleRemoteEnvelope(remoteEnvelope);
-        message = decision.action === "first-download"
-          ? "已从 Google Drive 恢复栖页数据"
-          : "已使用较新的云端数据更新本机";
-      } else {
-        message = "本机与 Google Drive 数据已经一致";
-      }
-      const now = new Date().toISOString();
-      const finalEnvelope = await googleLocalEnvelope(currentMeta, state);
-      const meta = await clearGoogleFailure({
-        lastSyncAt: now,
-        lastDirection: decision.direction,
-        lastMessage: message,
-        lastSyncRevision: finalEnvelope.manifest.revision,
-        localRevision: finalEnvelope.manifest.revision,
-        remoteRevision: finalEnvelope.manifest.revision,
-        conflict: null,
+      await getState();
+      const result = await getIncrementalSyncEngine().sync(service, {
+        fullScan: options.fullScan === true,
       });
-      return {
-        ...googleSyncUiStatus(await service.status(), meta),
-        state,
-        syncResult: { ...decision, message },
-      };
-    } catch (error) {
-      return rememberGoogleFailure(error);
-    }
-  });
-}
-
-async function restoreGoogleCloudData() {
-  return runGoogleSyncOperation(async () => {
-    try {
-      const service = getGoogleDriveSyncService();
-      const currentStatus = await service.status();
-      if (!currentStatus.signedIn) {
-        throw Object.assign(new Error("请先连接 Google 账号"), {
-          code: "GOOGLE_NOT_SIGNED_IN",
-        });
-      }
-      const remoteFile = await service.readRemote();
-      if (!remoteFile.found) {
-        throw Object.assign(new Error("Google Drive 中还没有栖页同步数据"), {
-          code: "GOOGLE_SYNC_REMOTE_MISSING",
-        });
-      }
-      const remoteEnvelope = normalizeRemoteEnvelope(remoteFile.data);
-      const state = await applyGoogleRemoteEnvelope(remoteEnvelope);
+      const state = await applyIncrementalSyncResult(result);
       const now = new Date().toISOString();
-      const message = "已从 Google Drive 恢复栖页数据；恢复前的本机数据已备份";
-      const revision = remoteEnvelope.manifest.revision;
+      const runtime = getRecordSyncStore().runtimeSummary();
+      const message = result.conflictCount
+        ? `同步完成，发现 ${result.conflictCount} 条需要处理的记录冲突`
+        : result.uploadedCount || result.appliedCount
+          ? `增量同步完成：上传 ${result.uploadedCount} 条，应用 ${result.appliedCount} 条`
+          : "本机与 Google Drive 数据已经一致";
       const meta = await clearGoogleFailure({
         lastSyncAt: now,
-        lastRestoreAt: now,
-        lastDirection: "download",
+        lastDirection: result.uploadedCount && result.appliedCount
+          ? "bidirectional"
+          : result.uploadedCount ? "upload" : result.appliedCount ? "download" : "noop",
         lastMessage: message,
-        lastSyncRevision: revision,
-        localRevision: revision,
-        remoteRevision: revision,
-        conflict: null,
+        lastSyncRevision: String(runtime.localRevision),
+        localRevision: String(runtime.localRevision),
+        remoteRevision: String(runtime.lastDownloadedRevision),
+        conflict: result.conflictCount ? {
+          detectedAt: now,
+          count: result.conflictCount,
+          message: "部分记录在不同设备被同时修改，需要逐条处理。",
+        } : null,
       });
       return {
         ...googleSyncUiStatus(await service.status(), meta),
         state,
         syncResult: {
-          action: "restore",
-          direction: "download",
-          reason: "manual-restore",
+          action: options.automatic ? "background-sync" : "incremental-sync",
+          direction: meta.lastDirection,
+          reason: options.fullScan ? "manual-full-scan" : "changes-feed",
           message,
+          uploadedCount: result.uploadedCount,
+          appliedCount: result.appliedCount,
+          conflictCount: result.conflictCount,
         },
       };
     } catch (error) {
@@ -1690,71 +1696,77 @@ async function restoreGoogleCloudData() {
   });
 }
 
+async function restoreGoogleCloudData() {
+  const result = await syncGoogleNow({ fullScan: true });
+  if (result?.syncResult && !result.error) {
+    const now = new Date().toISOString();
+    const meta = await clearGoogleFailure({
+      lastRestoreAt: now,
+      lastMessage: "已扫描全部栖页增量记录并完成安全恢复",
+    });
+    return {
+      ...result,
+      ...googleSyncUiStatus(await getGoogleDriveSyncService().status(), meta),
+      syncResult: {
+        ...result.syncResult,
+        action: "incremental-restore",
+        reason: "manual-full-scan",
+        message: "已扫描全部栖页增量记录并完成安全恢复",
+      },
+    };
+  }
+  return result;
+}
+
 async function resolveGoogleSyncConflict(strategy) {
-  return runGoogleSyncOperation(async () => {
-    try {
-      const requested = String(strategy || "cancel");
-      const service = getGoogleDriveSyncService();
-      const metaBefore = await loadGoogleSyncMeta();
-      if (requested === "cancel") {
-        const meta = await clearGoogleFailure({ conflict: null });
-        return googleSyncUiStatus(await service.status(), meta);
-      }
-      const remoteFile = await service.readRemote();
-      if (!remoteFile.found) throw Object.assign(new Error("云端暂无栖页同步数据"), { code: "DATA_UNAVAILABLE" });
-      const remoteEnvelope = normalizeRemoteEnvelope(remoteFile.data);
-      const localState = await getState();
-      await backupStateBeforeGoogleRestore(localState);
-      let state = localState;
-      let conflicts = { userScripts: [] };
-      let direction = "upload";
-      if (requested === "cloud") {
-        state = await applyGoogleRemoteEnvelope(remoteEnvelope);
-        direction = "download";
-      } else if (requested === "merge") {
-        const applied = applyRemoteEnvelopeToState(localState, remoteEnvelope, {
-          defaultSites: DEFAULT_SITES,
-          mode: "merge",
-        });
-        conflicts = applied.conflicts;
-        cachedState = await getStateStore().save(applied.state);
-        state = cachedState;
-        await service.writeRemote(await googleLocalEnvelope(metaBefore, state));
-      } else if (requested === "local") {
-        await service.writeRemote(await googleLocalEnvelope(metaBefore, localState));
-      } else if (requested === "details") {
-        return {
-          ...googleSyncUiStatus(await service.status(), metaBefore),
-          diff: {
-            localRevision: metaBefore.conflict?.localRevision || null,
-            remoteRevision: metaBefore.conflict?.remoteRevision || remoteEnvelope.manifest.revision,
-            localModules: (await googleLocalEnvelope(metaBefore, localState)).manifest.modules,
-            remoteModules: remoteEnvelope.manifest.modules,
-          },
-        };
-      } else {
-        throw Object.assign(new Error("未知的同步冲突处理方式"), { code: "GOOGLE_SYNC_CONFLICT" });
-      }
-      const finalEnvelope = await googleLocalEnvelope(metaBefore, state);
-      const now = new Date().toISOString();
-      const nextMeta = await clearGoogleFailure({
-        conflict: null,
-        lastSyncAt: now,
-        lastDirection: direction,
-        lastSyncRevision: finalEnvelope.manifest.revision,
-        localRevision: finalEnvelope.manifest.revision,
-        remoteRevision: finalEnvelope.manifest.revision,
-        lastMessage: requested === "merge" ? "已智能合并本地与云端数据" : requested === "cloud" ? "已使用云端数据" : "已使用本地数据覆盖云端",
-      });
-      return {
-        ...googleSyncUiStatus(await service.status(), nextMeta),
-        state,
-        syncResult: { action: requested, direction, message: nextMeta.lastMessage, conflicts },
-      };
-    } catch (error) {
-      return rememberGoogleFailure(error);
-    }
-  });
+  const requested = String(strategy || "details");
+  const service = getGoogleDriveSyncService();
+  const meta = await loadGoogleSyncMeta();
+  const conflicts = getRecordSyncStore().listConflicts();
+  if (["details", "cancel"].includes(requested)) {
+    return {
+      ...googleSyncUiStatus(await service.status(), meta),
+      conflicts,
+      diff: { records: conflicts },
+    };
+  }
+  return {
+    ...googleSyncUiStatus(await service.status(), meta),
+    conflicts,
+    errorCode: "RECORD_CONFLICT_REVIEW_REQUIRED",
+    error: "增量同步不会用整库覆盖解决冲突，请在冲突中心逐条确认。",
+  };
+}
+
+async function runAutomaticIncrementalSync() {
+  if (isQuitting || !net.isOnline()) return;
+  try {
+    const status = await getGoogleDriveSyncService().status();
+    if (!status.signedIn || status.drive?.status !== "ready") return;
+    await syncGoogleNow({ automatic: true });
+  } catch (error) {
+    console.warn("Background Google incremental sync skipped:", error?.message || error);
+  }
+}
+
+function scheduleIncrementalGoogleSync(delayMs = 20_000) {
+  if (isQuitting || !app.isReady()) return;
+  if (incrementalSyncDebounceTimer) clearTimeout(incrementalSyncDebounceTimer);
+  incrementalSyncDebounceTimer = setTimeout(() => {
+    incrementalSyncDebounceTimer = undefined;
+    void runAutomaticIncrementalSync();
+  }, Math.max(1_000, Number(delayMs) || 20_000));
+  incrementalSyncDebounceTimer.unref?.();
+}
+
+function startIncrementalGoogleSyncSchedule() {
+  if (incrementalSyncTimer) return;
+  scheduleIncrementalGoogleSync(12_000);
+  incrementalSyncTimer = setInterval(() => {
+    void runAutomaticIncrementalSync();
+  }, 4 * 60 * 1000);
+  incrementalSyncTimer.unref?.();
+  powerMonitor.on("resume", () => scheduleIncrementalGoogleSync(3_000));
 }
 
 function bookmarkId(url) {
@@ -6545,6 +6557,7 @@ function createMainWindow() {
   mainWindow.on("hide", () => {
     updateUsageEligibility();
     void usageTracker?.flush().catch(() => undefined);
+    scheduleIncrementalGoogleSync(1_500);
   });
   mainWindow.on("close", (event) => {
     if (appBackgroundService?.shouldHideOnClose(cachedState?.taskSettings, isQuitting)) {
@@ -7824,6 +7837,7 @@ if (!hasSingleInstanceLock) {
     registerIpc();
     createMainWindow();
     void getState().then((state) => {
+      startIncrementalGoogleSyncSchedule();
       const lifecycle = getWebViewLifecycleManager();
       return lifecycle.updateSettings(state.uiSettings?.browserMemory);
     }).catch((error) => {
@@ -7902,8 +7916,22 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
+  const pendingUploadCount = recordSyncStore?.runtimeSummary().pendingUploadCount || 0;
+  if (!quitSyncAttempted && pendingUploadCount > 0 && net.isOnline()) {
+    event.preventDefault();
+    quitSyncAttempted = true;
+    Promise.race([
+      runAutomaticIncrementalSync(),
+      new Promise((resolve) => setTimeout(resolve, 1_500)),
+    ]).finally(() => app.quit());
+    return;
+  }
   isQuitting = true;
+  if (incrementalSyncDebounceTimer) clearTimeout(incrementalSyncDebounceTimer);
+  incrementalSyncDebounceTimer = undefined;
+  if (incrementalSyncTimer) clearInterval(incrementalSyncTimer);
+  incrementalSyncTimer = undefined;
   zohoDashboardAbortController?.abort();
   taskReminderScheduler?.stop();
   if (usageTrackerTimer) clearInterval(usageTrackerTimer);

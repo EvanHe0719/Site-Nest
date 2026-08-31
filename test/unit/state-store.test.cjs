@@ -70,7 +70,7 @@ test("missing file is distinguished from corruption", async (t) => {
   const result = await loadStateFile(filePath, { now: NOW });
 
   assert.equal(result.source, "missing");
-  assert.equal(result.state.version, 16);
+  assert.equal(result.state.version, 17);
   assert.equal(result.persisted, false);
   await assert.rejects(fsp.access(filePath), (error) => error.code === "ENOENT");
 });
@@ -90,7 +90,7 @@ test("v2 load creates an exact one-time backup and atomically persists the curre
   assert.equal(await fsp.readFile(backupPath, "utf8"), raw);
 
   const persisted = JSON.parse(await fsp.readFile(filePath, "utf8"));
-  assert.equal(persisted.version, 16);
+  assert.equal(persisted.version, 17);
   assert.equal(persisted.sites[0].workspaceId, "personal");
   assert.equal(persisted.bookmarks.length, 1);
   assert.equal(persisted.automations.naixi.status, "success");
@@ -145,7 +145,7 @@ test("save validates and persists a normalized current-schema state", async (t) 
   const filePath = path.join(directory, "site-nest-data.json");
   const saved = await saveStateFile(filePath, v2Fixture(), { now: NOW });
 
-  assert.equal(saved.version, 16);
+  assert.equal(saved.version, 17);
   assert.equal(saved.workspaces.length, 3);
   const disk = JSON.parse(await fsp.readFile(filePath, "utf8"));
   assert.deepEqual(disk, saved);

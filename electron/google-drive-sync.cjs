@@ -11,6 +11,7 @@ const OPENID_SCOPE = "openid";
 const GOOGLE_SCOPES = Object.freeze([OPENID_SCOPE, EMAIL_SCOPE, PROFILE_SCOPE, DRIVE_SCOPE]);
 const DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
 const DRIVE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files";
+const DRIVE_CHANGES_URL = "https://www.googleapis.com/drive/v3/changes";
 const USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
 const TOKEN_FILE_VERSION = 1;
 
@@ -586,6 +587,110 @@ class GoogleDriveSyncService {
     };
   }
 
+  async listAppDataFiles() {
+    const files = [];
+    let pageToken = "";
+    do {
+      const query = new URLSearchParams({
+        spaces: "appDataFolder",
+        q: "trashed=false and name contains 'qiye-'",
+        fields: "nextPageToken,files(id,name,modifiedTime,size,appProperties)",
+        pageSize: "1000",
+      });
+      if (pageToken) query.set("pageToken", pageToken);
+      const response = await this._authorizedFetch(`${DRIVE_FILES_URL}?${query}`, { method: "GET" });
+      const value = await parseResponseJson(response, "GOOGLE_DRIVE_LIST_FAILED", "无法读取栖页增量同步文件列表");
+      files.push(...(Array.isArray(value.files) ? value.files : []).filter((file) => file?.id && file?.name));
+      pageToken = String(value.nextPageToken || "");
+    } while (pageToken);
+    return files;
+  }
+
+  async readAppDataJson(fileId) {
+    const id = String(fileId || "").trim();
+    if (!id) throw serviceError("GOOGLE_DRIVE_FILE_INVALID", "缺少 Google Drive 同步文件编号");
+    const response = await this._authorizedFetch(`${DRIVE_FILES_URL}/${encodeURIComponent(id)}?alt=media`, { method: "GET" });
+    return parseResponseJson(response, "GOOGLE_DRIVE_READ_FAILED", "无法读取 Google Drive 增量同步数据");
+  }
+
+  async writeAppDataJson(name, data, options = {}) {
+    const fileName = String(name || "").trim();
+    if (!/^qiye-[a-z0-9][a-z0-9._-]{1,180}\.json$/i.test(fileName)) {
+      throw serviceError("GOOGLE_DRIVE_FILE_INVALID", "增量同步文件名不符合栖页协议");
+    }
+    const serialized = JSON.stringify(data);
+    if (serialized === undefined) throw serviceError("GOOGLE_DRIVE_DATA_INVALID", "增量同步数据不能为空");
+    const existing = await this._findAppDataFile(fileName);
+    if (existing && options.upsert !== true) {
+      return { created: false, existing: true, fileId: existing.id, name: existing.name, modifiedTime: existing.modifiedTime || null };
+    }
+    if (existing) {
+      const query = new URLSearchParams({ uploadType: "media", fields: "id,name,modifiedTime,size,appProperties" });
+      const response = await this._authorizedFetch(`${DRIVE_UPLOAD_URL}/${encodeURIComponent(existing.id)}?${query}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json; charset=utf-8" },
+        body: serialized,
+      });
+      const file = await parseResponseJson(response, "GOOGLE_DRIVE_WRITE_FAILED", "无法更新栖页增量同步文件");
+      return { created: false, fileId: file.id || existing.id, name: file.name || fileName, modifiedTime: file.modifiedTime || null };
+    }
+    const appProperties = {};
+    for (const [key, value] of Object.entries(options.appProperties || {})) {
+      if (/^[A-Za-z][A-Za-z0-9_-]{0,60}$/.test(key)) appProperties[key] = String(value).slice(0, 120);
+    }
+    const boundary = `qiye_${base64Url(randomBytes(18))}`;
+    const metadata = JSON.stringify({
+      name: fileName,
+      parents: ["appDataFolder"],
+      mimeType: "application/json",
+      appProperties,
+    });
+    const body = [
+      `--${boundary}`, "Content-Type: application/json; charset=UTF-8", "", metadata,
+      `--${boundary}`, "Content-Type: application/json; charset=UTF-8", "", serialized,
+      `--${boundary}--`, "",
+    ].join("\r\n");
+    const query = new URLSearchParams({ uploadType: "multipart", fields: "id,name,modifiedTime,size,appProperties" });
+    const response = await this._authorizedFetch(`${DRIVE_UPLOAD_URL}?${query}`, {
+      method: "POST",
+      headers: { "content-type": `multipart/related; boundary=${boundary}` },
+      body,
+    });
+    const file = await parseResponseJson(response, "GOOGLE_DRIVE_WRITE_FAILED", "无法创建栖页增量同步文件");
+    if (!file.id) throw serviceError("GOOGLE_INVALID_RESPONSE", "Google Drive 未返回增量同步文件编号");
+    return { created: true, fileId: file.id, name: file.name || fileName, modifiedTime: file.modifiedTime || null };
+  }
+
+  async getStartPageToken() {
+    const query = new URLSearchParams({ spaces: "appDataFolder", fields: "startPageToken" });
+    const response = await this._authorizedFetch(`${DRIVE_CHANGES_URL}/startPageToken?${query}`, { method: "GET" });
+    const value = await parseResponseJson(response, "GOOGLE_DRIVE_CHANGES_FAILED", "无法获取 Google Drive 变更游标");
+    if (!value.startPageToken) throw serviceError("GOOGLE_INVALID_RESPONSE", "Google Drive 未返回变更游标");
+    return String(value.startPageToken);
+  }
+
+  async listChanges(pageToken) {
+    let token = String(pageToken || "").trim();
+    if (!token) throw serviceError("GOOGLE_DRIVE_CHANGES_TOKEN_MISSING", "缺少 Google Drive 变更游标");
+    const changes = [];
+    let newStartPageToken = "";
+    do {
+      const query = new URLSearchParams({
+        pageToken: token,
+        spaces: "appDataFolder",
+        includeRemoved: "true",
+        pageSize: "1000",
+        fields: "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,modifiedTime,size,trashed,appProperties))",
+      });
+      const response = await this._authorizedFetch(`${DRIVE_CHANGES_URL}?${query}`, { method: "GET" });
+      const value = await parseResponseJson(response, "GOOGLE_DRIVE_CHANGES_FAILED", "无法读取 Google Drive 增量变更");
+      changes.push(...(Array.isArray(value.changes) ? value.changes : []));
+      token = String(value.nextPageToken || "");
+      if (value.newStartPageToken) newStartPageToken = String(value.newStartPageToken);
+    } while (token);
+    return { changes, newStartPageToken: newStartPageToken || String(pageToken) };
+  }
+
   async _loadConfig() {
     if (this.cachedConfig) return this.cachedConfig;
     if (!this.configPath) {
@@ -1141,9 +1246,13 @@ class GoogleDriveSyncService {
   }
 
   async _findRemoteFile() {
+    return this._findAppDataFile(DRIVE_FILE_NAME);
+  }
+
+  async _findAppDataFile(fileName) {
     const query = new URLSearchParams({
       spaces: "appDataFolder",
-      q: `name='${DRIVE_FILE_NAME}' and trashed=false`,
+      q: `name='${String(fileName).replace(/'/g, "\\'")}' and trashed=false`,
       fields: "files(id,name,modifiedTime,size)",
       pageSize: "10",
     });
@@ -1156,7 +1265,7 @@ class GoogleDriveSyncService {
       "无法查找 Google Drive 中的栖页同步文件",
     );
     const files = Array.isArray(value.files) ? value.files : [];
-    return files.find((file) => file?.id && file?.name === DRIVE_FILE_NAME) || null;
+    return files.find((file) => file?.id && file?.name === fileName) || null;
   }
 
   async _writeHealthProbe() {

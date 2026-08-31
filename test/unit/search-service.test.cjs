@@ -132,7 +132,7 @@ test("v9 state migrates to the current schema without altering sites, bookmarks,
     updatedAt: NOW.toISOString(),
   }];
   const result = migrateState(initial, { now: NOW.toISOString() });
-  assert.equal(result.state.version, 16);
+  assert.equal(result.state.version, 17);
   assert.equal(result.state.sites[0].id, "site-a");
   assert.equal(result.state.bookmarks[0].id, "bookmark-a");
   assert.equal(result.state.connectorConnections[0].publicConfig.orgId, "123456");

@@ -41,7 +41,7 @@ const {
   normalizeTabGroups,
 } = require("./browser/tab-organization.cjs");
 
-const CURRENT_SCHEMA_VERSION = 16;
+const CURRENT_SCHEMA_VERSION = 17;
 const MAX_RECENTLY_CLOSED_TABS = 50;
 const DEFAULT_WORKSPACE_ID = "personal";
 const DEFAULT_BROWSER_PROFILE_ID = "default";
