@@ -714,6 +714,7 @@
                     <p>脚本在隔离世界运行，不获得 Node、Electron、Cookie、密码或任意 IPC。安装和更新都需要你明确确认。</p>
                   </div>
                   <div class="userscript-heading-actions">
+                    <button class="secondary-button compact-button" id="openCreatedUserScript" type="button" data-action-id="userscript.create"><span data-icon="code"></span>新建脚本</button>
                     <button class="secondary-button compact-button" id="importUserScriptFile" type="button" data-action-id="userscript.import-file"><span data-icon="folder"></span>本地文件</button>
                     <button class="secondary-button compact-button" id="openRemoteUserScript" type="button" data-action-id="userscript.review-remote"><span data-icon="link"></span>远程 URL</button>
                     <button class="primary-button compact-button" id="openPastedUserScript" type="button" data-action-id="userscript.review-pasted"><span data-icon="plus"></span>粘贴脚本</button>
@@ -1587,7 +1588,7 @@
       <div class="modal-card userscript-review-modal">
         <div class="modal-header"><div><span class="section-kicker">REVIEW BEFORE INSTALL</span><h2 id="userScriptReviewTitle">安装前确认</h2></div><button class="icon-button" type="button" data-close-modal="userScriptReviewModal" aria-label="关闭"><span data-icon="close"></span></button></div>
         <div class="userscript-review-summary" id="userScriptReviewSummary"></div>
-        <div class="userscript-review-groups"><section><strong>网址范围</strong><div id="userScriptReviewMatches"></div></section><section><strong>权限与跨域</strong><div id="userScriptReviewPermissions"></div></section></div>
+        <div class="userscript-review-groups"><section><strong>网址范围与时机</strong><div id="userScriptReviewMatches"></div></section><section><strong>权限与跨域</strong><div id="userScriptReviewPermissions"></div></section><section id="userScriptReviewChangesSection" hidden><strong>更新变化</strong><div id="userScriptReviewChanges"></div></section></div>
         <div class="userscript-compatibility" id="userScriptCompatibility"></div>
         <details class="userscript-source-preview"><summary>查看源码摘要与 Hash</summary><code id="userScriptSourcePreview"></code></details>
         <label class="userscript-confirm-row"><input id="confirmUserScriptPermissions" type="checkbox" /><span>我已核对适用域名、权限、跨域范围和代码摘要，确认安装到本机。</span></label>

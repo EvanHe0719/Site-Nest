@@ -174,7 +174,11 @@ const {
   appendUserScriptExecution,
   isSensitiveUserScriptUrl,
   removeUserScript,
+  resolveUserScriptUpdateUrl,
+  restoreUserScript,
+  rollbackUserScriptVersion,
   updateBuiltInSiteApproval,
+  updateLocalhostConnectApproval,
   updateSensitiveSiteApproval,
   updateUserScriptEnabled,
   upsertUserScript,
@@ -318,6 +322,8 @@ let appBackgroundService;
 let isQuitting = false;
 let userScriptEngine;
 let userScriptSourceService;
+let userScriptMetricsFlushTimer;
+let userScriptMetricsDirty = false;
 let pageResourceService;
 let webViewLifecycleManager;
 const globalSearchService = new GlobalSearchService();
@@ -797,6 +803,21 @@ function persistState() {
       await getStateStore().save(JSON.parse(snapshot));
     });
   return writeQueue;
+}
+
+function scheduleUserScriptMetricsPersist() {
+  userScriptMetricsDirty = true;
+  if (userScriptMetricsFlushTimer) return;
+  userScriptMetricsFlushTimer = setTimeout(() => {
+    userScriptMetricsFlushTimer = undefined;
+    if (!userScriptMetricsDirty) return;
+    userScriptMetricsDirty = false;
+    void persistState().catch((error) => {
+      userScriptMetricsDirty = true;
+      console.error("Unable to persist batched user-script metrics:", error?.message || error);
+    });
+  }, 2_000);
+  userScriptMetricsFlushTimer.unref?.();
 }
 
 async function commitStateCandidate(candidate) {
@@ -2572,7 +2593,10 @@ function ensureSiteView(context = activeBrowserContext()) {
   });
   view.webContents.on("will-navigate", (event, url) => {
     rememberSapNavigation(context, url);
-    if (isSafeWebUrl(url)) return;
+    if (isSafeWebUrl(url)) {
+      void maybeOfferUserScriptInstall(context, url);
+      return;
+    }
     event.preventDefault();
     void browserServices.externalProtocol.open(url, browserOwnerWindow(context));
   });
@@ -2669,6 +2693,7 @@ function ensureSiteView(context = activeBrowserContext()) {
     rememberSapNavigation(context, url);
     compactBrowserState({ url, securityState: securityStateForUrl(url), error: "" }, context);
     persistWorkspaceBrowserContext(context, { currentURL: url });
+    void maybeOfferUserScriptInstall(context, url);
   });
   view.webContents.on("did-start-navigation", (_event, _url, _isInPlace, isMainFrame) => {
     if (isMainFrame && context.navigationTraceId) {
@@ -5323,6 +5348,8 @@ function publicUserScript(script, state = cachedState) {
     author: script.author,
     sourceType: script.sourceType,
     sourceUrl: script.sourceUrl,
+    updateUrl: script.updateUrl,
+    downloadUrl: script.downloadUrl,
     sourceHash: script.sourceHash,
     sourceBytes: Buffer.byteLength(script.sourceCode || "", "utf8"),
     enabled: script.enabled,
@@ -5339,12 +5366,20 @@ function publicUserScript(script, state = cachedState) {
     createdAt: script.createdAt,
     updatedAt: script.updatedAt,
     lastCheckedAt: script.lastCheckedAt,
+    lastRunAt: script.lastRunAt,
+    errorCount: script.errorCount,
+    disabledReason: script.disabledReason,
+    deletedAt: script.deletedAt,
+    runtimeStats: script.runtimeStats,
     compatibility: script.compatibility,
     approvedSites: (state?.userScriptPermissions || [])
       .filter((item) => item.scriptId === script.id && item.permission === "site")
       .map((item) => item.value),
     sensitiveApprovedSites: (state?.userScriptPermissions || [])
       .filter((item) => item.scriptId === script.id && item.permission === "sensitive-site")
+      .map((item) => item.value),
+    localhostApprovedHosts: (state?.userScriptPermissions || [])
+      .filter((item) => item.scriptId === script.id && item.permission === "localhost-connect")
       .map((item) => item.value),
   };
 }
@@ -5354,6 +5389,12 @@ function userScriptSnapshot(state = cachedState) {
   return {
     scripts: scripts.map((script) => publicUserScript(script, state)),
     executions: (state?.userScriptExecutions || []).slice(-100).reverse(),
+    versions: (state?.userScriptVersions || []).map((item) => ({
+      scriptId: item.scriptId,
+      version: item.version,
+      sourceHash: item.sourceHash,
+      createdAt: item.createdAt,
+    })),
   };
 }
 
@@ -5378,29 +5419,69 @@ function getUserScriptServices() {
     updateState: commitUserScriptState,
     recordExecution: async (execution) => {
       const state = await getState();
-      cachedState = appendUserScriptExecution(state, execution).state;
-      await persistState();
+      const result = appendUserScriptExecution(state, execution);
+      cachedState = result.state;
+      scheduleUserScriptMetricsPersist();
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("userscripts:execution", execution);
+        mainWindow.webContents.send("userscripts:changed", userScriptSnapshot(cachedState));
+        if (result.autoDisabled) {
+          mainWindow.webContents.send("userscripts:auto-disabled", {
+            scriptId: result.script.id,
+            name: result.script.name,
+            message: result.script.disabledReason,
+          });
+        }
+      }
+      if (result.autoDisabled && Notification.isSupported()) {
+        const notification = new Notification({
+          title: "网页脚本已自动暂停",
+          body: `${result.script.name}：${result.script.disabledReason}`.slice(0, 500),
+          icon: path.join(PROJECT_ROOT, "assets", "app-icon.png"),
+        });
+        notification.on("click", () => void openMainWindowForTask());
+        notification.show();
       }
     },
     openTab: async (runtime, payload) => {
       if (!isSafeWebUrl(payload?.url)) throw new Error("脚本请求打开的网址无效");
       await openTransientBrowserTab(runtime.workspaceId, payload.url, {
         background: payload.active === false,
+        browserProfileId: runtime.browserProfileId || DEFAULT_BROWSER_PROFILE_ID,
       });
-      return { opened: true };
+      return {
+        opened: true,
+        workspaceId: runtime.workspaceId,
+        browserProfileId: runtime.browserProfileId || DEFAULT_BROWSER_PROFILE_ID,
+        partition: browserPartitionForProfile(runtime.browserProfileId || DEFAULT_BROWSER_PROFILE_ID),
+      };
     },
     showNotification: async (runtime, payload) => {
-      if (!Notification.isSupported()) return { supported: false };
+      const title = String(payload?.title || runtime.scriptName || "网页脚本").slice(0, 120);
+      const body = String(payload?.text || "").slice(0, 500);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("userscripts:notification", {
+          scriptId: runtime.scriptId,
+          title,
+          body,
+        });
+      }
+      if (!Notification.isSupported()) return { supported: false, deliveredInApp: true };
       const notification = new Notification({
-        title: String(payload?.title || runtime.scriptName || "网页脚本").slice(0, 120),
-        body: String(payload?.text || "").slice(0, 500),
+        title,
+        body,
         icon: path.join(PROJECT_ROOT, "assets", "app-icon.png"),
       });
       notification.on("click", () => void openMainWindowForTask());
       notification.show();
-      return { supported: true };
+      return { supported: true, deliveredInApp: true };
+    },
+    setClipboard: async (_runtime, payload) => {
+      const text = String(payload?.text || "").slice(0, 1_048_576);
+      const type = String(payload?.type || "text/plain").toLowerCase();
+      if (type === "html" || type === "text/html") clipboard.write({ html: text, text });
+      else clipboard.writeText(text);
+      return { ok: true, type };
     },
     fetchFn: (...args) => net.fetch(...args),
     onCommandsChanged: () => {
@@ -5424,7 +5505,43 @@ async function runUserScriptsForContext(context, runAt) {
     tabId: context.tabId,
     workspaceId: context.workspaceId,
     browserProfileId: context.browserProfileId,
+    persistentPartition: browserPartitionForProfile(context.browserProfileId),
   }, runAt);
+}
+
+async function maybeOfferUserScriptInstall(context, rawUrl) {
+  let url;
+  try { url = new URL(rawUrl); } catch { return; }
+  if (url.protocol !== "https:" || !/\.user\.js$/i.test(url.pathname)) return;
+  if (context.lastOfferedUserScriptUrl === url.toString()) return;
+  context.lastOfferedUserScriptUrl = url.toString();
+  try {
+    const state = await getState();
+    const existing = state.userScripts.find((script) =>
+      !script.deletedAt && [script.sourceUrl, script.updateUrl, script.downloadUrl].includes(url.toString()));
+    const review = await getUserScriptServices().sources.review({
+      sourceType: "remoteUrl",
+      sourceUrl: url.toString(),
+      workspaceIds: [context.workspaceId],
+      browserProfileIds: [context.browserProfileId],
+    }, {
+      updateOf: existing?.id || null,
+      previousHash: existing?.sourceHash || null,
+      previousSourceCode: existing?.sourceCode,
+      previousScript: existing,
+    });
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("userscripts:review-ready", review);
+    }
+  } catch (error) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("browser:notice", {
+        title: "无法检查用户脚本",
+        message: String(error?.message || "远程脚本读取失败").slice(0, 300),
+        tone: "error",
+      });
+    }
+  }
 }
 
 function registerIpc() {
@@ -6035,6 +6152,15 @@ function registerIpc() {
       browserProfileIds: payload?.browserProfileIds,
     }),
   );
+  ipcMain.handle("userscripts:review-created", (_event, payload) =>
+    getUserScriptServices().sources.review({
+      sourceType: "createdInApp",
+      sourceCode: payload?.sourceCode,
+      name: payload?.name,
+      workspaceIds: payload?.workspaceIds,
+      browserProfileIds: payload?.browserProfileIds,
+    }),
+  );
   ipcMain.handle("userscripts:review-remote", (_event, payload) =>
     getUserScriptServices().sources.review({
       sourceType: "remoteUrl",
@@ -6073,8 +6199,11 @@ function registerIpc() {
     const result = upsertUserScript(state, {
       ...review.script,
       id: review.updateOf || review.script.id,
+      sourceType: existing?.sourceType || review.script.sourceType,
+      sourceUrl: existing?.sourceUrl || review.script.sourceUrl,
       enabled: existing?.enabled === true,
       createdAt: existing?.createdAt || review.script.createdAt,
+      deletedAt: null,
     });
     cachedState = result.state;
     await persistState();
@@ -6140,19 +6269,79 @@ function registerIpc() {
     mainWindow?.webContents.send("userscripts:changed", userScriptSnapshot(cachedState));
     return userScriptSnapshot(cachedState);
   });
+  ipcMain.handle("userscripts:restore", async (_event, scriptId) => {
+    const state = await getState();
+    const result = restoreUserScript(state, scriptId);
+    cachedState = result.state;
+    await persistState();
+    mainWindow?.webContents.send("userscripts:changed", userScriptSnapshot(cachedState));
+    return userScriptSnapshot(cachedState);
+  });
+  ipcMain.handle("userscripts:rollback", async (_event, payload) => {
+    const state = await getState();
+    const script = state.userScripts.find((item) => item.id === String(payload?.scriptId || ""));
+    const version = (state.userScriptVersions || []).find((item) =>
+      item.scriptId === script?.id && item.sourceHash === String(payload?.sourceHash || ""));
+    if (!script || !version) throw new Error("找不到可回滚的脚本版本");
+    const confirmation = await dialog.showMessageBox(mainWindow, {
+      type: "warning",
+      title: "回滚网页脚本",
+      message: `将“${script.name}”回滚到 v${version.version}？`,
+      detail: "当前源码会保留在版本历史中；回滚后脚本保持当前启用状态。",
+      buttons: ["取消", "确认回滚"],
+      defaultId: 0,
+      cancelId: 0,
+    });
+    if (confirmation.response !== 1) throw new Error("已取消脚本回滚");
+    const result = rollbackUserScriptVersion(state, script.id, version.sourceHash);
+    cachedState = result.state;
+    await persistState();
+    mainWindow?.webContents.send("userscripts:changed", userScriptSnapshot(cachedState));
+    return userScriptSnapshot(cachedState);
+  });
+  ipcMain.handle("userscripts:set-localhost-approved", async (_event, payload) => {
+    const state = await getState();
+    const script = state.userScripts.find((item) => item.id === String(payload?.scriptId || ""));
+    const hostname = String(payload?.hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+    if (!script) throw new Error("找不到用户脚本");
+    if (!script.connects.some((value) => value === hostname || value === `[${hostname}]`)) {
+      throw new Error("脚本未声明这个本机 @connect 范围");
+    }
+    if (payload?.approved === true) {
+      const confirmation = await dialog.showMessageBox(mainWindow, {
+        type: "warning",
+        title: "允许访问本机服务",
+        message: `允许“${script.name}”访问 ${hostname}？`,
+        detail: "本机服务可能包含开发接口或管理面板。只有脚本明确声明的地址会被放行，跳转后的每个目标仍会重新检查。",
+        buttons: ["取消", "授予本机访问"],
+        defaultId: 0,
+        cancelId: 0,
+        checkboxLabel: "我理解该脚本将能够访问本机服务",
+        checkboxChecked: false,
+      });
+      if (confirmation.response !== 1 || confirmation.checkboxChecked !== true) throw new Error("未完成本机访问高级授权确认");
+    }
+    const result = updateLocalhostConnectApproval(state, script.id, hostname, payload?.approved);
+    cachedState = result.state;
+    await persistState();
+    mainWindow?.webContents.send("userscripts:changed", userScriptSnapshot(cachedState));
+    return userScriptSnapshot(cachedState);
+  });
   ipcMain.handle("userscripts:check-update", async (_event, scriptId) => {
     const state = await getState();
     const script = state.userScripts.find((item) => item.id === String(scriptId || ""));
-    if (!script || script.sourceType !== "remoteUrl" || !script.sourceUrl) throw new Error("这个脚本没有可检查的 HTTPS 更新地址");
+    const updateUrl = resolveUserScriptUpdateUrl(script);
+    if (!script || !updateUrl) throw new Error("这个脚本没有可检查的 HTTPS 更新地址");
     return getUserScriptServices().sources.review({
       sourceType: "remoteUrl",
-      sourceUrl: script.sourceUrl,
+      sourceUrl: updateUrl,
       workspaceIds: script.workspaceIds,
       browserProfileIds: script.browserProfileIds,
     }, {
       updateOf: script.id,
       previousHash: script.sourceHash,
       previousSourceCode: script.sourceCode,
+      previousScript: script,
     });
   });
   ipcMain.handle("userscripts:commands", () => {
@@ -6694,7 +6883,14 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
             await showSite(added.site);
             return { scriptId: script.id, hash: script.sourceHash };
           })()`);
-          await new Promise((resolve) => setTimeout(resolve, 1200));
+          await waitForRuntimeTabNavigation(activeBrowserContext(), 15_000);
+          for (let attempt = 0; attempt < 120; attempt += 1) {
+            const scriptReady = await siteView.webContents.executeJavaScript(
+              "Boolean(document.documentElement.dataset.qiyeUserscript)",
+            ).catch(() => false);
+            if (scriptReady) break;
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
           const pageResult = await siteView.webContents.executeJavaScript(`(() => ({
             ran: document.documentElement.dataset.qiyeUserscript,
             cookieSeen: document.body.dataset.cookieSeen,
@@ -7634,6 +7830,12 @@ app.on("before-quit", () => {
   usageTrackerTimer = undefined;
   usageTracker?.setForeground(false);
   void usageTracker?.flush().catch(() => undefined);
+  if (userScriptMetricsFlushTimer) clearTimeout(userScriptMetricsFlushTimer);
+  userScriptMetricsFlushTimer = undefined;
+  if (userScriptMetricsDirty) {
+    userScriptMetricsDirty = false;
+    void persistState().catch(() => undefined);
+  }
   desktopNotificationService?.closeAll();
   trayService?.destroy();
   webViewLifecycleManager?.stop();

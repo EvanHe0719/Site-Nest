@@ -297,7 +297,7 @@ test("v10 migration keeps sites separate from sessions and is idempotent", () =>
   const initial = createInitialState({ now: NOW, defaultSites: [
     { id: "site-a", name: "站点 A", url: "https://a.example/", workspaceId: "work" },
   ] });
-  assert.equal(initial.version, 15);
+  assert.equal(initial.version, 16);
   assert.equal(initial.sites.length, 1);
   assert.equal(initial.workspaceBrowserStates.work.tabs.length, 0);
   assert.deepEqual(initial.uiSettings, {

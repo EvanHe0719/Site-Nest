@@ -72,8 +72,8 @@ function userScriptMatches(script, rawUrl, context = {}) {
 }
 
 function connectPatternMatches(pattern, hostname) {
-  const value = String(pattern || "").trim().toLowerCase();
-  const host = String(hostname || "").toLowerCase();
+  const value = String(pattern || "").trim().toLowerCase().replace(/^\[|\]$/g, "");
+  const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
   if (!value || value === "*") return false;
   if (value.startsWith("*.")) return host === value.slice(2) || host.endsWith(`.${value.slice(2)}`);
   return host === value;

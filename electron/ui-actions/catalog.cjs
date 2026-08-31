@@ -19,6 +19,7 @@ const UI_ACTION_CATALOG = Object.freeze([
   ["search.open", "打开全局搜索", "search"],
   ["search.submit", "执行全局搜索", "search"],
   ["automation.naixi.run", "执行奶昔签到", "automation"],
+  ["userscript.create", "新建网页脚本", "userscripts"],
   ["userscript.import-file", "导入本地网页脚本", "userscripts"],
   ["userscript.review-remote", "检查远程网页脚本", "userscripts"],
   ["userscript.review-pasted", "检查粘贴网页脚本", "userscripts"],

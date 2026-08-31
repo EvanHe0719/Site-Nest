@@ -91,10 +91,12 @@ test("real Electron installs only after review and runs the script in an isolate
   assert.ok((await fsp.stat(result.capturePath)).size > 1000);
 
   const state = JSON.parse(await fsp.readFile(path.join(userData, "site-nest-data.json"), "utf8"));
+  assert.equal(state.version, 16);
   const installed = state.userScripts.find((script) => script.name === "Electron userscript fixture");
   assert.ok(installed);
   assert.equal(installed.enabled, false);
   assert.match(installed.sourceHash, /^[a-f0-9]{64}$/);
+  assert.equal(state.userScriptVersions.some((version) => version.scriptId === installed.id && version.sourceHash === installed.sourceHash), true);
   assert.equal(state.userScriptExecutions.some((execution) => execution.status === "success"), true);
 
   const reviewUi = await runElectron({ userData, baseUrl: fixture.baseUrl, route: "userscript-review-ui" });

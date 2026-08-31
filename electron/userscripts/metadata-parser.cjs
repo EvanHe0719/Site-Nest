@@ -11,10 +11,16 @@ const SUPPORTED_GRANTS = new Set([
   "GM_registerMenuCommand",
   "GM_openInTab",
   "GM_notification",
+  "GM_setClipboard",
   "GM_xmlhttpRequest",
 ]);
 const MULTI_VALUE_KEYS = new Set([
   "match", "include", "exclude", "grant", "connect", "require", "resource",
+]);
+const KNOWN_METADATA_KEYS = new Set([
+  "name", "namespace", "version", "description", "author",
+  "match", "include", "exclude", "run-at", "grant", "connect",
+  "updateurl", "downloadurl", "require", "resource",
 ]);
 
 class UserScriptParseError extends Error {
@@ -69,16 +75,21 @@ function compatibilityReport(metadata) {
   const warnings = [];
   const grants = normalizeStringList(metadata.grant);
   grants.filter((grant) => !SUPPORTED_GRANTS.has(grant)).forEach((grant) => unsupported.push(`不支持 @grant ${grant}`));
-  if (normalizeStringList(metadata.require).length) unsupported.push("第一阶段不支持 @require 远程依赖");
-  if (normalizeStringList(metadata.resource).length) unsupported.push("第一阶段不支持 @resource");
+  if (normalizeStringList(metadata.require).length) unsupported.push("当前版本不支持 @require 远程依赖");
+  if (normalizeStringList(metadata.resource).length) unsupported.push("当前版本不支持 @resource");
   const connects = normalizeStringList(metadata.connect);
   if (connects.includes("*")) unsupported.push("@connect * 不允许默认放行");
   if (grants.includes("unsafeWindow")) unsupported.push("不支持 unsafeWindow");
   const runAt = metadata["run-at"] || "document-end";
   if (!SUPPORTED_RUN_AT.has(runAt)) unsupported.push(`不支持 @run-at ${runAt}`);
+  if (runAt === "document-start") warnings.push("document-start 依赖桌面注入调度，当前不保证早于站点自身脚本执行");
   if (!normalizeStringList(metadata.match).length && !normalizeStringList(metadata.include).length) {
     warnings.push("没有 @match 或 @include，脚本不会自动运行");
   }
+  Object.keys(metadata)
+    .filter((key) => !KNOWN_METADATA_KEYS.has(key))
+    .sort()
+    .forEach((key) => warnings.push(`尚未支持的 Metadata：@${key}`));
   return { compatible: unsupported.length === 0, unsupported, warnings };
 }
 
@@ -106,11 +117,22 @@ function parseUserScript(sourceCode, options = {}) {
     runAt: SUPPORTED_RUN_AT.has(metadata["run-at"]) ? metadata["run-at"] : "document-end",
     grants: normalizeStringList(metadata.grant).filter((grant) => grant !== "none"),
     connects: normalizeStringList(metadata.connect),
+    requires: normalizeStringList(metadata.require),
+    resources: normalizeStringList(metadata.resource),
     workspaceIds: normalizeStringList(options.workspaceIds),
     browserProfileIds: normalizeStringList(options.browserProfileIds),
+    updateUrl: String(metadata.updateurl || options.updateUrl || "").trim().slice(0, 2048) || null,
+    downloadUrl: String(metadata.downloadurl || options.downloadUrl || "").trim().slice(0, 2048) || null,
     createdAt: options.createdAt || now,
     updatedAt: now,
     lastCheckedAt: options.lastCheckedAt || null,
+    lastRunAt: options.lastRunAt || null,
+    errorCount: Math.max(0, Math.min(100_000, Number(options.errorCount) || 0)),
+    disabledReason: String(options.disabledReason || "").slice(0, 300) || null,
+    deletedAt: options.deletedAt || null,
+    runtimeStats: options.runtimeStats && typeof options.runtimeStats === "object"
+      ? { ...options.runtimeStats }
+      : {},
     compatibility: report,
   };
 }
@@ -118,6 +140,7 @@ function parseUserScript(sourceCode, options = {}) {
 module.exports = {
   SUPPORTED_GRANTS,
   SUPPORTED_RUN_AT,
+  KNOWN_METADATA_KEYS,
   UserScriptParseError,
   compatibilityReport,
   parseMetadata,

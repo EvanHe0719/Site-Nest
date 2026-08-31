@@ -3,6 +3,55 @@ const { connectPatternMatches, isSensitiveUserScriptUrl, userScriptMatches } = r
 
 const USER_SCRIPT_WORLD_ID = 1001;
 const EXECUTION_TIMEOUT_MS = 3000;
+const NETWORK_MAX_RESPONSE_BYTES = 1_048_576;
+const NETWORK_MAX_REDIRECTS = 5;
+
+function isLocalConnectHostname(hostname) {
+  return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(String(hostname || "").toLowerCase());
+}
+
+function classifyConnectTarget(rawUrl) {
+  let url;
+  try { url = new URL(rawUrl); } catch { return { allowedProtocol: false, local: false, reason: "跨域请求 URL 无效" }; }
+  const local = isLocalConnectHostname(url.hostname);
+  const allowedProtocol = url.protocol === "https:" || (url.protocol === "http:" && local);
+  return {
+    allowedProtocol,
+    local,
+    hostname: url.hostname.toLowerCase().replace(/^\[|\]$/g, ""),
+    protocol: url.protocol,
+    reason: allowedProtocol ? (local ? "本机地址需要单独高级授权" : "") : "跨域请求只允许 HTTPS 或已批准的本机地址",
+  };
+}
+
+async function readNetworkResponseWithLimit(response, maximumBytes = NETWORK_MAX_RESPONSE_BYTES) {
+  const declaredLength = Number(response.headers?.get?.("content-length") || 0);
+  if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) throw new Error("跨域响应超过 1 MB 限制");
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    const text = await response.text();
+    if (Buffer.byteLength(text, "utf8") > maximumBytes) throw new Error("跨域响应超过 1 MB 限制");
+    return text;
+  }
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = Buffer.from(value);
+      size += chunk.length;
+      if (size > maximumBytes) {
+        await reader.cancel?.();
+        throw new Error("跨域响应超过 1 MB 限制");
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    reader.releaseLock?.();
+  }
+  return Buffer.concat(chunks, size).toString("utf8");
+}
 
 function safeMessage(value, fallback = "用户脚本执行失败") {
   return String(value || fallback)
@@ -61,22 +110,39 @@ function runtimeWrapper(script, token) {
     const GM_registerMenuCommand = (name, callback) => { requireGrant('GM_registerMenuCommand'); if (typeof callback !== 'function') throw new Error('菜单命令需要回调'); const commandId = crypto.randomUUID(); globalThis.__qiyeUserScriptCommands.set(runtimeToken + ':' + commandId, callback); void call('menu:register', { commandId, name: String(name).slice(0, 100) }); return commandId; };
     const GM_openInTab = async (url, options = {}) => { requireGrant('GM_openInTab'); return call('tab:open', { url: String(url), active: options?.active !== false }); };
     const GM_notification = async (details, title) => { requireGrant('GM_notification'); const input = typeof details === 'string' ? { text: details, title } : details || {}; return call('notification:show', { title: String(input.title || GM_info.script.name).slice(0, 120), text: String(input.text || '').slice(0, 500) }); };
+    const GM_setClipboard = async (text, type = 'text/plain') => { requireGrant('GM_setClipboard'); return call('clipboard:set', { text: String(text).slice(0, 1048576), type: String(type || 'text/plain').slice(0, 80) }); };
     const GM_xmlhttpRequest = async (details = {}) => { requireGrant('GM_xmlhttpRequest'); try { const response = await call('network:request', { method: details.method, url: details.url, headers: details.headers, data: details.data, timeout: details.timeout }); details.onload?.(response); return response; } catch (error) { details.onerror?.({ error: error?.message || 'request failed' }); throw error; } };
+    let timerCount = 0;
+    let observerCount = 0;
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const nativeSetInterval = globalThis.setInterval.bind(globalThis);
+    const NativeMutationObserver = globalThis.MutationObserver;
+    const setTimeout = (...args) => { timerCount += 1; return nativeSetTimeout(...args); };
+    const setInterval = (...args) => { timerCount += 1; return nativeSetInterval(...args); };
+    const MutationObserver = NativeMutationObserver ? class extends NativeMutationObserver {
+      constructor(callback) { observerCount += 1; super(callback); }
+    } : undefined;
+    const firstExecutionStartedAt = performance.now();
+    const executionMetrics = () => {
+      const firstExecutionDurationMs = performance.now() - firstExecutionStartedAt;
+      return { firstExecutionDurationMs, longTaskCount: firstExecutionDurationMs >= 50 ? 1 : 0, observerCount, timerCount };
+    };
     return Promise.resolve().then(async () => {
       return (async function() {
 ${script.sourceCode}
       }).call(globalThis);
-    }).then(() => ({ ok: true })).catch((error) => ({ ok: false, message: String(error?.message || error || '脚本失败').slice(0, 300) }));
+    }).then(() => ({ ok: true, metrics: executionMetrics() })).catch((error) => ({ ok: false, message: String(error?.message || error || '脚本失败').slice(0, 300), metrics: executionMetrics() }));
   })()`;
 }
 
 class UserScriptEngine {
-  constructor({ getState, updateState, recordExecution, openTab, showNotification, fetchFn, onCommandsChanged = () => undefined, executionTimeoutMs = EXECUTION_TIMEOUT_MS } = {}) {
+  constructor({ getState, updateState, recordExecution, openTab, showNotification, setClipboard, fetchFn, onCommandsChanged = () => undefined, executionTimeoutMs = EXECUTION_TIMEOUT_MS } = {}) {
     this.getState = getState;
     this.updateState = updateState;
     this.recordExecution = recordExecution;
     this.openTab = openTab;
     this.showNotification = showNotification;
+    this.setClipboard = setClipboard;
     this.fetchFn = fetchFn;
     this.onCommandsChanged = onCommandsChanged;
     this.executionTimeoutMs = Math.max(10, Number(executionTimeoutMs) || EXECUTION_TIMEOUT_MS);
@@ -114,15 +180,18 @@ class UserScriptEngine {
     const rawUrl = contents.getURL();
     let hostname = "";
     try { hostname = new URL(rawUrl).hostname.toLowerCase(); } catch {}
-    const scripts = state.userScripts.filter((script) => {
+    const scripts = [];
+    for (const script of state.userScripts) {
+      const matchStarted = Date.now();
       const sensitiveSiteApproved = state.userScriptPermissions.some((item) =>
         item.scriptId === script.id && item.permission === "sensitive-site" && item.value === hostname);
-      return script.enabled && script.runAt === runAt && script.compatibility?.compatible &&
+      const matched = script.enabled && !script.deletedAt && script.runAt === runAt && script.compatibility?.compatible &&
         userScriptMatches(script, rawUrl, { ...context, sensitiveSiteApproved }).matched &&
         this._permissionsApproved(state, script, rawUrl);
-    });
+      if (matched) scripts.push({ script, matchDurationMs: Date.now() - matchStarted });
+    }
     const results = [];
-    for (const script of scripts) results.push(await this._execute(contents, context, script));
+    for (const candidate of scripts) results.push(await this._execute(contents, { ...context, matchDurationMs: candidate.matchDurationMs }, candidate.script, state));
     return results;
   }
 
@@ -133,7 +202,9 @@ class UserScriptEngine {
     return this._execute(contents, context, { ...script, enabled: true });
   }
 
-  async _execute(contents, context, script) {
+  async _execute(contents, context, script, knownState = null) {
+    const existingRuntime = Array.from(this.runtimes.get(contents.id)?.values?.() || []).find((item) => item.scriptId === script.id);
+    if (existingRuntime) return { ok: true, scriptId: script.id, skipped: true, reason: "同一页面已注入" };
     const token = randomUUID();
     const started = Date.now();
     const runtime = {
@@ -143,20 +214,29 @@ class UserScriptEngine {
       sessionId: context.tabId || "",
       workspaceId: context.workspaceId,
       browserProfileId: context.browserProfileId,
+      persistentPartition: context.persistentPartition || context.partition || null,
       hostname: new URL(contents.getURL()).hostname,
       grants: new Set(script.grants || []),
       connects: new Set(script.connects || []),
+      localhostConnects: new Set((knownState?.userScriptPermissions || [])
+        .filter((item) => item.scriptId === script.id && item.permission === "localhost-connect")
+        .map((item) => item.value)),
       commands: new Map(),
     };
     if (!this.runtimes.has(contents.id)) this.runtimes.set(contents.id, new Map());
     this.runtimes.get(contents.id).set(token, runtime);
     let status = "success";
     let message = "脚本执行完成";
+    let resultMetrics = {};
+    let injectionDurationMs = 0;
     try {
+      const injectionStarted = Date.now();
       const result = await Promise.race([
         contents.executeJavaScriptInIsolatedWorld(USER_SCRIPT_WORLD_ID, [{ code: runtimeWrapper(script, token), url: `qiye-userscript://${script.id}` }], false),
         timeoutPromise(this.executionTimeoutMs),
       ]);
+      injectionDurationMs = Date.now() - injectionStarted;
+      resultMetrics = result?.metrics || {};
       if (!result?.ok) throw new Error(result?.message || "脚本执行失败");
       return { ok: true, scriptId: script.id };
     } catch (error) {
@@ -175,6 +255,12 @@ class UserScriptEngine {
         status,
         sanitizedMessage: message,
         durationMs: Date.now() - started,
+        matchDurationMs: context.matchDurationMs ?? null,
+        injectionDurationMs,
+        firstExecutionDurationMs: resultMetrics.firstExecutionDurationMs ?? null,
+        longTaskCount: resultMetrics.longTaskCount ?? null,
+        observerCount: resultMetrics.observerCount ?? null,
+        timerCount: resultMetrics.timerCount ?? null,
       });
     }
   }
@@ -207,11 +293,25 @@ class UserScriptEngine {
     }
     if (operation === "tab:open") {
       if (!runtime.grants.has("GM_openInTab")) throw new Error("脚本未批准打开页签权限");
-      return this.openTab(runtime, payload);
+      if (typeof this.openTab !== "function") throw new Error("打开页签服务不可用");
+      return this.openTab(runtime, {
+        url: payload.url,
+        active: payload.active !== false,
+        workspaceId: runtime.workspaceId,
+        browserProfileId: runtime.browserProfileId,
+        persistentPartition: runtime.persistentPartition,
+      });
     }
     if (operation === "notification:show") {
       if (!runtime.grants.has("GM_notification")) throw new Error("脚本未批准通知权限");
       return this.showNotification(runtime, payload);
+    }
+    if (operation === "clipboard:set") {
+      if (!runtime.grants.has("GM_setClipboard")) throw new Error("脚本未批准剪贴板权限");
+      if (typeof this.setClipboard !== "function") throw new Error("剪贴板服务不可用");
+      const type = String(payload.type || "text/plain").toLowerCase();
+      if (!["text/plain", "text", "html", "text/html"].includes(type)) throw new Error("剪贴板类型不受支持");
+      return this.setClipboard(runtime, { text: String(payload.text || "").slice(0, 1_048_576), type });
     }
     if (operation === "network:request") return this._network(runtime, payload);
     throw new Error("不支持的用户脚本宿主操作");
@@ -247,8 +347,7 @@ class UserScriptEngine {
     if (!runtime.grants.has("GM_xmlhttpRequest")) throw new Error("脚本未批准跨域请求权限");
     let url;
     try { url = new URL(payload.url); } catch { throw new Error("跨域请求 URL 无效"); }
-    if (url.protocol !== "https:" && !(url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname))) throw new Error("跨域请求只允许 HTTPS 或本机地址");
-    if (![...runtime.connects].some((pattern) => connectPatternMatches(pattern, url.hostname))) throw new Error("请求域名不在已批准的 @connect 范围");
+    this._assertNetworkTarget(runtime, url);
     const method = String(payload.method || "GET").toUpperCase();
     if (!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"].includes(method)) throw new Error("跨域请求方法不受支持");
     const headers = {};
@@ -260,26 +359,64 @@ class UserScriptEngine {
     const timeout = setTimeout(() => controller.abort(), Math.max(1000, Math.min(30_000, Number(payload.timeout) || 15_000)));
     timeout.unref?.();
     try {
-      const response = await this.fetchFn(url.toString(), {
-        method,
-        headers,
-        body: ["GET", "HEAD"].includes(method) ? undefined : String(payload.data || "").slice(0, 1_048_576),
-        credentials: "omit",
-        redirect: "follow",
-        signal: controller.signal,
-      });
-      const text = (await response.text()).slice(0, 1_048_576);
-      return { status: response.status, statusText: response.statusText, responseText: text, finalUrl: response.url };
+      if (typeof this.fetchFn !== "function") throw new Error("跨域请求服务不可用");
+      let currentUrl = url;
+      let currentMethod = method;
+      let currentBody = ["GET", "HEAD"].includes(method) ? undefined : String(payload.data || "").slice(0, 1_048_576);
+      for (let redirectCount = 0; redirectCount <= NETWORK_MAX_REDIRECTS; redirectCount += 1) {
+        this._assertNetworkTarget(runtime, currentUrl);
+        const response = await this.fetchFn(currentUrl.toString(), {
+          method: currentMethod,
+          headers,
+          body: currentBody,
+          credentials: "omit",
+          redirect: "manual",
+          signal: controller.signal,
+        });
+        if ([301, 302, 303, 307, 308].includes(response.status)) {
+          if (redirectCount >= NETWORK_MAX_REDIRECTS) throw new Error("跨域请求重定向次数过多");
+          const location = response.headers?.get?.("location");
+          if (!location) throw new Error("跨域请求重定向缺少地址");
+          await response.body?.cancel?.().catch?.(() => undefined);
+          currentUrl = new URL(location, currentUrl);
+          this._assertNetworkTarget(runtime, currentUrl);
+          if (response.status === 303 || ((response.status === 301 || response.status === 302) && currentMethod === "POST")) {
+            currentMethod = "GET";
+            currentBody = undefined;
+          }
+          continue;
+        }
+        const text = await readNetworkResponseWithLimit(response, NETWORK_MAX_RESPONSE_BYTES);
+        return { status: response.status, statusText: response.statusText, responseText: text, finalUrl: currentUrl.toString() };
+      }
+      throw new Error("跨域请求重定向次数过多");
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  _assertNetworkTarget(runtime, url) {
+    const classification = classifyConnectTarget(url.toString());
+    if (!classification.allowedProtocol) throw new Error(classification.reason);
+    if (url.username || url.password) throw new Error("跨域请求不允许在 URL 中携带凭据");
+    if (![...runtime.connects].some((pattern) => connectPatternMatches(pattern, url.hostname))) {
+      throw new Error("请求域名不在已批准的 @connect 范围");
+    }
+    if (classification.local && !runtime.localhostConnects.has(classification.hostname)) {
+      throw new Error("本机 @connect 需要单独高级授权");
     }
   }
 }
 
 module.exports = {
   EXECUTION_TIMEOUT_MS,
+  NETWORK_MAX_REDIRECTS,
+  NETWORK_MAX_RESPONSE_BYTES,
   USER_SCRIPT_WORLD_ID,
   UserScriptEngine,
+  classifyConnectTarget,
+  isLocalConnectHostname,
+  readNetworkResponseWithLimit,
   runtimeWrapper,
   safeJsonValue,
   safeMessage,

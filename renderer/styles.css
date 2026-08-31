@@ -3391,6 +3391,29 @@ svg {
   animation: toast-in 180ms ease-out;
 }
 
+.toast.has-action {
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  pointer-events: auto;
+}
+
+.toast-action {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid #c9dcd3;
+  border-radius: 8px;
+  background: #eef7f2;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.toast-action:disabled {
+  cursor: wait;
+  opacity: .62;
+}
+
 .toast.is-error {
   border-color: #edd3cf;
 }
@@ -5737,6 +5760,12 @@ svg {
   background: #fafaf8;
 }
 
+.userscript-card[data-deleted="true"] {
+  border-style: dashed;
+  background: #f7f5f1;
+  opacity: .84;
+}
+
 .userscript-card-main {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -5776,6 +5805,15 @@ svg {
   margin: 6px 0 9px;
   color: #66736e;
   line-height: 1.55;
+}
+
+.userscript-card-main .userscript-disabled-reason {
+  margin: 8px 0 0;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: #fff2ed;
+  color: #95584f;
+  font-size: 11px;
 }
 
 .userscript-meta {
@@ -5996,6 +6034,10 @@ svg {
   padding: 12px;
   border: 1px solid #e0e5e2;
   border-radius: 11px;
+}
+
+.userscript-review-groups section:nth-child(3) {
+  grid-column: 1 / -1;
 }
 
 .userscript-review-groups section > div {

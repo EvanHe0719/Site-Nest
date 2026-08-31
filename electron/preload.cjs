@@ -135,6 +135,7 @@ contextBridge.exposeInMainWorld("siteNest", {
   exportTimeline: (options, format) => ipcRenderer.invoke("timeline:export", typeof options === "object" ? options : { year: options, format }),
   getUserScripts: () => ipcRenderer.invoke("userscripts:list"),
   reviewPastedUserScript: (sourceCode, options = {}) => ipcRenderer.invoke("userscripts:review-pasted", { sourceCode, ...options }),
+  reviewCreatedUserScript: (sourceCode, options = {}) => ipcRenderer.invoke("userscripts:review-created", { sourceCode, ...options }),
   reviewRemoteUserScript: (sourceUrl, options = {}) => ipcRenderer.invoke("userscripts:review-remote", { sourceUrl, ...options }),
   reviewLocalUserScriptFile: () => ipcRenderer.invoke("userscripts:review-local-file"),
   confirmUserScriptInstall: (reviewToken) => ipcRenderer.invoke("userscripts:confirm-install", reviewToken),
@@ -142,6 +143,9 @@ contextBridge.exposeInMainWorld("siteNest", {
   setUserScriptSiteApproved: (scriptId, approved) => ipcRenderer.invoke("userscripts:set-site-approved", { scriptId, approved }),
   setUserScriptSensitiveSiteApproved: (scriptId, approved) => ipcRenderer.invoke("userscripts:set-sensitive-site-approved", { scriptId, approved }),
   removeUserScript: (scriptId) => ipcRenderer.invoke("userscripts:remove", scriptId),
+  restoreUserScript: (scriptId) => ipcRenderer.invoke("userscripts:restore", scriptId),
+  rollbackUserScriptVersion: (scriptId, sourceHash) => ipcRenderer.invoke("userscripts:rollback", { scriptId, sourceHash }),
+  setUserScriptLocalhostApproved: (scriptId, hostname, approved) => ipcRenderer.invoke("userscripts:set-localhost-approved", { scriptId, hostname, approved }),
   checkUserScriptUpdate: (scriptId) => ipcRenderer.invoke("userscripts:check-update", scriptId),
   getUserScriptCommands: () => ipcRenderer.invoke("userscripts:commands"),
   executeUserScriptCommand: (scriptId, commandId) => ipcRenderer.invoke("userscripts:execute-command", { scriptId, commandId }),
@@ -253,6 +257,21 @@ contextBridge.exposeInMainWorld("siteNest", {
     const listener = () => callback();
     ipcRenderer.on("userscripts:commands-changed", listener);
     return () => ipcRenderer.removeListener("userscripts:commands-changed", listener);
+  },
+  onUserScriptAutoDisabled: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("userscripts:auto-disabled", listener);
+    return () => ipcRenderer.removeListener("userscripts:auto-disabled", listener);
+  },
+  onUserScriptNotification: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("userscripts:notification", listener);
+    return () => ipcRenderer.removeListener("userscripts:notification", listener);
+  },
+  onUserScriptReviewReady: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("userscripts:review-ready", listener);
+    return () => ipcRenderer.removeListener("userscripts:review-ready", listener);
   },
   onAppCommand: (callback) => {
     const listener = (_event, value) => callback(value);

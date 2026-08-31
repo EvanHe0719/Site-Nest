@@ -70,12 +70,12 @@ test("missing file is distinguished from corruption", async (t) => {
   const result = await loadStateFile(filePath, { now: NOW });
 
   assert.equal(result.source, "missing");
-  assert.equal(result.state.version, 15);
+  assert.equal(result.state.version, 16);
   assert.equal(result.persisted, false);
   await assert.rejects(fsp.access(filePath), (error) => error.code === "ENOENT");
 });
 
-test("v2 load creates an exact one-time backup and atomically persists v15", async (t) => {
+test("v2 load creates an exact one-time backup and atomically persists the current schema", async (t) => {
   const directory = await temporaryDirectory(t);
   const filePath = path.join(directory, "site-nest-data.json");
   const raw = `${JSON.stringify(v2Fixture(), null, 2)}\n`;
@@ -90,7 +90,7 @@ test("v2 load creates an exact one-time backup and atomically persists v15", asy
   assert.equal(await fsp.readFile(backupPath, "utf8"), raw);
 
   const persisted = JSON.parse(await fsp.readFile(filePath, "utf8"));
-  assert.equal(persisted.version, 15);
+  assert.equal(persisted.version, 16);
   assert.equal(persisted.sites[0].workspaceId, "personal");
   assert.equal(persisted.bookmarks.length, 1);
   assert.equal(persisted.automations.naixi.status, "success");
@@ -140,12 +140,12 @@ test("unsupported future schema records migration failure without overwriting so
   assert.match(errorLog, /UNSUPPORTED_SCHEMA_VERSION/);
 });
 
-test("save validates and persists a normalized v15 state", async (t) => {
+test("save validates and persists a normalized current-schema state", async (t) => {
   const directory = await temporaryDirectory(t);
   const filePath = path.join(directory, "site-nest-data.json");
   const saved = await saveStateFile(filePath, v2Fixture(), { now: NOW });
 
-  assert.equal(saved.version, 15);
+  assert.equal(saved.version, 16);
   assert.equal(saved.workspaces.length, 3);
   const disk = JSON.parse(await fsp.readFile(filePath, "utf8"));
   assert.deepEqual(disk, saved);

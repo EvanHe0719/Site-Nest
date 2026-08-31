@@ -34,13 +34,14 @@ const {
   normalizeExecutions: normalizeUserScriptExecutions,
   normalizePermissions: normalizeUserScriptPermissions,
   normalizeUserScripts,
+  normalizeUserScriptVersions,
   normalizeValues: normalizeUserScriptValues,
 } = require("./userscripts/model.cjs");
 const {
   normalizeTabGroups,
 } = require("./browser/tab-organization.cjs");
 
-const CURRENT_SCHEMA_VERSION = 15;
+const CURRENT_SCHEMA_VERSION = 16;
 const MAX_RECENTLY_CLOSED_TABS = 50;
 const DEFAULT_WORKSPACE_ID = "personal";
 const DEFAULT_BROWSER_PROFILE_ID = "default";
@@ -980,6 +981,7 @@ function createInitialState(options = {}) {
     userScripts: normalizeUserScripts([], { now }),
     userScriptPermissions: [],
     userScriptExecutions: [],
+    userScriptVersions: [],
     userScriptValues: {},
     createdAt: now,
     updatedAt: now,
@@ -1163,6 +1165,7 @@ function normalizeStateV4(value, options = {}) {
     userScripts,
     userScriptPermissions: normalizeUserScriptPermissions(input.userScriptPermissions, userScriptIds),
     userScriptExecutions: normalizeUserScriptExecutions(input.userScriptExecutions, userScriptIds),
+    userScriptVersions: normalizeUserScriptVersions(input.userScriptVersions, userScriptIds),
     userScriptValues: normalizeUserScriptValues(input.userScriptValues, userScriptIds),
     createdAt: typeof input.createdAt === "string" ? input.createdAt : now,
     updatedAt:

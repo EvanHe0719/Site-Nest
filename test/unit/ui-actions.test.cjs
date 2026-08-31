@@ -23,8 +23,8 @@ function deferred() {
 
 test("正式动作目录覆盖所有已标记关键控件且拒绝脱离界面的伪执行", async () => {
   const registry = createUIActionRegistry();
-  assert.equal(registry.size, 56);
-  assert.equal(new Set(UI_ACTION_IDS).size, 56);
+  assert.equal(registry.size, 57);
+  assert.equal(new Set(UI_ACTION_IDS).size, 57);
   const snapshot = await registry.snapshot({});
   assert.equal(snapshot.every((action) => action.hasHandler), true);
   const service = new UIActionExecutionService({ registry });

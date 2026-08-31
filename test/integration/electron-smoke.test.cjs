@@ -111,9 +111,9 @@ test(
     await fsp.writeFile(dataFile, JSON.stringify(v2Fixture, null, 2), "utf8");
 
     const first = await runElectron({ userData, route: "state-probe" });
-    assert.match(first.stdout, /"version":15/);
+    assert.match(first.stdout, /"version":16/);
     const migrated = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(migrated.version, 15);
+    assert.equal(migrated.version, 16);
     assert.equal(migrated.activeWorkspaceId, "personal");
     assert.deepEqual(
       migrated.workspaces.map((workspace) => workspace.id),
@@ -165,7 +165,7 @@ test(
 
     const dataFile = path.join(userData, "site-nest-data.json");
     const persisted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(persisted.version, 15);
+    assert.equal(persisted.version, 16);
     assert.equal(persisted.localTasks.length, 1);
     assert.equal(persisted.localTasks[0].title, "IPC 本地任务已更新");
     assert.equal(persisted.taskReminders.length, 1);
@@ -233,7 +233,7 @@ test(
     assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
 
     const persisted = JSON.parse(await fsp.readFile(path.join(userData, "site-nest-data.json"), "utf8"));
-    assert.equal(persisted.version, 15);
+    assert.equal(persisted.version, 16);
     assert.deepEqual(persisted.timelineTracks.map((track) => track.id), ["work", "personal"]);
     assert.equal(persisted.timelineEvents.filter((event) => !event.deletedAt).length, 3);
     assert.equal(persisted.timelineUiSettings.viewMode, "timeline");
@@ -260,7 +260,7 @@ test(
 
     const dataFile = path.join(userData, "site-nest-data.json");
     const persisted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(persisted.version, 15);
+    assert.equal(persisted.version, 16);
     assert.equal(persisted.habits.length, 1);
     assert.equal(persisted.habitCheckIns.filter((item) => !item.deletedAt).length, 1);
     assert.equal(persisted.rewardLedger.filter((item) => !item.reversedAt).length, 1);
@@ -290,7 +290,7 @@ test(
     assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
 
     const persisted = JSON.parse(await fsp.readFile(path.join(userData, "site-nest-data.json"), "utf8"));
-    assert.equal(persisted.version, 15);
+    assert.equal(persisted.version, 16);
     assert.equal(persisted.contentTagGroups.length, 1);
     assert.equal(persisted.contentTags.filter((item) => !item.deletedAt).length, 2);
     assert.equal(persisted.contentTagMergeRecords.length, 1);
@@ -311,8 +311,8 @@ test(
     const line = probe.stdout.split(/\r?\n/).find((item) => item.includes('"uiActionAuditProbe"'));
     assert.ok(line, probe.stdout);
     const result = JSON.parse(line).uiActionAuditProbe;
-    assert.equal(result.totalActions, 56);
-    assert.equal(result.registeredActions, 56);
+    assert.equal(result.totalActions, 57);
+    assert.equal(result.registeredActions, 57);
     assert.equal(result.missingHandlers, 0);
     assert.equal(result.invalidIpcChannels, 0);
     assert.equal(result.missingTests, 0);
