@@ -16,18 +16,18 @@
   <body>
     <header class="detached-toolbar" aria-label="独立页面工具栏">
       <div class="history-actions" role="group" aria-label="浏览操作">
-        <button id="backButton" class="icon-button" type="button" aria-label="后退" title="后退">
+        <button id="backButton" class="icon-button" type="button" aria-label="后退" title="后退" data-action-id="browser.back">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
         </button>
-        <button id="forwardButton" class="icon-button" type="button" aria-label="前进" title="前进">
+        <button id="forwardButton" class="icon-button" type="button" aria-label="前进" title="前进" data-action-id="browser.forward">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
         </button>
-        <button id="reloadButton" class="icon-button" type="button" aria-label="刷新" title="刷新">
+        <button id="reloadButton" class="icon-button" type="button" aria-label="刷新" title="刷新" data-action-id="browser.reload">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></svg>
         </button>
       </div>
 
-      <form id="addressForm" class="address-form" autocomplete="off">
+      <form id="addressForm" class="address-form" autocomplete="off" data-action-id="browser.navigate">
         <span class="privacy-dot" aria-hidden="true"></span>
         <input
           id="addressInput"
@@ -39,7 +39,7 @@
         <span id="loadingIndicator" class="loading-indicator" aria-label="正在加载"></span>
       </form>
 
-      <button id="reattachButton" class="reattach-button" type="button" title="将页面合回原空间">
+      <button id="reattachButton" class="reattach-button" type="button" title="将页面合回原空间" data-action-id="tab.reattach">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <rect x="3" y="4" width="14" height="13" rx="2" />
           <path d="m13 12 3 3 5-5" /><path d="M16 15h5v5" />

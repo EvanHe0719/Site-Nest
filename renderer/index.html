@@ -25,7 +25,7 @@
           <span class="brand-version" id="brandVersion">0.5.5 DEV</span>
         </div>
         <div class="titlebar-center">
-          <button class="titlebar-search-trigger" id="globalSearchTrigger" type="button" aria-haspopup="dialog" aria-controls="globalSearchPalette">
+          <button class="titlebar-search-trigger" id="globalSearchTrigger" type="button" aria-haspopup="dialog" aria-controls="globalSearchPalette" data-action-id="search.open">
             <span data-icon="search"></span>
             <span>搜索</span>
             <kbd>Ctrl K</kbd>
@@ -168,11 +168,11 @@
                   Google Drive 用于保存栖页自己的站点、计划、设置和历史数据，不会接管 Chrome 官方同步。
                 </p>
                 <div class="google-sync-actions">
-                  <button class="primary-button google-sync-action google-sync-action--wide" id="googleSignInButton" type="button">
+                  <button class="primary-button google-sync-action google-sync-action--wide" id="googleSignInButton" type="button" data-action-id="google.sign-in">
                     <span data-icon="cloud"></span>
                     <span id="googleSignInButtonLabel">授权云同步</span>
                   </button>
-                  <button class="secondary-button google-sync-action" id="googleSyncNowButton" type="button">
+                  <button class="secondary-button google-sync-action" id="googleSyncNowButton" type="button" data-action-id="google.sync">
                     <span data-icon="reload"></span>
                     立即同步
                   </button>
@@ -332,7 +332,7 @@
                     <span data-icon="settings"></span>
                     连接设置
                   </button>
-                  <button class="primary-button" id="workRefreshTickets" type="button">
+                  <button class="primary-button" id="workRefreshTickets" type="button" data-action-id="zoho.dashboard.refresh">
                     <span data-icon="reload"></span>
                     手动刷新
                   </button>
@@ -656,7 +656,7 @@
                     </div>
                   </div>
                   <div class="automation-actions">
-                    <button class="primary-button compact-button" id="runNaixiAutomation" type="button">
+                    <button class="primary-button compact-button" id="runNaixiAutomation" type="button" data-action-id="automation.naixi.run">
                       <span data-icon="spark"></span>
                       立即签到
                     </button>
@@ -714,9 +714,9 @@
                     <p>脚本在隔离世界运行，不获得 Node、Electron、Cookie、密码或任意 IPC。安装和更新都需要你明确确认。</p>
                   </div>
                   <div class="userscript-heading-actions">
-                    <button class="secondary-button compact-button" id="importUserScriptFile" type="button"><span data-icon="folder"></span>本地文件</button>
-                    <button class="secondary-button compact-button" id="openRemoteUserScript" type="button"><span data-icon="link"></span>远程 URL</button>
-                    <button class="primary-button compact-button" id="openPastedUserScript" type="button"><span data-icon="plus"></span>粘贴脚本</button>
+                    <button class="secondary-button compact-button" id="importUserScriptFile" type="button" data-action-id="userscript.import-file"><span data-icon="folder"></span>本地文件</button>
+                    <button class="secondary-button compact-button" id="openRemoteUserScript" type="button" data-action-id="userscript.review-remote"><span data-icon="link"></span>远程 URL</button>
+                    <button class="primary-button compact-button" id="openPastedUserScript" type="button" data-action-id="userscript.review-pasted"><span data-icon="plus"></span>粘贴脚本</button>
                   </div>
                 </div>
                 <div class="userscript-security-note">
@@ -845,9 +845,9 @@
                             <div><strong id="zohoOAuthConfigState">正在检查桌面 OAuth 配置…</strong><code id="zohoOAuthConfigPath"></code><small>文件由主进程读取并导入系统安全存储；界面不读取 Client Secret。</small></div>
                           </div>
                           <div class="connector-form-actions">
-                            <button class="secondary-button" id="saveZohoConfig" type="submit">保存配置</button>
-                            <button class="primary-button" id="connectZohoButton" type="button">连接 Zoho Desk</button>
-                            <button class="text-button" id="disconnectZohoButton" type="button">断开</button>
+                            <button class="secondary-button" id="saveZohoConfig" type="submit" data-action-id="zoho.config.save">保存配置</button>
+                            <button class="primary-button" id="connectZohoButton" type="button" data-action-id="zoho.connect">连接 Zoho Desk</button>
+                            <button class="text-button" id="disconnectZohoButton" type="button" data-action-id="zoho.disconnect">断开</button>
                           </div>
                           </form>
                         </template>
@@ -903,7 +903,7 @@
                       <label class="task-time-setting"><span>勿扰开始</span><input id="taskDndStart" type="time" value="22:00" /></label>
                       <label class="task-time-setting"><span>勿扰结束</span><input id="taskDndEnd" type="time" value="08:00" /></label>
                     </div>
-                    <div class="translation-form-actions"><button class="primary-button compact-button" id="saveTaskSettingsButton" type="button">保存通知设置</button><span class="settings-inline-note" id="taskPausedUntil"></span></div>
+                    <div class="translation-form-actions"><button class="primary-button compact-button" id="saveTaskSettingsButton" type="button" data-action-id="settings.notifications.save">保存通知设置</button><span class="settings-inline-note" id="taskPausedUntil"></span></div>
                   </div>
                 </article>
 
@@ -955,7 +955,7 @@
                       <label><span>后台自动休眠</span><select id="browserMemoryInactiveMinutes"><option value="5">5 分钟</option><option value="15">15 分钟</option><option value="30">30 分钟</option><option value="60">60 分钟</option><option value="0">只按预热数量治理</option></select></label>
                     </div>
                     <div class="browser-memory-runtime" id="browserMemoryRuntime">活动 0 · 预热 0 · 已休眠 0</div>
-                    <div class="translation-form-actions"><button class="primary-button compact-button" id="saveBrowserMemorySettings" type="button">保存内存设置</button><span class="settings-inline-note">播放、下载、上传、登录弹窗、未发送 Zoho 回复和“保持运行”页面不会自动休眠。</span></div>
+                    <div class="translation-form-actions"><button class="primary-button compact-button" id="saveBrowserMemorySettings" type="button" data-action-id="settings.browser-memory.save">保存内存设置</button><span class="settings-inline-note">播放、下载、上传、登录弹窗、未发送 Zoho 回复和“保持运行”页面不会自动休眠。</span></div>
                   </div>
                 </article>
 
@@ -970,7 +970,7 @@
                       <span class="status-pill" id="translationSettingsStatus">未配置</span>
                     </div>
                     <p>翻译请求只由主进程发送。API Key 使用系统安全存储；网页正文、选中文字与译文不会写入普通日志或本地数据库。</p>
-                    <form class="translation-config-form" id="translationConfigForm">
+                    <form class="translation-config-form" id="translationConfigForm" data-action-id="translation.config.save">
                       <label class="translation-field translation-field--wide">
                         <span>OpenAI-compatible API Base URL</span>
                         <input id="translationApiBase" type="url" autocomplete="off" value="https://api.openai.com/v1" required />
@@ -1005,8 +1005,8 @@
                       </label>
                       <div class="translation-form-actions">
                         <button class="primary-button compact-button" type="submit">安全保存</button>
-                        <button class="secondary-button compact-button" id="testTranslationButton" type="button">测试连接</button>
-                        <button class="text-button text-button--quiet" id="clearTranslationKeyButton" type="button">清除密钥</button>
+                        <button class="secondary-button compact-button" id="testTranslationButton" type="button" data-action-id="translation.test">测试连接</button>
+                        <button class="text-button text-button--quiet" id="clearTranslationKeyButton" type="button" data-action-id="translation.secret.clear">清除密钥</button>
                       </div>
                     </form>
                     <div class="translation-privacy-note">
@@ -1061,14 +1061,14 @@
                       <span class="flow-destination">栖页</span>
                     </div>
                     <div class="chrome-bookmark-actions">
-                      <button class="primary-button compact-button" id="settingsImportButton" type="button">
+                      <button class="primary-button compact-button" id="settingsImportButton" type="button" data-action-id="chrome-bookmarks.refresh">
                         <span data-icon="reload"></span>
                         重新读取书签
                       </button>
-                      <button class="secondary-button compact-button" id="pageImportButton" type="button">
+                      <button class="secondary-button compact-button" id="pageImportButton" type="button" data-action-id="chrome-bookmarks.choose-profile">
                         选择或更换 Profile
                       </button>
-                      <button class="text-button text-button--quiet" id="clearImportedBookmarks" type="button">
+                      <button class="text-button text-button--quiet" id="clearImportedBookmarks" type="button" data-action-id="chrome-bookmarks.clear">
                         清理导入记录
                       </button>
                     </div>
@@ -1117,9 +1117,9 @@
                     </div>
                     <p>用同一套标签整理任务、习惯、时间线、站点和用户脚本。别名只用于明确映射，不会自动推断同义词。</p>
                     <div class="content-tags-toolbar">
-                      <button class="primary-button compact-button" id="addContentTagButton" type="button"><span data-icon="plus"></span>新增标签</button>
+                      <button class="primary-button compact-button" id="addContentTagButton" type="button" data-action-id="content-tag.save"><span data-icon="plus"></span>新增标签</button>
                       <button class="secondary-button compact-button" id="addContentTagGroupButton" type="button"><span data-icon="folder"></span>新增分组</button>
-                      <button class="secondary-button compact-button" id="mergeContentTagsButton" type="button"><span data-icon="workflow"></span>合并标签</button>
+                      <button class="secondary-button compact-button" id="mergeContentTagsButton" type="button" data-action-id="content-tag.merge"><span data-icon="workflow"></span>合并标签</button>
                       <button class="text-button text-button--quiet" id="undoContentTagMergeButton" type="button" disabled>撤销最近合并</button>
                     </div>
                     <p class="content-tags-status" id="contentTagsStatus" role="status">正在读取本地内容标签…</p>
@@ -1153,6 +1153,23 @@
                     <p>
                       登录 Cookie 保存在栖页自己的 Chromium 会话中，不会读取 Chrome 密码或复用 Chrome Cookie。
                     </p>
+                  </div>
+                </article>
+
+                <article class="settings-card settings-card--wide ui-action-audit-card" data-settings-section="diagnostics" data-settings-panel="ui-actions">
+                  <div class="settings-card-icon" data-icon="shield"></div>
+                  <div class="settings-card-copy">
+                    <div class="settings-title-row">
+                      <div><span class="section-kicker">UI ACTION AUDIT</span><h3>界面动作审计</h3></div>
+                      <span class="status-pill" id="uiActionAuditStatus">尚未审计</span>
+                    </div>
+                    <p>只检查栖页自身界面的按钮、菜单和 IPC 绑定，不扫描或点击外部 WebContentsView 网站。</p>
+                    <div class="ui-action-audit-metrics" id="uiActionAuditMetrics" aria-live="polite"></div>
+                    <div class="ui-action-audit-toolbar">
+                      <button class="secondary-button compact-button" id="refreshUIActionAudit" type="button" data-action-id="diagnostics.audit.refresh"><span data-icon="reload"></span>重新审计</button>
+                      <small id="uiActionAuditScope">外部网页扫描：否</small>
+                    </div>
+                    <div class="ui-action-audit-findings" id="uiActionAuditFindings"></div>
                   </div>
                 </article>
 
@@ -1335,7 +1352,7 @@
                 </section>
                 <section class="page-action-section page-resource-actions">
                   <div class="page-action-section-heading"><span>页面资源</span><span class="status-pill" id="pageResourceStatus">尚未扫描</span></div>
-                  <div class="page-resource-controls"><button class="secondary-button compact-button" id="scanPageResources" type="button"><span data-icon="search"></span>扫描页面</button><button class="secondary-button compact-button" id="detectNetworkResources" type="button"><span data-icon="reload"></span>开始网络检测</button></div>
+                  <div class="page-resource-controls"><button class="secondary-button compact-button" id="scanPageResources" type="button" data-action-id="resources.scan"><span data-icon="search"></span>扫描页面</button><button class="secondary-button compact-button" id="detectNetworkResources" type="button" data-action-id="resources.detect-network"><span data-icon="reload"></span>开始网络检测</button></div>
                   <p class="page-resource-note">只识别当前页面可直接访问的文件、图片、音视频；不读取 Header、Cookie、响应正文，不处理 DRM 或加密流。</p>
                   <div class="page-resource-list" id="pageResourceList"></div>
                 </section>
@@ -1435,7 +1452,7 @@
     <div class="modal-backdrop" id="taskModal" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle">
       <div class="modal-card task-modal-card">
         <div class="modal-header"><div><span class="section-kicker">LOCAL TASK</span><h2 id="taskModalTitle">添加任务</h2></div><button class="icon-button" type="button" data-close-modal="taskModal" aria-label="关闭"><span data-icon="close"></span></button></div>
-        <form id="taskForm">
+        <form id="taskForm" data-action-id="task.save">
           <input id="taskId" type="hidden" />
           <label class="form-field"><span>任务标题</span><input id="taskTitle" maxlength="300" required placeholder="例如：回复采购退货单位工单" /></label>
           <label class="form-field"><span>备注</span><textarea id="taskNotes" rows="3" maxlength="5000" placeholder="可选，仅保存在本机"></textarea></label>
@@ -1452,7 +1469,7 @@
           <fieldset class="task-reminder-fieldset"><legend>提醒</legend><label><input type="checkbox" name="taskReminder" value="0" /> 到期时</label><label><input type="checkbox" name="taskReminder" value="5" /> 提前 5 分钟</label><label><input type="checkbox" name="taskReminder" value="10" /> 提前 10 分钟</label><label><input type="checkbox" name="taskReminder" value="15" /> 提前 15 分钟</label><label><input type="checkbox" name="taskReminder" value="30" /> 提前 30 分钟</label><label><input type="checkbox" name="taskReminder" value="60" /> 提前 1 小时</label><label><input type="checkbox" name="taskReminder" value="1440" /> 提前 1 天</label><label>自定义分钟 <input id="taskCustomReminder" type="number" min="0" max="525600" /></label></fieldset>
           <fieldset class="content-tag-picker" data-content-tag-picker="task"><legend>内容标签 <small>统一用于跨模块整理</small></legend><input id="taskTagIds" type="hidden" /><div class="content-tag-picker-options"></div><small class="content-tag-picker-empty">尚未创建内容标签，可在“设置与数据 → 数据与备份 → 内容标签管理”中添加。</small></fieldset>
           <label class="form-field"><span>旧标签 <small>兼容原有逗号标签</small></span><input id="taskTags" maxlength="500" placeholder="客户, SAP, 跟进" /></label>
-          <div class="modal-actions"><button class="text-button text-button--quiet is-hidden" id="deleteTaskButton" type="button">删除任务</button><button class="secondary-button" type="button" data-close-modal="taskModal">取消</button><button class="primary-button" type="submit">保存任务</button></div>
+          <div class="modal-actions"><button class="text-button text-button--quiet is-hidden" id="deleteTaskButton" type="button" data-action-id="task.delete">删除任务</button><button class="secondary-button" type="button" data-close-modal="taskModal">取消</button><button class="primary-button" type="submit">保存任务</button></div>
         </form>
       </div>
     </div>
@@ -1460,7 +1477,7 @@
     <div class="modal-backdrop" id="timelineEventModal" role="dialog" aria-modal="true" aria-labelledby="timelineEventModalTitle">
       <div class="modal-card timeline-event-modal-card">
         <div class="modal-header"><div><span class="section-kicker">LOCAL TIMELINE</span><h2 id="timelineEventModalTitle">添加时间轴记录</h2></div><button class="icon-button" type="button" data-close-modal="timelineEventModal" aria-label="关闭"><span data-icon="close"></span></button></div>
-        <form id="timelineEventForm">
+        <form id="timelineEventForm" data-action-id="timeline.save">
           <input id="timelineEventId" type="hidden" />
           <input id="timelineSourceType" type="hidden" />
           <input id="timelineSourceId" type="hidden" />
@@ -1496,7 +1513,7 @@
           <fieldset class="content-tag-picker" data-content-tag-picker="timeline"><legend>内容标签 <small>统一用于跨模块整理</small></legend><input id="timelineTagIds" type="hidden" /><div class="content-tag-picker-options"></div><small class="content-tag-picker-empty">尚未创建内容标签，可在“设置与数据 → 数据与备份 → 内容标签管理”中添加。</small></fieldset>
           <label class="form-field"><span>旧标签 <small>兼容原有逗号标签</small></span><input id="timelineTags" maxlength="500" /></label>
           <div class="timeline-source-preview" id="timelineSourcePreview" hidden></div>
-          <div class="modal-actions"><button class="text-button text-button--quiet is-hidden" id="deleteTimelineEventButton" type="button">删除记录</button><button class="secondary-button" type="button" data-close-modal="timelineEventModal">取消</button><button class="primary-button" type="submit">保存记录</button></div>
+          <div class="modal-actions"><button class="text-button text-button--quiet is-hidden" id="deleteTimelineEventButton" type="button" data-action-id="timeline.delete">删除记录</button><button class="secondary-button" type="button" data-close-modal="timelineEventModal">取消</button><button class="primary-button" type="submit">保存记录</button></div>
         </form>
       </div>
     </div>
@@ -1513,7 +1530,7 @@
     <div class="modal-backdrop" id="habitModal" role="dialog" aria-modal="true" aria-labelledby="habitModalTitle">
       <div class="modal-card habit-modal-card">
         <div class="modal-header"><div><span class="section-kicker">LONG-TERM GOAL</span><h2 id="habitModalTitle">创建长期目标</h2></div><button class="icon-button" type="button" data-close-modal="habitModal" aria-label="关闭"><span data-icon="close"></span></button></div>
-        <form id="habitForm">
+        <form id="habitForm" data-action-id="habit.save">
           <input id="habitId" type="hidden" />
           <label class="form-field"><span>目标名称</span><input id="habitName" maxlength="120" required placeholder="例如：健身、阅读或英语学习" /></label>
           <label class="form-field"><span>说明</span><textarea id="habitDescription" rows="2" maxlength="1000"></textarea></label>
@@ -1535,7 +1552,7 @@
             <label class="settings-switch-row"><span><strong>部分完成也获星</strong><small>同日仍最多一颗</small></span><input id="habitPartialReward" type="checkbox" /></label>
           </div>
           <fieldset class="content-tag-picker" data-content-tag-picker="habit"><legend>内容标签 <small>统一用于跨模块整理</small></legend><input id="habitTagIds" type="hidden" /><div class="content-tag-picker-options"></div><small class="content-tag-picker-empty">尚未创建内容标签，可在“设置与数据 → 数据与备份 → 内容标签管理”中添加。</small></fieldset>
-          <div class="modal-actions"><button class="text-button text-button--danger is-hidden" id="deleteHabitButton" type="button">删除目标</button><button class="secondary-button" type="button" data-close-modal="habitModal">取消</button><button class="primary-button" type="submit">保存目标</button></div>
+          <div class="modal-actions"><button class="text-button text-button--danger is-hidden" id="deleteHabitButton" type="button" data-action-id="habit.delete">删除目标</button><button class="secondary-button" type="button" data-close-modal="habitModal">取消</button><button class="primary-button" type="submit">保存目标</button></div>
         </form>
       </div>
     </div>
@@ -1543,12 +1560,12 @@
     <div class="modal-backdrop" id="habitCheckInModal" role="dialog" aria-modal="true" aria-labelledby="habitCheckInTitle">
       <div class="modal-card compact-modal-card">
         <div class="modal-header"><div><span class="section-kicker">CHECK IN</span><h2 id="habitCheckInTitle">记录打卡</h2></div><button class="icon-button" type="button" data-close-modal="habitCheckInModal" aria-label="关闭"><span data-icon="close"></span></button></div>
-        <form id="habitCheckInForm">
+        <form id="habitCheckInForm" data-action-id="habit.check-in">
           <input id="habitCheckInHabitId" type="hidden" />
           <label class="form-field"><span>本地日期</span><input id="habitCheckInDate" type="date" required /></label>
           <label class="form-field"><span>状态</span><select id="habitCheckInState"><option value="completed">已完成</option><option value="partial">部分完成</option><option value="skipped">今日跳过</option></select></label>
           <label class="form-field"><span>记录</span><textarea id="habitCheckInNote" rows="3" maxlength="1000"></textarea></label>
-          <div class="modal-actions"><button class="text-button text-button--danger is-hidden" id="deleteHabitCheckInButton" type="button">撤销打卡</button><button class="secondary-button" type="button" data-close-modal="habitCheckInModal">取消</button><button class="primary-button" type="submit">保存打卡</button></div>
+          <div class="modal-actions"><button class="text-button text-button--danger is-hidden" id="deleteHabitCheckInButton" type="button" data-action-id="habit-checkin.delete">撤销打卡</button><button class="secondary-button" type="button" data-close-modal="habitCheckInModal">取消</button><button class="primary-button" type="submit">保存打卡</button></div>
         </form>
       </div>
     </div>
@@ -1574,7 +1591,7 @@
         <div class="userscript-compatibility" id="userScriptCompatibility"></div>
         <details class="userscript-source-preview"><summary>查看源码摘要与 Hash</summary><code id="userScriptSourcePreview"></code></details>
         <label class="userscript-confirm-row"><input id="confirmUserScriptPermissions" type="checkbox" /><span>我已核对适用域名、权限、跨域范围和代码摘要，确认安装到本机。</span></label>
-        <div class="modal-actions"><button class="secondary-button" type="button" data-close-modal="userScriptReviewModal">取消</button><button class="primary-button" id="confirmUserScriptInstall" type="button" disabled>确认安装</button></div>
+        <div class="modal-actions"><button class="secondary-button" type="button" data-close-modal="userScriptReviewModal">取消</button><button class="primary-button" id="confirmUserScriptInstall" type="button" data-action-id="userscript.install" data-disabled-reason="请先核对权限并勾选确认" disabled>确认安装</button></div>
       </div>
     </div>
 
@@ -1732,7 +1749,7 @@
           </div>
           <div class="modal-actions">
             <button class="secondary-button" type="button" data-close-modal="addSiteModal">取消</button>
-            <button class="primary-button" id="siteFormSubmitButton" type="submit">
+            <button class="primary-button" id="siteFormSubmitButton" type="submit" data-action-id="site.save">
               <span data-icon="plus"></span>
               <span id="siteFormSubmitText">添加并打开</span>
             </button>
@@ -1767,7 +1784,7 @@
         </div>
         <div class="modal-actions">
           <button class="secondary-button" type="button" data-close-modal="importModal">取消</button>
-          <button class="primary-button" id="confirmImportButton" type="button" disabled>
+          <button class="primary-button" id="confirmImportButton" type="button" data-action-id="chrome-bookmarks.import-confirm" data-disabled-reason="请选择一个 Chrome Profile" disabled>
             <span data-icon="download"></span>
             开始导入
           </button>

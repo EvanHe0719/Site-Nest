@@ -219,6 +219,11 @@ const dom = {
   contentTagTotal: document.getElementById("contentTagTotal"),
   contentTagsStatus: document.getElementById("contentTagsStatus"),
   contentTagGroupList: document.getElementById("contentTagGroupList"),
+  uiActionAuditStatus: document.getElementById("uiActionAuditStatus"),
+  uiActionAuditMetrics: document.getElementById("uiActionAuditMetrics"),
+  uiActionAuditScope: document.getElementById("uiActionAuditScope"),
+  uiActionAuditFindings: document.getElementById("uiActionAuditFindings"),
+  refreshUIActionAudit: document.getElementById("refreshUIActionAudit"),
   addContentTagButton: document.getElementById("addContentTagButton"),
   addContentTagGroupButton: document.getElementById("addContentTagGroupButton"),
   mergeContentTagsButton: document.getElementById("mergeContentTagsButton"),
@@ -718,6 +723,7 @@ const SETTINGS_SECTIONS = Object.freeze([
   { id: "connections", title: "连接与集成", kicker: "CONNECTIONS", icon: "workflow", description: "Zoho Desk 与预留的只读连接器。" },
   { id: "accounts", title: "账号与同步", kicker: "ACCOUNTS", icon: "cloud", description: "Google 数据同步和 Chrome 本地书签。" },
   { id: "data", title: "数据与备份", kicker: "LOCAL DATA", icon: "database", description: "本地数据目录和浏览会话边界。" },
+  { id: "diagnostics", title: "开发与诊断", kicker: "DIAGNOSTICS", icon: "shield", description: "审计栖页自身界面动作、处理器和 IPC 绑定。" },
   { id: "about", title: "关于", kicker: "ABOUT", icon: "info", description: "当前版本、数据说明和后续方向。" },
 ]);
 
@@ -735,6 +741,7 @@ const SETTINGS_SEARCH_INDEX = Object.freeze([
   { section: "data", panel: "content-tags", title: "内容标签管理", description: "标签分组、明确别名、引用计数、合并预览和撤销" },
   { section: "data", panel: "local-data", title: "本地数据", description: "数据目录、JSON 和本地存储" },
   { section: "data", panel: "browser-identity", title: "站点登录会话", description: "Cookie、BrowserProfile 和持久分区" },
+  { section: "diagnostics", panel: "ui-actions", title: "界面动作审计", description: "注册动作、处理器、IPC、键盘访问和测试覆盖" },
   { section: "about", panel: "about", title: "关于栖页", description: "版本和更新信息" },
 ]);
 
@@ -1191,6 +1198,78 @@ function showSettingsSection(sectionId, panelId = "", options = {}) {
   if (definition.id === "connections") void loadZohoConnectorStatus({ preserveForm: true });
   if (definition.id === "accounts") renderGoogleSettingsStatus();
   if (definition.id === "data") void loadContentTags();
+  if (definition.id === "diagnostics") void loadUIActionAudit();
+}
+
+const UI_ACTION_AUDIT_LABELS = Object.freeze([
+  ["totalActions", "总动作数"],
+  ["registeredActions", "已注册"],
+  ["executableActions", "可执行"],
+  ["requiresConfiguration", "需要配置"],
+  ["unavailableActions", "不可用"],
+  ["previewActions", "预览"],
+  ["missingHandlers", "缺少处理器"],
+  ["invalidIpcChannels", "无效 IPC"],
+  ["missingTests", "缺少测试"],
+  ["keyboardInaccessible", "键盘不可达"],
+]);
+
+function renderUIActionAudit(report) {
+  if (!dom.uiActionAuditMetrics) return;
+  const summary = report?.summary || {};
+  dom.uiActionAuditMetrics.replaceChildren(...UI_ACTION_AUDIT_LABELS.map(([key, label]) => {
+    const item = document.createElement("span");
+    const value = document.createElement("strong");
+    value.textContent = String(summary[key] ?? 0);
+    const copy = document.createElement("small");
+    copy.textContent = label;
+    item.append(value, copy);
+    return item;
+  }));
+  const errors = Number(summary.errorCount) || 0;
+  const warnings = Number(summary.warningCount) || 0;
+  dom.uiActionAuditStatus.textContent = errors ? `${errors} 个错误` : warnings ? `${warnings} 个提醒` : "审计通过";
+  dom.uiActionAuditStatus.className = `status-pill${errors ? " status-pill--error" : " status-pill--ready"}`;
+  dom.uiActionAuditScope.textContent = report?.scope?.externalWebContentsScanned
+    ? "外部网页扫描：异常开启"
+    : `外部网页扫描：否 · ${report?.scope?.scannedFiles?.length || 0} 个栖页源文件`;
+  dom.uiActionAuditFindings.replaceChildren();
+  const findings = Array.isArray(report?.findings) ? report.findings : [];
+  if (!findings.length) {
+    const empty = document.createElement("p");
+    empty.className = "ui-action-audit-empty";
+    empty.textContent = "没有发现假按钮、无效 IPC、缺失处理器或键盘访问问题。";
+    dom.uiActionAuditFindings.appendChild(empty);
+    return;
+  }
+  findings.slice(0, 80).forEach((finding) => {
+    const row = document.createElement("div");
+    row.className = `ui-action-audit-finding ui-action-audit-finding--${finding.severity || "warning"}`;
+    const title = document.createElement("strong");
+    title.textContent = `${finding.ruleId || "finding"} · ${finding.actionId || finding.controlId || "未命名控件"}`;
+    const detail = document.createElement("small");
+    detail.textContent = `${finding.file || "<registry>"}${finding.line ? `:${finding.line}` : ""} · ${finding.message || ""}`;
+    row.append(title, detail);
+    dom.uiActionAuditFindings.appendChild(row);
+  });
+}
+
+async function loadUIActionAudit() {
+  if (!dom.refreshUIActionAudit || typeof window.siteNest?.auditUIActions !== "function") return;
+  dom.refreshUIActionAudit.disabled = true;
+  dom.refreshUIActionAudit.setAttribute("aria-busy", "true");
+  dom.uiActionAuditStatus.textContent = "审计中";
+  dom.uiActionAuditStatus.className = "status-pill";
+  try {
+    renderUIActionAudit(await window.siteNest.auditUIActions());
+  } catch (error) {
+    dom.uiActionAuditStatus.textContent = "审计失败";
+    dom.uiActionAuditStatus.className = "status-pill status-pill--error";
+    dom.uiActionAuditFindings.textContent = error?.message || "无法读取界面动作审计结果";
+  } finally {
+    dom.refreshUIActionAudit.disabled = false;
+    dom.refreshUIActionAudit.removeAttribute("aria-busy");
+  }
 }
 
 function initializeSettingsArchitecture() {
@@ -7916,6 +7995,7 @@ function bindEvents() {
   });
   dom.settingsSectionSelect.addEventListener("change", () => showSettingsSection(dom.settingsSectionSelect.value));
   dom.settingsSearchInput.addEventListener("input", renderSettingsSearchResults);
+  dom.refreshUIActionAudit?.addEventListener("click", () => void loadUIActionAudit());
   document.querySelectorAll("[data-open-content-tags]").forEach((button) => {
     button.addEventListener("click", () => void openContentTagSettings());
   });

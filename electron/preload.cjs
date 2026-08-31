@@ -2,6 +2,8 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("siteNest", {
   getState: () => ipcRenderer.invoke("state:get"),
+  getUIActions: () => ipcRenderer.invoke("ui-actions:list"),
+  auditUIActions: () => ipcRenderer.invoke("ui-actions:audit"),
   setActiveWorkspace: (workspaceId) =>
     ipcRenderer.invoke("workspace:set-active", workspaceId),
   updateUiSettings: (patch) => ipcRenderer.invoke("settings:update-ui", patch),

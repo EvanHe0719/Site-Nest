@@ -298,3 +298,27 @@ test(
     assert.deepEqual(persisted.localTasks[0].tagIds, [result.sourceTagId]);
   },
 );
+
+test(
+  "界面动作诊断通过窄 IPC 审计自身 UI 且不扫描外部网页",
+  { timeout: 90000 },
+  async (t) => {
+    const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-ui-action-integration-"));
+    t.after(async () => {
+      await fsp.rm(userData, { recursive: true, force: true });
+    });
+    const probe = await runElectron({ userData, route: "settings-diagnostics", width: 1400, height: 900 });
+    const line = probe.stdout.split(/\r?\n/).find((item) => item.includes('"uiActionAuditProbe"'));
+    assert.ok(line, probe.stdout);
+    const result = JSON.parse(line).uiActionAuditProbe;
+    assert.equal(result.totalActions, 56);
+    assert.equal(result.registeredActions, 56);
+    assert.equal(result.missingHandlers, 0);
+    assert.equal(result.invalidIpcChannels, 0);
+    assert.equal(result.missingTests, 0);
+    assert.equal(result.keyboardInaccessible, 0);
+    assert.equal(result.errorCount, 0);
+    assert.equal(result.externalWebContentsScanned, false);
+    assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
+  },
+);

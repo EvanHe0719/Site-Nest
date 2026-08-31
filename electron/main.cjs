@@ -179,6 +179,11 @@ const {
   updateUserScriptEnabled,
   upsertUserScript,
 } = require("./userscripts/index.cjs");
+const {
+  UIActionAuditService,
+  UI_ACTION_IDS,
+  createUIActionRegistry,
+} = require("./ui-actions/index.cjs");
 
 const APP_ID = "local.qiye.sitehub";
 const SITE_PARTITION = "persist:qiye-sites";
@@ -188,6 +193,33 @@ const PROJECT_ROOT = path.resolve(__dirname, "..");
 const CAPTURE_PATH = process.env.QIYE_CAPTURE_PATH;
 const CAPTURE_ROUTE = process.env.QIYE_CAPTURE_ROUTE || "home";
 const TAB_PROBE_BASE_URL = process.env.QIYE_TAB_PROBE_BASE_URL || "";
+const uiActionRegistry = createUIActionRegistry();
+
+async function createUIActionAuditReport() {
+  const audit = new UIActionAuditService({
+    registry: uiActionRegistry,
+    testedActionIds: UI_ACTION_IDS,
+    criticalControlScope: {
+      includeMarked: true,
+      ids: [],
+      ignoreNativeCloseControls: true,
+      ignoreNativeFormControls: true,
+    },
+  });
+  return audit.auditProject({
+    projectRoot: PROJECT_ROOT,
+    htmlFiles: ["renderer/index.html", "renderer/detached.html"],
+    jsFiles: ["renderer/app.js", "renderer/detached.js"],
+    preloadFiles: [
+      "electron/preload.cjs",
+      "electron/detached-preload.cjs",
+      "electron/user-script-preload.cjs",
+    ],
+    mainFiles: ["electron/main.cjs"],
+    testedActionIds: UI_ACTION_IDS,
+    boundActionIds: UI_ACTION_IDS,
+  });
+}
 const TEST_USER_DATA = process.env.QIYE_TEST_USER_DATA;
 const CAPTURE_WIDTH = Math.max(
   1060,
@@ -5396,6 +5428,8 @@ async function runUserScriptsForContext(context, runAt) {
 }
 
 function registerIpc() {
+  ipcMain.handle("ui-actions:list", async () => uiActionRegistry.snapshot({}));
+  ipcMain.handle("ui-actions:audit", async () => createUIActionAuditReport());
   ipcMain.handle("state:get", async () => {
     const state = await getState();
     return {
@@ -6349,7 +6383,7 @@ function createMainWindow() {
           })()`);
           console.log(JSON.stringify({ googleLiveProbe: result }));
           await new Promise((resolve) => setTimeout(resolve, 500));
-        } else if (["settings", "settings-popup", "settings-translation", "settings-tasks", "settings-memory"].includes(CAPTURE_ROUTE)) {
+        } else if (["settings", "settings-popup", "settings-translation", "settings-tasks", "settings-memory", "settings-diagnostics"].includes(CAPTURE_ROUTE)) {
           await mainWindow.webContents.executeJavaScript("navigateTo('settings')");
           await new Promise((resolve) => setTimeout(resolve, 700));
           if (CAPTURE_ROUTE === "settings-popup") {
@@ -6371,6 +6405,24 @@ function createMainWindow() {
             await mainWindow.webContents.executeJavaScript(
               "document.getElementById('browserMemorySettings')?.scrollIntoView({ block: 'center' })",
             );
+            await new Promise((resolve) => setTimeout(resolve, 350));
+          } else if (CAPTURE_ROUTE === "settings-diagnostics") {
+            const auditResult = await mainWindow.webContents.executeJavaScript(`(async () => {
+              showSettingsSection('diagnostics', 'ui-actions');
+              const report = await window.siteNest.auditUIActions();
+              await loadUIActionAudit();
+              return {
+                totalActions: report.summary.totalActions,
+                registeredActions: report.summary.registeredActions,
+                missingHandlers: report.summary.missingHandlers,
+                invalidIpcChannels: report.summary.invalidIpcChannels,
+                missingTests: report.summary.missingTests,
+                keyboardInaccessible: report.summary.keyboardInaccessible,
+                errorCount: report.summary.errorCount,
+                externalWebContentsScanned: report.scope.externalWebContentsScanned,
+              };
+            })()`);
+            console.log(JSON.stringify({ uiActionAuditProbe: auditResult }));
             await new Promise((resolve) => setTimeout(resolve, 350));
           }
         } else if (CAPTURE_ROUTE === "habits") {

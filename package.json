@@ -12,6 +12,7 @@
     "check": "npm run lint && npm run typecheck && npm test",
     "test:unit": "node --test test/unit/*.test.cjs",
     "test:integration": "node --test test/integration/*.test.cjs",
+    "audit:ui-actions": "node scripts/audit-ui-actions.cjs --strict",
     "test": "npm run test:unit && npm run test:integration",
     "dev": "electron .",
     "start:prod-local": "electron . --prod-local",
