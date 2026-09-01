@@ -20,6 +20,11 @@ const { NavigationPerformanceTracer } = require("./navigation-performance-tracer
 const { PageCapabilityOrchestrator } = require("./page-capability-orchestrator.cjs");
 const { tabCloseDecision } = require("./tab-close-policy.cjs");
 const {
+  durableBrowserUrl,
+  isZohoDeskUrl,
+  zohoDeskAuthReturnUrl,
+} = require("./zoho-auth-return.cjs");
+const {
   clearSapAuthenticationState,
   hasSapLoginRejection,
   isSapSearchTarget,
@@ -47,6 +52,9 @@ module.exports = {
   NavigationPerformanceTracer,
   PageCapabilityOrchestrator,
   tabCloseDecision,
+  durableBrowserUrl,
+  isZohoDeskUrl,
+  zohoDeskAuthReturnUrl,
   resolveNavigationTarget,
   securityStateForUrl,
   clearSapAuthenticationState,

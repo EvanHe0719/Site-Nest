@@ -67,6 +67,13 @@ test("tab controls are exposed through narrow preload methods and registered IPC
   assert.doesNotMatch(preloadSource, /WebContentsView|BrowserWindow|require\([^)]*main/);
 });
 
+test("Zoho verification URLs reload and persist through their trusted Desk return target", () => {
+  assert.match(mainSource, /const returnUrl = zohoDeskAuthReturnUrl\(contents\.getURL\(\)\)/);
+  assert.match(mainSource, /await loadUrlAllowingRedirectAbort\(contents, returnUrl\)/);
+  assert.match(mainSource, /const url = durableBrowserUrl\(observedTabUrl\)/);
+  assert.match(mainSource, /const restoredUrl = durableBrowserUrl\(requestedUrl\)/);
+});
+
 test("top tab context menu is native so WebContentsView cannot cover it", () => {
   const nativeMenu = sourceBetween(
     "function showBrowserTabContextMenu",

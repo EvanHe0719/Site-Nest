@@ -16,6 +16,11 @@ const {
   normalizeSitePopupPolicies,
 } = require("../../electron/browser/window-open-policy-service.cjs");
 const {
+  durableBrowserUrl,
+  isZohoDeskUrl,
+  zohoDeskAuthReturnUrl,
+} = require("../../electron/browser/zoho-auth-return.cjs");
+const {
   WebContextMenuService,
 } = require("../../electron/browser/web-context-menu-service.cjs");
 const {
@@ -102,6 +107,25 @@ test("authentication URLs are identified for lifecycle protection without fuzzy 
   assert.equal(isAuthenticationUrl("https://accounts.sap.com/saml2/idp/sso"), true);
   assert.equal(isAuthenticationUrl("https://example.com/oauth/authorize"), true);
   assert.equal(isAuthenticationUrl("https://example.com/articles/login-performance"), false);
+});
+
+test("Zoho relogin refresh returns to the trusted Desk service URL", () => {
+  const ticketUrl = "https://desk.zoho.com.cn/agent/customerportal/techsonic-1/tickets/details/17352000003150132";
+  const relogin = `https://accounts.zoho.com.cn/account/v1/relogin?serviceurl=${encodeURIComponent(ticketUrl)}&servicename=ZohoSupport`;
+  assert.equal(zohoDeskAuthReturnUrl(relogin), ticketUrl);
+  assert.equal(durableBrowserUrl(relogin), ticketUrl);
+  assert.equal(durableBrowserUrl("http://localhost:3000/work"), "http://localhost:3000/work");
+  assert.equal(isZohoDeskUrl(ticketUrl), true);
+});
+
+test("Zoho relogin return targets reject non-Desk, insecure and lookalike hosts", () => {
+  const wrap = (target, host = "accounts.zoho.com.cn") =>
+    `https://${host}/account/v1/relogin?serviceurl=${encodeURIComponent(target)}`;
+  assert.equal(zohoDeskAuthReturnUrl(wrap("https://evil.example/collect")), null);
+  assert.equal(zohoDeskAuthReturnUrl(wrap("http://desk.zoho.com.cn/agent/tickets")), null);
+  assert.equal(zohoDeskAuthReturnUrl(wrap("https://desk.zoho.com.cn.evil.example/agent/tickets")), null);
+  assert.equal(zohoDeskAuthReturnUrl(wrap("https://desk.zoho.com.cn/agent/tickets", "accounts.zoho.com.cn.evil.example")), null);
+  assert.equal(isZohoDeskUrl("https://desk.zoho.com.cn.evil.example/agent/tickets"), false);
 });
 
 test("a policy that disallows POST blocks the form window instead of dropping its body", () => {

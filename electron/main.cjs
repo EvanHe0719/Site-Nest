@@ -82,6 +82,8 @@ const {
   isSapSearchTarget,
   isSapSessionUrl,
   isAuthenticationUrl,
+  durableBrowserUrl,
+  zohoDeskAuthReturnUrl,
   sapRetryUrl,
   tabCloseDecision,
 } = require("./browser/index.cjs");
@@ -501,8 +503,10 @@ function emptyBrowserState(workspaceId, snapshot = {}) {
 browserState = emptyBrowserState(null);
 
 function createRuntimeTab(workspaceId, persisted = {}) {
-  const url = isSafeWebUrl(persisted.url || persisted.currentURL)
-    ? String(persisted.url || persisted.currentURL)
+  const requestedUrl = persisted.url || persisted.currentURL;
+  const restoredUrl = durableBrowserUrl(requestedUrl);
+  const url = isSafeWebUrl(restoredUrl)
+    ? String(restoredUrl)
     : "";
   const homeURL =
     (isSafeWebUrl(persisted.homeURL) && String(persisted.homeURL)) || url;
@@ -2105,14 +2109,14 @@ function reconcileRuntimeDuplicateTabs(workspace) {
 
 function persistWorkspaceBrowserContext(context, patch = {}) {
   if (!context || !cachedState) return;
-  const currentURL = isSafeWebUrl(patch.currentURL)
+  const observedURL = isSafeWebUrl(patch.currentURL)
     ? patch.currentURL
     : isSafeWebUrl(context.view?.webContents.getURL())
       ? context.view.webContents.getURL()
       : context.browserState.currentURL;
-  if (currentURL) {
-    context.browserState.currentURL = currentURL;
-    context.browserState.url = currentURL;
+  if (observedURL) {
+    context.browserState.currentURL = observedURL;
+    context.browserState.url = observedURL;
   }
   const workspace = workspaceBrowserContexts.get(context.workspaceId);
   if (!workspace) return;
@@ -2124,8 +2128,9 @@ function persistWorkspaceBrowserContext(context, patch = {}) {
         tab.view && !tab.view.webContents.isDestroyed()
           ? tab.view.webContents.getURL()
           : "";
-      const url =
+      const observedTabUrl =
         (isSafeWebUrl(liveURL) && liveURL) || tab.browserState.currentURL;
+      const url = durableBrowserUrl(observedTabUrl);
       if (!isSafeWebUrl(url)) return null;
       const storedSite = cachedState.sites.find(
         (site) =>
@@ -4059,7 +4064,15 @@ async function browserActionForContext(context, action, value) {
       if (navigation.canGoForward()) navigation.goForward();
       break;
     case "reload":
-      contents.reload();
+      {
+        const returnUrl = zohoDeskAuthReturnUrl(contents.getURL());
+        if (returnUrl) {
+          compactBrowserState({ loading: true, error: "" }, context);
+          await loadUrlAllowingRedirectAbort(contents, returnUrl);
+        } else {
+          contents.reload();
+        }
+      }
       break;
     case "stop":
       contents.stop();
