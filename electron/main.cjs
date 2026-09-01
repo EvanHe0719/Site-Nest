@@ -83,6 +83,7 @@ const {
   isSapSessionUrl,
   isAuthenticationUrl,
   durableBrowserUrl,
+  isZohoDeskUrl,
   zohoDeskAuthReturnUrl,
   sapRetryUrl,
   tabCloseDecision,
@@ -4065,10 +4066,12 @@ async function browserActionForContext(context, action, value) {
       break;
     case "reload":
       {
-        const returnUrl = zohoDeskAuthReturnUrl(contents.getURL());
-        if (returnUrl) {
+        const currentUrl = contents.getURL();
+        const returnUrl = zohoDeskAuthReturnUrl(currentUrl);
+        const zohoNavigationUrl = returnUrl || (isZohoDeskUrl(currentUrl) ? currentUrl : null);
+        if (zohoNavigationUrl) {
           compactBrowserState({ loading: true, error: "" }, context);
-          await loadUrlAllowingRedirectAbort(contents, returnUrl);
+          await loadUrlAllowingRedirectAbort(contents, zohoNavigationUrl);
         } else {
           contents.reload();
         }

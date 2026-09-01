@@ -68,8 +68,9 @@ test("tab controls are exposed through narrow preload methods and registered IPC
 });
 
 test("Zoho verification URLs reload and persist through their trusted Desk return target", () => {
-  assert.match(mainSource, /const returnUrl = zohoDeskAuthReturnUrl\(contents\.getURL\(\)\)/);
-  assert.match(mainSource, /await loadUrlAllowingRedirectAbort\(contents, returnUrl\)/);
+  assert.match(mainSource, /const returnUrl = zohoDeskAuthReturnUrl\(currentUrl\)/);
+  assert.match(mainSource, /isZohoDeskUrl\(currentUrl\) \? currentUrl : null/);
+  assert.match(mainSource, /await loadUrlAllowingRedirectAbort\(contents, zohoNavigationUrl\)/);
   assert.match(mainSource, /const url = durableBrowserUrl\(observedTabUrl\)/);
   assert.match(mainSource, /const restoredUrl = durableBrowserUrl\(requestedUrl\)/);
 });
