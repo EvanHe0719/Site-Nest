@@ -10,16 +10,21 @@ class TranslationService {
     this.getSettings = getSettings;
     this.saveSettings = saveSettings;
     this.cache = new Map();
+    this.insightCache = new Map();
   }
 
   async status() {
     const settings = normalizeTranslationSettings(await this.getSettings());
     const secret = await this.secretStore.get(SECRET_REFERENCE);
     const configured = Boolean(secret?.apiKey && settings.publicConfig.baseUrl && settings.publicConfig.model);
+    let providerName = this.registry.get(settings.providerId)?.name || settings.providerId;
+    try {
+      if (/(?:^|\.)deepseek\.com$/i.test(new URL(settings.publicConfig.baseUrl).hostname)) providerName = "DeepSeek";
+    } catch {}
     return {
       configured,
       providerId: settings.providerId,
-      providerName: this.registry.get(settings.providerId)?.name || settings.providerId,
+      providerName,
       hasApiKey: Boolean(secret?.apiKey),
       settings,
       providers: this.registry.list(),
@@ -163,8 +168,50 @@ class TranslationService {
     });
   }
 
+  async querySelection(text, options = {}) {
+    const selectedText = String(text || "").trim();
+    const status = await this.status();
+    const provider = this.registry.get(status.providerId);
+    if (!provider || typeof provider.querySelection !== "function") {
+      const error = Object.assign(new Error("当前 Provider 不支持划词查询"), { code: "NOT_CONFIGURED" });
+      throw error;
+    }
+    const providerOptions = await this.providerOptions(options.signal);
+    const cacheKey = createHash("sha256")
+      .update(`selection-insight\n${provider.id}\n${providerOptions.model}\n${selectedText}`)
+      .digest("hex");
+    const cached = this.insightCache.get(cacheKey);
+    if (cached) return { ...cached, providerName: status.providerName };
+    let attempt = 0;
+    let result;
+    while (true) {
+      try {
+        result = await provider.querySelection(selectedText, providerOptions);
+        break;
+      } catch (error) {
+        const failure = /** @type {any} */ (error);
+        const transient = ["NETWORK_ERROR", "REQUEST_TIMEOUT", "RATE_LIMITED", "API_ERROR"].includes(failure?.code);
+        if (!transient || attempt >= 1 || providerOptions.signal?.aborted) throw error;
+        attempt += 1;
+        await new Promise((resolve) => setTimeout(resolve, 120));
+      }
+    }
+    const normalized = {
+      answer: String(result?.answer || "").trim(),
+      realtimeSearch: result?.realtimeSearch === true,
+    };
+    if (!normalized.answer) {
+      const error = Object.assign(new Error("DeepSeek 没有返回可显示的查询结果"), { code: "INVALID_RESPONSE" });
+      throw error;
+    }
+    this.insightCache.set(cacheKey, normalized);
+    while (this.insightCache.size > 300) this.insightCache.delete(this.insightCache.keys().next().value);
+    return { ...normalized, providerName: status.providerName };
+  }
+
   clearMemoryCache() {
     this.cache.clear();
+    this.insightCache.clear();
   }
 }
 

@@ -1,5 +1,3 @@
-const { resolveNavigationTarget } = require("./navigation-target.cjs");
-
 function compactSeparators(items) {
   const result = [];
   for (const item of items) {
@@ -23,10 +21,9 @@ function safeWebUrl(rawUrl) {
 }
 
 class WebContextMenuService {
-  constructor({ Menu, clipboard, searchUrlTemplate, actions = {} }) {
+  constructor({ Menu, clipboard, actions = {} }) {
     this.Menu = Menu;
     this.clipboard = clipboard;
-    this.searchUrlTemplate = searchUrlTemplate;
     this.actions = /** @type {Record<string, (...args: any[]) => any>} */ (actions);
   }
 
@@ -65,6 +62,20 @@ class WebContextMenuService {
               }),
             }
           : null,
+        hasSelection
+          ? {
+              label: "用 DeepSeek 查询选中文字",
+              click: () => this.actions.querySelection?.({
+                text: String(params.selectionText),
+                pageUrl,
+                context,
+                webContents,
+                isEditable: true,
+                x: params.x,
+                y: params.y,
+              }),
+            }
+          : null,
       ]);
     }
 
@@ -84,13 +95,16 @@ class WebContextMenuService {
           }),
         },
         {
-          label: "搜索选中文字",
-          click: () => {
-            const target = resolveNavigationTarget(String(params.selectionText), {
-              searchUrlTemplate: this.searchUrlTemplate,
-            });
-            return this.actions.openTab?.(target.url, { source: "selection-search", context });
-          },
+          label: "用 DeepSeek 查询选中文字",
+          click: () => this.actions.querySelection?.({
+            text: String(params.selectionText),
+            pageUrl,
+            context,
+            webContents,
+            isEditable: false,
+            x: params.x,
+            y: params.y,
+          }),
         },
         { type: "separator" },
         {

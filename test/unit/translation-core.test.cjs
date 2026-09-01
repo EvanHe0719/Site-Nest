@@ -3,12 +3,15 @@ const test = require("node:test");
 
 const {
   OpenAICompatibleTranslationProvider,
+  DEFAULT_TRANSLATION_BASE_URL,
+  DEFAULT_TRANSLATION_MODEL,
   PageTranslationController,
   SelectionActionService,
   TranslationProviderRegistry,
   TranslationService,
   isSensitiveTranslationUrl,
   normalizeTranslationSettings,
+  insightPopoverScript,
   siteRuleForUrl,
 } = require("../../electron/translation/index.cjs");
 const {
@@ -17,6 +20,10 @@ const {
 } = require("../../electron/translation/openai-compatible-provider.cjs");
 
 test("translation settings normalize public fields and identify sensitive sites", () => {
+  assert.deepEqual(normalizeTranslationSettings().publicConfig, {
+    baseUrl: DEFAULT_TRANSLATION_BASE_URL,
+    model: DEFAULT_TRANSLATION_MODEL,
+  });
   const settings = normalizeTranslationSettings({
     publicConfig: { baseUrl: "https://user:pass@translator.example/v1?api_key=must-drop#secret", model: "m1", apiKey: "must-drop" },
     targetLanguage: "en",
@@ -69,6 +76,32 @@ test("OpenAI-compatible provider returns segment-aligned JSON and rejects missin
     () => normalizeProviderResults({ items: [] }, [{ segmentId: "missing", text: "x" }]),
     /一一对应/,
   );
+});
+
+test("DeepSeek selection query uses the compatible chat endpoint and never claims live search", async () => {
+  let request;
+  const provider = new OpenAICompatibleTranslationProvider({
+    fetchFn: async (url, options) => {
+      request = { url, options };
+      return {
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: "这是一个简洁解释。" } }] }),
+      };
+    },
+  });
+  const result = await provider.querySelection("南望封市境内", {
+    baseUrl: DEFAULT_TRANSLATION_BASE_URL,
+    model: DEFAULT_TRANSLATION_MODEL,
+    apiKey: "deepseek-key",
+    targetLanguage: "zh-CN",
+  });
+  assert.deepEqual(result, { answer: "这是一个简洁解释。", realtimeSearch: false });
+  assert.equal(request.url, "https://api.deepseek.com/chat/completions");
+  assert.equal(request.options.headers.authorization, "Bearer deepseek-key");
+  const body = JSON.parse(request.options.body);
+  assert.equal(body.model, DEFAULT_TRANSLATION_MODEL);
+  assert.match(body.messages[0].content, /do not have live web search/i);
+  assert.equal(body.messages[1].content.includes("南望封市境内"), true);
 });
 
 test("TranslationService stores only the API key in the encrypted secret store", async () => {
@@ -136,6 +169,41 @@ test("selection translation reads only the explicitly supplied text and clears m
   assert.match(scripts[1], /译:Chosen text/);
   service.clear(contents);
   assert.equal(service.memory.has(9), false);
+});
+
+test("selection insight is positioned from the captured range and remains an in-page popover", async () => {
+  const scripts = [];
+  const contents = {
+    id: 19,
+    isDestroyed: () => false,
+    getURL: () => "https://example.com/article",
+    executeJavaScript: async (script) => {
+      scripts.push(script);
+      if (script.includes("window.__qiyeSelectionCapture")) {
+        return { captured: true, left: 120, right: 220, top: 180, bottom: 205 };
+      }
+      return { shown: true };
+    },
+  };
+  const service = new SelectionActionService({
+    translationService: {
+      status: async () => ({ configured: true, providerName: "DeepSeek", settings: { targetLanguage: "zh-CN" } }),
+      querySelection: async (text) => ({ answer: `解读:${text}`, providerName: "DeepSeek", realtimeSearch: false }),
+    },
+    confirmSensitive: async () => true,
+  });
+  const queried = await service.query({ webContents: contents, text: "选中的词", pageUrl: contents.getURL(), x: 1, y: 2 });
+  assert.equal(queried, true);
+  assert.deepEqual(
+    { x: service.memory.get(19).x, y: service.memory.get(19).y, anchorTop: service.memory.get(19).anchorTop },
+    { x: 120, y: 213, anchorTop: 180 },
+  );
+  assert.equal(scripts.length, 3, "capture, loading popover and result popover should run in the current page");
+  assert.match(scripts[1], /正在查询 DeepSeek/);
+  assert.match(scripts[2], /解读:选中的词/);
+  assert.match(scripts[2], /AI 解读 · 非实时网页搜索/);
+  assert.doesNotMatch(scripts[2], /innerHTML|location\.href/);
+  assert.match(insightPopoverScript({ original: "x", answer: "y" }), /data-qiye-selection-insight-popover/);
 });
 
 test("page controller batches extracted text, applies a reversible mode and disconnects on restore", async () => {

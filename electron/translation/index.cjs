@@ -4,8 +4,14 @@ const { TranslationService } = require("./translation-service.cjs");
 const { PageTextExtractor } = require("./page-text-extractor.cjs");
 const { PageTranslationRenderer } = require("./page-translation-renderer.cjs");
 const { PageTranslationController } = require("./page-translation-controller.cjs");
-const { SelectionActionService } = require("./selection-action-service.cjs");
-const { normalizeTranslationSettings, isSensitiveTranslationUrl, siteRuleForUrl } = require("./settings.cjs");
+const { SelectionActionService, insightPopoverScript } = require("./selection-action-service.cjs");
+const {
+  DEFAULT_TRANSLATION_BASE_URL,
+  DEFAULT_TRANSLATION_MODEL,
+  normalizeTranslationSettings,
+  isSensitiveTranslationUrl,
+  siteRuleForUrl,
+} = require("./settings.cjs");
 
 module.exports = {
   OpenAICompatibleTranslationProvider,
@@ -16,6 +22,9 @@ module.exports = {
   TranslationProviderError,
   TranslationProviderRegistry,
   TranslationService,
+  DEFAULT_TRANSLATION_BASE_URL,
+  DEFAULT_TRANSLATION_MODEL,
+  insightPopoverScript,
   isSensitiveTranslationUrl,
   normalizeTranslationSettings,
   siteRuleForUrl,

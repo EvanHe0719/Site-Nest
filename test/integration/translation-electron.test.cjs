@@ -33,6 +33,15 @@ test("real Electron extracts visible text, renders both modes, detects dynamic t
   const line = stdout.split(/\r?\n/).find((value) => value.trim().startsWith('{') && value.includes('translationElectronProbe'));
   assert.ok(line, stdout);
   const probe = JSON.parse(line).translationElectronProbe;
+  assert.equal(probe.selectionAnchor.captured, true);
+  assert.equal(probe.insightShown.shown, true);
+  assert.equal(probe.insight.count, 1);
+  assert.match(probe.insight.text, /DeepSeek 查询/);
+  assert.match(probe.insight.text, /AI 解读 · 非实时网页搜索/);
+  assert.match(probe.insight.text, /这是页内 DeepSeek 解读/);
+  assert.match(probe.insight.position.left, /px$/);
+  assert.match(probe.insight.position.top, /px$/);
+  assert.match(probe.insight.pageUrl, /^data:text\/html/);
   const sourceTexts = probe.initial.segments.map((item) => item.text);
   assert.ok(sourceTexts.includes("Visible heading"));
   assert.ok(sourceTexts.includes("First paragraph"));

@@ -51,6 +51,12 @@ function normalizeProviderResults(payload, expectedSegments) {
   });
 }
 
+function responseText(body) {
+  const content = body?.choices?.[0]?.message?.content;
+  if (typeof content === "string" && content.trim()) return content.trim();
+  throw new TranslationProviderError("INVALID_RESPONSE", "DeepSeek 没有返回可显示的查询结果");
+}
+
 class OpenAICompatibleTranslationProvider {
   constructor({ fetchFn }) {
     if (typeof fetchFn !== "function") throw new TypeError("fetchFn is required");
@@ -135,6 +141,70 @@ class OpenAICompatibleTranslationProvider {
     return result?.detectedLanguage || "unknown";
   }
 
+  async querySelection(text, options = {}) {
+    const selectedText = String(text || "").trim();
+    if (!selectedText) {
+      throw new TranslationProviderError("INVALID_CONFIG", "请选择需要查询的文字");
+    }
+    const endpoint = endpointForBaseUrl(options.baseUrl);
+    const apiKey = String(options.apiKey || "").trim();
+    const model = String(options.model || "").trim();
+    if (!apiKey || !model) {
+      throw new TranslationProviderError("NOT_CONFIGURED", "DeepSeek 尚未配置 API Key 或模型");
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(new Error("timeout")), options.timeoutMs || DEFAULT_TIMEOUT_MS);
+    const abortFromParent = () => controller.abort(options.signal?.reason);
+    options.signal?.addEventListener("abort", abortFromParent, { once: true });
+    try {
+      const response = await this.fetchFn(endpoint, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.2,
+          max_tokens: 900,
+          messages: [
+            {
+              role: "system",
+              content: "You explain user-selected text in concise Simplified Chinese. Give the likely meaning, relevant context, and one short example when useful. Clearly state uncertainty. You do not have live web search in this request, so never claim that you browsed the web or verified current information. Return plain text only.",
+            },
+            {
+              role: "user",
+              content: JSON.stringify({
+                task: "explain_selected_text",
+                selectedText,
+                outputLanguage: options.targetLanguage || "zh-CN",
+              }),
+            },
+          ],
+        }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const code = response.status === 401 || response.status === 403
+          ? "AUTH_REQUIRED"
+          : response.status === 429
+            ? "RATE_LIMITED"
+            : "API_ERROR";
+        throw new TranslationProviderError(code, `DeepSeek 查询失败（HTTP ${response.status}）`);
+      }
+      return { answer: responseText(await response.json()), realtimeSearch: false };
+    } catch (error) {
+      if (error instanceof TranslationProviderError) throw error;
+      if (controller.signal.aborted) {
+        throw new TranslationProviderError(options.signal?.aborted ? "CANCELLED" : "REQUEST_TIMEOUT", options.signal?.aborted ? "DeepSeek 查询已取消" : "DeepSeek 查询超时");
+      }
+      throw new TranslationProviderError("NETWORK_ERROR", "无法连接 DeepSeek", { cause: error });
+    } finally {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", abortFromParent);
+    }
+  }
+
   async testConnection(options = {}) {
     const result = await this.translateSegments([{ segmentId: "test", text: "Hello" }], options);
     return { ok: result.length === 1, detectedLanguage: result[0]?.detectedLanguage || "unknown" };
@@ -147,4 +217,5 @@ module.exports = {
   endpointForBaseUrl,
   normalizeProviderResults,
   parseJsonContent,
+  responseText,
 };

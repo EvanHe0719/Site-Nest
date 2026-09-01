@@ -10,17 +10,20 @@ const CAPTURE_SELECTION_SCRIPT = `(() => {
     window.__qiyeSelectionCapture = Number.isFinite(start) && Number.isFinite(end) && end > start
       ? { kind: 'input', element: active, start, end }
       : null;
-    return Boolean(window.__qiyeSelectionCapture);
+    if (!window.__qiyeSelectionCapture) return { captured: false };
+    const rect = active.getBoundingClientRect();
+    return { captured: true, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
   }
   const selection = window.getSelection();
   if (!selection || selection.rangeCount < 1 || selection.isCollapsed) {
     window.__qiyeSelectionCapture = null;
-    return false;
+    return { captured: false };
   }
   const range = selection.getRangeAt(0).cloneRange();
   const editable = Boolean(range.commonAncestorContainer.parentElement?.closest?.('[contenteditable="true"],[contenteditable=""]'));
   window.__qiyeSelectionCapture = { kind: 'range', range, editable };
-  return true;
+  const rect = range.getBoundingClientRect();
+  return { captured: true, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
 })()`;
 
 function popoverScript(payload) {
@@ -64,6 +67,44 @@ function popoverScript(payload) {
     panel.append(header,original,translated,provider,actions);
     document.body.appendChild(panel);
     return true;
+  })()`;
+}
+
+function insightPopoverScript(payload) {
+  return `(() => {
+    document.querySelectorAll('[data-qiye-selection-insight-popover]').forEach((node) => node.remove());
+    const data = ${json(payload)};
+    const panel = document.createElement('section');
+    panel.dataset.qiyeSelectionInsightPopover = 'true';
+    panel.dataset.qiyeTranslationUi = 'true';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'DeepSeek 选中文字查询结果');
+    panel.style.cssText = 'all:initial;box-sizing:border-box;position:fixed;z-index:2147483647;width:min(420px,calc(100vw - 24px));max-height:min(520px,calc(100vh - 24px));overflow:auto;background:#fffdf9;color:#17231f;border:1px solid #cad8d1;border-radius:14px;box-shadow:0 18px 60px rgba(27,49,41,.24);padding:14px;font:13px/1.55 system-ui,sans-serif;visibility:hidden';
+    const makeButton = (label, action) => { const b=document.createElement('button'); b.type='button'; b.textContent=label; b.style.cssText='all:initial;box-sizing:border-box;border:1px solid #cbd8d2;background:#fff;border-radius:8px;padding:6px 9px;color:#245c4d;cursor:pointer;font:600 12px/1.2 system-ui,sans-serif'; b.addEventListener('click', action); return b; };
+    const header=document.createElement('div'); header.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px';
+    const heading=document.createElement('div'); heading.style.cssText='display:grid;gap:2px';
+    const title=document.createElement('strong'); title.style.cssText='font:700 14px/1.3 system-ui,sans-serif;color:#173f36'; title.textContent='DeepSeek 查询';
+    const badge=document.createElement('small'); badge.style.cssText='font:11px/1.3 system-ui,sans-serif;color:#77847d'; badge.textContent=data.realtimeSearch ? '已连接实时搜索' : 'AI 解读 · 非实时网页搜索';
+    heading.append(title,badge);
+    const close=makeButton('关闭',()=>{ panel.remove(); window.open('qiye-action://translation-close','_blank'); });
+    header.append(heading,close);
+    const query=document.createElement('div'); query.style.cssText='color:#637069;background:#f5f5f1;border-radius:9px;padding:8px 10px;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 system-ui,sans-serif'; query.textContent=data.original;
+    const answer=document.createElement('div'); answer.style.cssText='font:14px/1.65 system-ui,sans-serif;background:#edf7f2;border-left:3px solid #27856e;border-radius:9px;padding:10px;margin-top:9px;white-space:pre-wrap;overflow-wrap:anywhere;color:#17231f';
+    answer.textContent=data.loading ? '正在查询 DeepSeek…' : (data.error || data.answer || '没有返回结果');
+    if(data.error) answer.style.cssText += ';background:#fff1ee;border-left-color:#c5685c;color:#8b4038';
+    const provider=document.createElement('small'); provider.style.cssText='display:block;color:#77847d;margin:7px 0;font:11px/1.4 system-ui,sans-serif'; provider.textContent='服务：' + (data.providerName || 'DeepSeek');
+    const actions=document.createElement('div'); actions.style.cssText='display:flex;flex-wrap:wrap;gap:7px';
+    if(!data.loading && !data.error && data.answer) actions.append(makeButton('复制结果',async()=>{ try{await navigator.clipboard.writeText(data.answer)}catch{const t=document.createElement('textarea');t.value=data.answer;document.body.append(t);t.select();document.execCommand('copy');t.remove()}}));
+    if(!data.loading) actions.append(makeButton('重新查询',()=>window.open('qiye-action://selection-insight-retry','_blank')));
+    panel.append(header,query,answer,provider,actions);
+    (document.body||document.documentElement).appendChild(panel);
+    const width=panel.getBoundingClientRect().width || 420;
+    const height=panel.getBoundingClientRect().height || 260;
+    const left=Math.max(12,Math.min(Number(data.x||24),innerWidth-width-12));
+    const preferredTop=Math.max(12,Number(data.y||24));
+    const top=preferredTop+height<=innerHeight-12 ? preferredTop : Math.max(12,Number(data.anchorTop||preferredTop)-height-8);
+    panel.style.left=left+'px'; panel.style.top=top+'px'; panel.style.visibility='visible';
+    return { shown:true, left, top, belowSelection:top===preferredTop };
   })()`;
 }
 
@@ -170,6 +211,78 @@ class SelectionActionService {
     }
   }
 
+  async query(input = {}) {
+    const contents = input.webContents;
+    const text = String(input.text || "").trim();
+    if (!contents || contents.isDestroyed() || !text) return false;
+    if (text.length > 2000) {
+      this.onNotice?.("选中文字超过 2000 字符，请缩短后重试", "error");
+      return false;
+    }
+    if (await this.confirmSensitive?.(input.pageUrl) === false) return false;
+    const capture = await contents.executeJavaScript(CAPTURE_SELECTION_SCRIPT, true).catch(() => null);
+    const anchor = {
+      x: Number(capture?.captured ? capture.left : input.x || 24),
+      y: Number(capture?.captured ? capture.bottom + 8 : input.y || 64),
+      anchorTop: Number(capture?.captured ? capture.top : input.anchorTop || input.y || 64),
+    };
+    this.pending.get(contents.id)?.abort();
+    const controller = new AbortController();
+    this.pending.set(contents.id, controller);
+    const originalUrl = String(input.pageUrl || contents.getURL());
+    const memory = { kind: "insight", text, pageUrl: originalUrl, ...anchor };
+    this.memory.set(contents.id, memory);
+    try {
+      const status = await this.translationService.status();
+      if (!status.configured) {
+        await contents.executeJavaScript(insightPopoverScript({
+          ...memory,
+          original: text,
+          error: "请先在“设置与数据 → 翻译”中配置 DeepSeek API Key",
+          providerName: "DeepSeek",
+          realtimeSearch: false,
+        }), true);
+        this.onNotice?.("DeepSeek 尚未配置，请前往设置与数据", "error");
+        return false;
+      }
+      await contents.executeJavaScript(insightPopoverScript({
+        ...memory,
+        original: text,
+        loading: true,
+        providerName: status.providerName,
+        realtimeSearch: false,
+      }), true);
+      const result = await this.translationService.querySelection(text, { signal: controller.signal });
+      if (controller.signal.aborted || contents.isDestroyed() || contents.getURL() !== originalUrl) return false;
+      const completed = {
+        ...memory,
+        answer: result.answer,
+        providerName: result.providerName || status.providerName,
+        realtimeSearch: result.realtimeSearch === true,
+      };
+      this.memory.set(contents.id, completed);
+      await contents.executeJavaScript(insightPopoverScript({ ...completed, original: text }), true);
+      return true;
+    } catch (error) {
+      const failure = /** @type {any} */ (error);
+      if (!controller.signal.aborted && failure?.code !== "CANCELLED") {
+        if (!contents.isDestroyed() && contents.getURL() === originalUrl) {
+          await contents.executeJavaScript(insightPopoverScript({
+            ...memory,
+            original: text,
+            error: failure?.message || "DeepSeek 查询失败",
+            providerName: "DeepSeek",
+            realtimeSearch: false,
+          }), true).catch(() => false);
+        }
+        this.onNotice?.(failure?.message || "DeepSeek 查询失败", "error");
+      }
+      return false;
+    } finally {
+      if (this.pending.get(contents.id) === controller) this.pending.delete(contents.id);
+    }
+  }
+
   async translateCurrentSelection(contents, context) {
     if (!contents || contents.isDestroyed()) return false;
     const text = await contents.executeJavaScript(CURRENT_SELECTION_SCRIPT, true).catch(() => "");
@@ -180,6 +293,12 @@ class SelectionActionService {
     const memory = this.memory.get(contents?.id);
     if (!memory) return false;
     return this.translate({ ...memory, webContents: contents, context });
+  }
+
+  async retryInsight(contents, context) {
+    const memory = this.memory.get(contents?.id);
+    if (!memory || memory.kind !== "insight") return false;
+    return this.query({ ...memory, webContents: contents, context });
   }
 
   openInTranslationWebsite(contents) {
@@ -206,6 +325,7 @@ module.exports = {
   CAPTURE_SELECTION_SCRIPT,
   CURRENT_SELECTION_SCRIPT,
   SelectionActionService,
+  insightPopoverScript,
   popoverScript,
   triggerScript,
 };

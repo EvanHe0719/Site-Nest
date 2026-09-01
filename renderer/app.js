@@ -549,6 +549,9 @@ const dom = {
   toastStack: document.getElementById("toastStack"),
 };
 
+const DEFAULT_DEEPSEEK_API_BASE = "https://api.deepseek.com";
+const DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash";
+
 let appState = {
   workspaces: FALLBACK_WORKSPACES,
   activeWorkspaceId: "personal",
@@ -563,7 +566,7 @@ let appState = {
     sitePopupPolicies: [],
     translation: {
       providerId: "openai-compatible",
-      publicConfig: { baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+      publicConfig: { baseUrl: DEFAULT_DEEPSEEK_API_BASE, model: DEFAULT_DEEPSEEK_MODEL },
       sourceLanguage: "auto",
       targetLanguage: "zh-CN",
       defaultMode: "bilingual",
@@ -739,7 +742,7 @@ const SETTINGS_SECTIONS = Object.freeze([
   { id: "search", title: "搜索与新标签页", kicker: "SEARCH", icon: "search", description: "默认搜索引擎、搜索历史和全局搜索入口。" },
   { id: "shortcuts", title: "快捷键", kicker: "SHORTCUTS", icon: "settings", description: "按功能分组管理当前平台的应用快捷键。" },
   { id: "browsing", title: "浏览与性能", kicker: "BROWSING", icon: "window", description: "网页内存、新窗口、登录弹窗与浏览身份。" },
-  { id: "translation", title: "翻译", kicker: "TRANSLATION", icon: "language", description: "划词与整页翻译 Provider 和隐私边界。" },
+  { id: "translation", title: "翻译与 DeepSeek", kicker: "TRANSLATION", icon: "language", description: "划词翻译、DeepSeek 查询、整页翻译与隐私边界。" },
   { id: "notifications", title: "计划与通知", kicker: "NOTIFICATIONS", icon: "calendar", description: "桌面提醒、托盘和随系统启动。" },
   { id: "connections", title: "连接与集成", kicker: "CONNECTIONS", icon: "workflow", description: "Zoho Desk 与预留的只读连接器。" },
   { id: "accounts", title: "账号与同步", kicker: "ACCOUNTS", icon: "cloud", description: "Google 数据同步和 Chrome 本地书签。" },
@@ -754,7 +757,7 @@ const SETTINGS_SEARCH_INDEX = Object.freeze([
   { section: "shortcuts", panel: "shortcuts", title: "快捷键", description: "搜索、导航、页签、工作空间和计划快捷键" },
   { section: "browsing", panel: "memory", title: "网页视图内存", description: "内存模式、后台自动休眠和保持运行" },
   { section: "browsing", panel: "popup-policy", title: "新窗口与登录弹窗", description: "OAuth、SSO、POST 和站点弹窗策略" },
-  { section: "translation", panel: "translation", title: "划词与整页翻译", description: "翻译 Provider、目标语言与敏感网站确认" },
+  { section: "translation", panel: "translation", title: "DeepSeek 翻译与划词查询", description: "DeepSeek API、目标语言与敏感网站确认" },
   { section: "notifications", panel: "notifications", title: "通知与后台", description: "桌面提醒、托盘、系统启动和勿扰时间" },
   { section: "connections", panel: "zoho", title: "Zoho Desk", description: "只读工单、组织 ID、SLA 与 OAuth" },
   { section: "connections", panel: "connections", title: "Emma、Customer Ops、Gitee、B1 运维台", description: "连接器状态和接口说明" },
@@ -4518,21 +4521,28 @@ function renderTranslationSettings() {
   if (!dom.translationConfigForm) return;
   const settings = translationStatusCache?.settings || appState.uiSettings?.translation || {};
   const publicConfig = settings.publicConfig || {};
+  const configured = translationStatusCache?.configured === true;
+  const legacyUnconfiguredDefault = !configured &&
+    publicConfig.baseUrl === "https://api.openai.com/v1" &&
+    publicConfig.model === "gpt-4o-mini";
   if (document.activeElement !== dom.translationApiBase) {
-    dom.translationApiBase.value = publicConfig.baseUrl || "https://api.openai.com/v1";
+    dom.translationApiBase.value = legacyUnconfiguredDefault
+      ? DEFAULT_DEEPSEEK_API_BASE
+      : publicConfig.baseUrl || DEFAULT_DEEPSEEK_API_BASE;
   }
   if (document.activeElement !== dom.translationModel) {
-    dom.translationModel.value = publicConfig.model || "gpt-4o-mini";
+    dom.translationModel.value = legacyUnconfiguredDefault
+      ? DEFAULT_DEEPSEEK_MODEL
+      : publicConfig.model || DEFAULT_DEEPSEEK_MODEL;
   }
   dom.translationSourceLanguage.value = settings.sourceLanguage || "auto";
   dom.translationTargetLanguage.value = settings.targetLanguage || "zh-CN";
   dom.translationDefaultMode.value = settings.defaultMode || "bilingual";
   dom.translationSelectionButton.checked = settings.selectionButtonEnabled !== false;
-  const configured = translationStatusCache?.configured === true;
-  dom.translationSettingsStatus.textContent = configured ? "已配置" : "未配置";
+  dom.translationSettingsStatus.textContent = configured ? "DeepSeek 已配置" : "DeepSeek 未配置";
   dom.translationSettingsStatus.classList.toggle("status-pill--success", configured);
   dom.translatePageButton.classList.toggle("is-configured", configured);
-  dom.translatePageButton.title = configured ? "翻译本页" : "翻译本页（Provider 未配置）";
+  dom.translatePageButton.title = configured ? "使用 DeepSeek 翻译本页" : "翻译本页（DeepSeek 未配置）";
   dom.translationApiKey.placeholder = translationStatusCache?.hasApiKey
     ? "密钥已安全保存；留空保持不变"
     : "输入 API Key";
@@ -9014,7 +9024,7 @@ function bindEvents() {
       dom.translationApiKey.value = "";
       dirtySettingsPanels.delete("translation");
       renderTranslationSettings();
-      showToast("翻译配置已安全保存", translationStatusCache.configured ? "Provider 已可用" : "仍需填写 API Key");
+      showToast("DeepSeek 配置已安全保存", translationStatusCache.configured ? "翻译与划词查询已可用" : "仍需填写 API Key");
     } catch (error) {
       showToast("无法保存翻译配置", error?.message || "请检查配置", "error");
     } finally {
@@ -9026,9 +9036,9 @@ function bindEvents() {
     dom.testTranslationButton.textContent = "正在测试…";
     try {
       await window.siteNest.testTranslation(translationFormPayload());
-      showToast("翻译服务连接成功", "固定测试文本已得到有效响应");
+      showToast("DeepSeek 连接成功", "固定测试文本已得到有效响应");
     } catch (error) {
-      showToast("翻译服务连接失败", error?.message || "请检查地址、模型与密钥", "error");
+      showToast("DeepSeek 连接失败", error?.message || "请检查地址、模型与密钥", "error");
     } finally {
       dom.testTranslationButton.disabled = false;
       dom.testTranslationButton.textContent = "测试连接";

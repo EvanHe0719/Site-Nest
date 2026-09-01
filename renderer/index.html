@@ -996,19 +996,19 @@
                     <div class="settings-title-row">
                       <div>
                         <span class="section-kicker">TRANSLATION</span>
-                        <h3>划词与整页翻译</h3>
+                        <h3>DeepSeek 翻译与划词查询</h3>
                       </div>
                       <span class="status-pill" id="translationSettingsStatus">未配置</span>
                     </div>
-                    <p>翻译请求只由主进程发送。API Key 使用系统安全存储；网页正文、选中文字与译文不会写入普通日志或本地数据库。</p>
+                    <p>翻译与划词查询只由主进程请求 DeepSeek。API Key 使用系统安全存储；网页正文、选中文字与结果不会写入普通日志或本地数据库。</p>
                     <form class="translation-config-form" id="translationConfigForm" data-action-id="translation.config.save">
                       <label class="translation-field translation-field--wide">
-                        <span>OpenAI-compatible API Base URL</span>
-                        <input id="translationApiBase" type="url" autocomplete="off" value="https://api.openai.com/v1" required />
+                        <span>DeepSeek API Base URL</span>
+                        <input id="translationApiBase" type="url" autocomplete="off" value="https://api.deepseek.com" required />
                       </label>
                       <label class="translation-field">
                         <span>模型</span>
-                        <input id="translationModel" autocomplete="off" value="gpt-4o-mini" required />
+                        <input id="translationModel" autocomplete="off" value="deepseek-v4-flash" required />
                       </label>
                       <label class="translation-field">
                         <span>API Key</span>
@@ -1031,7 +1031,7 @@
                         <select id="translationDefaultMode"><option value="bilingual">双语对照</option><option value="translated">仅显示译文</option></select>
                       </label>
                       <label class="settings-switch-row translation-selection-toggle">
-                        <span><strong>选词旁显示“译”按钮</strong><small>关闭后仍可通过网页右键菜单翻译</small></span>
+                        <span><strong>选词旁显示“译”按钮</strong><small>关闭后仍可通过网页右键菜单翻译或使用 DeepSeek 查询</small></span>
                         <input id="translationSelectionButton" type="checkbox" checked />
                       </label>
                       <div class="translation-form-actions">
@@ -1042,7 +1042,7 @@
                     </form>
                     <div class="translation-privacy-note">
                       <span data-icon="shield"></span>
-                      <span>Zoho、SAP、邮箱、登录页和内部系统首次翻译前会单独确认；整页翻译不提取密码框、输入值、Cookie、Token、文件与隐藏表单，划词只使用主动选择的文字。</span>
+                      <span>Zoho、SAP、邮箱、登录页和内部系统首次发送前会单独确认；整页翻译不提取密码框、输入值、Cookie、Token、文件与隐藏表单，划词查询只使用主动选择的文字。普通 DeepSeek API 查询属于 AI 解读，不等同于实时网页搜索。</span>
                     </div>
                   </div>
                 </article>

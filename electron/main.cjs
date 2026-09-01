@@ -993,8 +993,8 @@ async function confirmSensitiveTranslation(rawUrl) {
   const result = await dialog.showMessageBox(browserOwnerWindow(activeBrowserContext()), {
     type: "warning",
     title: "确认发送页面文字",
-    message: "本次操作会将页面中的可见文字发送到当前翻译服务。",
-    detail: `${hostname}\n整页翻译不读取密码、Cookie、输入框值、隐藏表单和授权信息；划词翻译只使用你主动选择的文字。`,
+    message: "本次操作会将页面中的可见文字发送到当前 DeepSeek 或兼容 AI 服务。",
+    detail: `${hostname}\n整页翻译不读取密码、Cookie、输入框值、隐藏表单和授权信息；划词翻译与查询只使用你主动选择的文字。`,
     buttons: ["取消", "仅本次允许", "始终允许此网站"],
     defaultId: 0,
     cancelId: 0,
@@ -1052,6 +1052,7 @@ async function handleTranslationInternalAction(details, context, contents) {
   const translation = getTranslationServices();
   if (action === "translation-selection-button") return translation.selection.translateCurrentSelection(contents, context);
   if (action === "translation-retry") return translation.selection.retry(contents, context);
+  if (action === "selection-insight-retry") return translation.selection.retryInsight(contents, context);
   if (action === "translation-open-external") return translation.selection.openInTranslationWebsite(contents);
   if (action === "translation-close") return translation.selection.clear(contents);
   if (action === "translation-dynamic") return translation.page.translateDynamic(context);
@@ -1263,6 +1264,7 @@ function getBrowserServices() {
       openExternal: (url) => isSafeWebUrl(url) ? shell.openExternal(url) : null,
       browserAction: (action, context) => browserActionForContext(context, action),
       translateSelection: (input) => getTranslationServices().selection.translate(input),
+      querySelection: (input) => getTranslationServices().selection.query(input),
       translatePage: ({ context }) => showTranslationPageMenu(context),
       addCurrentPage: ({ context }) => void addCurrentPageToSites(context),
       openPageActions: () => mainWindow?.webContents.send("assistants:open-panel"),

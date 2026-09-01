@@ -176,12 +176,17 @@ test("a policy that disallows POST blocks the form window instead of dropping it
   assert.equal(decision.reason, "post-not-allowed-by-policy");
 });
 
-test("web context menu is contextual and never offers translation or search for password fields", () => {
+test("web context menu queries selected text through DeepSeek without opening a search tab", () => {
   const clipboardWrites = [];
+  const queries = [];
+  const openedTabs = [];
   const service = new WebContextMenuService({
     Menu: { buildFromTemplate: (template) => ({ template }) },
     clipboard: { writeText: (value) => clipboardWrites.push(value) },
-    actions: {},
+    actions: {
+      querySelection: (input) => queries.push(input),
+      openTab: (url) => openedTabs.push(url),
+    },
   });
   const webContents = fakeWebContents();
   const selection = menuLabels(service.buildTemplate(webContents, {
@@ -189,7 +194,18 @@ test("web context menu is contextual and never offers translation or search for 
     isEditable: false,
     inputFieldType: "none",
   }));
-  assert.deepEqual(selection.slice(0, 3), ["复制", "翻译选中文字", "搜索选中文字"]);
+  assert.deepEqual(selection.slice(0, 3), ["复制", "翻译选中文字", "用 DeepSeek 查询选中文字"]);
+  const selectionTemplate = service.buildTemplate(webContents, {
+    selectionText: "selected text",
+    isEditable: false,
+    inputFieldType: "none",
+    x: 42,
+    y: 56,
+  });
+  selectionTemplate.find((item) => item.label === "用 DeepSeek 查询选中文字").click();
+  assert.equal(queries[0].text, "selected text");
+  assert.deepEqual({ x: queries[0].x, y: queries[0].y }, { x: 42, y: 56 });
+  assert.deepEqual(openedTabs, []);
 
   const password = menuLabels(service.buildTemplate(webContents, {
     selectionText: "never expose this",
@@ -199,7 +215,7 @@ test("web context menu is contextual and never offers translation or search for 
   }));
   assert.ok(password.includes("复制"));
   assert.ok(!password.includes("翻译选中文字"));
-  assert.ok(!password.includes("搜索选中文字"));
+  assert.ok(!password.includes("用 DeepSeek 查询选中文字"));
   assert.ok(!JSON.stringify(password).includes("never expose this"));
 });
 

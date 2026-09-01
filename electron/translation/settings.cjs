@@ -1,5 +1,7 @@
 const VALID_MODES = new Set(["bilingual", "translated"]);
 const VALID_RULE_MODES = new Set(["manual", "always", "never"]);
+const DEFAULT_TRANSLATION_BASE_URL = "https://api.deepseek.com";
+const DEFAULT_TRANSLATION_MODEL = "deepseek-v4-flash";
 const SENSITIVE_HOST_PATTERNS = [
   /(^|\.)desk\.zoho\./i,
   /(^|\.)support\.sap\.com$/i,
@@ -20,14 +22,14 @@ function normalizeHostnamePattern(value) {
 
 function sanitizePublicBaseUrl(value) {
   try {
-    const parsed = new URL(String(value || "https://api.openai.com/v1"));
+    const parsed = new URL(String(value || DEFAULT_TRANSLATION_BASE_URL));
     parsed.username = "";
     parsed.password = "";
     parsed.search = "";
     parsed.hash = "";
     return parsed.toString().replace(/\/$/, "").slice(0, 500);
   } catch {
-    return "https://api.openai.com/v1";
+    return DEFAULT_TRANSLATION_BASE_URL;
   }
 }
 
@@ -54,7 +56,7 @@ function normalizeTranslationSettings(value = {}) {
     providerId: "openai-compatible",
     publicConfig: {
       baseUrl: sanitizePublicBaseUrl(publicConfig.baseUrl),
-      model: String(publicConfig.model || "gpt-4o-mini").trim().slice(0, 200),
+      model: String(publicConfig.model || DEFAULT_TRANSLATION_MODEL).trim().slice(0, 200),
     },
     sourceLanguage: String(input.sourceLanguage || "auto").trim().slice(0, 30) || "auto",
     targetLanguage: String(input.targetLanguage || "zh-CN").trim().slice(0, 30) || "zh-CN",
@@ -101,6 +103,8 @@ function isSensitiveTranslationUrl(rawUrl) {
 }
 
 module.exports = {
+  DEFAULT_TRANSLATION_BASE_URL,
+  DEFAULT_TRANSLATION_MODEL,
   VALID_MODES,
   hostnameMatches,
   isSensitiveTranslationUrl,

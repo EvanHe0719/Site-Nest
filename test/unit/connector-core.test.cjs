@@ -307,7 +307,7 @@ test("v10 migration keeps sites separate from sessions and is idempotent", () =>
     sitePopupPolicies: [],
     translation: {
       providerId: "openai-compatible",
-      publicConfig: { baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+      publicConfig: { baseUrl: "https://api.deepseek.com", model: "deepseek-v4-flash" },
       sourceLanguage: "auto",
       targetLanguage: "zh-CN",
       defaultMode: "bilingual",
@@ -350,7 +350,7 @@ test("session visibility and context-assistant preferences survive state normali
     sitePopupPolicies: [],
     translation: {
       providerId: "openai-compatible",
-      publicConfig: { baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+      publicConfig: { baseUrl: "https://api.deepseek.com", model: "deepseek-v4-flash" },
       sourceLanguage: "auto",
       targetLanguage: "zh-CN",
       defaultMode: "bilingual",
