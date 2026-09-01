@@ -547,6 +547,17 @@ const dom = {
   copyZohoTicketLink: document.getElementById("copyZohoTicketLink"),
   openZohoTicketExternal: document.getElementById("openZohoTicketExternal"),
   giteeAssociationState: document.getElementById("giteeAssociationState"),
+  companionPanel: document.getElementById("companionPanel"),
+  companionEdgeRail: document.getElementById("companionEdgeRail"),
+  companionDock: document.getElementById("companionDock"),
+  companionBubble: document.getElementById("companionBubble"),
+  companionGreeting: document.getElementById("companionGreeting"),
+  companionStateLabel: document.getElementById("companionStateLabel"),
+  companionContent: document.getElementById("companionContent"),
+  closeCompanionPanel: document.getElementById("closeCompanionPanel"),
+  companionWeatherButton: document.getElementById("companionWeatherButton"),
+  companionAssistantButton: document.getElementById("companionAssistantButton"),
+  companionPauseButton: document.getElementById("companionPauseButton"),
   appContextMenu: document.getElementById("appContextMenu"),
   toastStack: document.getElementById("toastStack"),
 };
@@ -611,6 +622,8 @@ let assistantCache = [];
 let executionLogCache = [];
 let pageActionSnapshot = null;
 let pageActionPanelOpen = false;
+let companionPanelOpen = false;
+let activeRightPanel = null;
 let pageActionRequestId = 0;
 let pageActionRefreshTimer = 0;
 let translationStatusCache = null;
@@ -6963,6 +6976,7 @@ function renderAll() {
   renderSearchEngineControls();
   renderSearchHistory();
   renderBrowserEmptyRecent();
+  renderCompanionShell();
   if (currentRoute === "home") setVisibleLocalPage("home");
   if (currentRoute === "settings") renderBookmarks();
 }
@@ -8229,12 +8243,41 @@ async function refreshPageActions() {
 
 function setPageActionPanelOpen(open) {
   pageActionPanelOpen = Boolean(open && browserSnapshot.hasOpenPage && dom.browserPage.classList.contains("is-visible"));
+  if (pageActionPanelOpen && companionPanelOpen) setCompanionPanelOpen(false);
+  activeRightPanel = pageActionPanelOpen ? "page-actions" : activeRightPanel === "page-actions" ? null : activeRightPanel;
   dom.pageActionPanel.hidden = !pageActionPanelOpen;
   dom.browserContent.classList.toggle("is-action-panel-open", pageActionPanelOpen);
   dom.pageActionPanel.setAttribute("aria-hidden", String(!pageActionPanelOpen));
   dom.pageActionsButton.setAttribute("aria-expanded", String(pageActionPanelOpen));
   dom.pageActionsButton.classList.toggle("is-active", pageActionPanelOpen);
   if (pageActionPanelOpen) void refreshPageActions();
+  requestAnimationFrame(() => requestAnimationFrame(syncBrowserBounds));
+}
+
+function companionEnabled() {
+  return appState.uiSettings?.companion?.enabled === true;
+}
+
+function renderCompanionShell() {
+  const enabled = companionEnabled();
+  dom.companionEdgeRail.hidden = !enabled;
+  dom.browserContent.classList.toggle("is-companion-enabled", enabled);
+  if (!enabled && companionPanelOpen) setCompanionPanelOpen(false);
+  dom.companionDock.setAttribute("aria-expanded", String(companionPanelOpen));
+  requestAnimationFrame(() => requestAnimationFrame(syncBrowserBounds));
+}
+
+function setCompanionPanelOpen(open, panel = "home") {
+  const canOpen = Boolean(open && companionEnabled() && browserSnapshot.hasOpenPage && dom.browserPage.classList.contains("is-visible"));
+  if (canOpen && pageActionPanelOpen) setPageActionPanelOpen(false);
+  companionPanelOpen = canOpen;
+  activeRightPanel = canOpen ? "companion" : activeRightPanel === "companion" ? null : activeRightPanel;
+  dom.companionPanel.hidden = !canOpen;
+  dom.companionPanel.setAttribute("aria-hidden", String(!canOpen));
+  dom.companionDock.setAttribute("aria-expanded", String(canOpen));
+  dom.browserContent.classList.toggle("is-companion-panel-open", canOpen);
+  dom.companionContent.dataset.panel = panel;
+  if (canOpen) dom.closeCompanionPanel.focus({ preventScroll: true });
   requestAnimationFrame(() => requestAnimationFrame(syncBrowserBounds));
 }
 
@@ -8377,6 +8420,17 @@ function handleBrowserState(next = {}) {
 }
 
 function bindEvents() {
+  dom.companionDock.addEventListener("click", () => setCompanionPanelOpen(!companionPanelOpen));
+  dom.closeCompanionPanel.addEventListener("click", () => {
+    setCompanionPanelOpen(false);
+    dom.companionDock.focus({ preventScroll: true });
+  });
+  dom.companionWeatherButton.addEventListener("click", () => setCompanionPanelOpen(true, "weather"));
+  dom.companionAssistantButton.addEventListener("click", () => setCompanionPanelOpen(true, "assistant"));
+  dom.companionPauseButton.addEventListener("click", () => {
+    dom.companionStateLabel.textContent = "已暂停";
+    dom.companionGreeting.textContent = "好的，我会先安静一会儿。";
+  });
   dom.globalSearchTrigger.addEventListener("click", () => openGlobalSearchPalette());
   dom.closeGlobalSearch.addEventListener("click", () => closeGlobalSearchPalette());
   dom.globalSearchPalette.addEventListener("mousedown", (event) => {

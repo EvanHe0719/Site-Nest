@@ -6159,6 +6159,41 @@ svg {
   .timeline-review-stats { grid-template-columns: 1fr; }
 }
 
+/* CompanionEdgeRail: the native WebContentsView is above Shell DOM. The rail
+   therefore owns layout width instead of relying on an ineffective z-index. */
+.browser-content.is-companion-enabled { grid-template-columns: minmax(0, 1fr) 44px; }
+.browser-content.is-companion-enabled.is-companion-panel-open { grid-template-columns: minmax(0, 1fr) minmax(340px, 380px) 44px; }
+.browser-content.is-action-panel-open.is-companion-enabled { grid-template-columns: minmax(0, 1fr) minmax(360px, 400px) 44px; }
+.companion-edge-rail { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; min-width: 44px; border-left: 1px solid var(--line); background: linear-gradient(180deg, #f7faf7 0%, #edf4ef 100%); }
+.companion-dock { display: grid; justify-items: center; gap: 7px; width: 36px; padding: 10px 3px; border: 0; border-radius: 18px; background: transparent; color: #49675e; cursor: pointer; }
+.companion-dock:hover, .companion-dock:focus-visible, .companion-dock[aria-expanded="true"] { outline: none; background: rgba(38, 125, 103, 0.11); }
+.companion-dock-label { writing-mode: vertical-rl; font-size: 9px; letter-spacing: .14em; }
+.companion-orb { position: relative; display: inline-flex; width: 20px; height: 20px; border-radius: 50%; background: radial-gradient(circle at 34% 28%, #f7fff9 0 18%, #86c9a8 24%, #2f8b70 72%, #1d6653 100%); box-shadow: 0 0 0 4px rgba(47, 139, 112, .10), 0 5px 14px rgba(37, 93, 75, .2); }
+.companion-orb::before, .companion-orb::after { content: ""; position: absolute; top: 8px; width: 3px; height: 3px; border-radius: 50%; background: #f6fffa; }
+.companion-orb::before { left: 5px; }
+.companion-orb::after { right: 5px; }
+.companion-orb i { position: absolute; left: 7px; bottom: 4px; width: 6px; height: 2px; border-bottom: 1px solid rgba(255,255,255,.85); border-radius: 50%; }
+.companion-orb--small { width: 30px; height: 30px; }
+.companion-orb--small::before { top: 12px; left: 8px; }
+.companion-orb--small::after { top: 12px; right: 8px; }
+.companion-orb--small i { left: 10px; bottom: 7px; width: 10px; }
+.companion-panel { min-width: 340px; max-width: 380px; overflow: hidden auto; border-left: 1px solid var(--line); background: #f8faf7; }
+.companion-panel-header, .companion-identity { display: flex; align-items: center; }
+.companion-panel-header { justify-content: space-between; gap: 12px; padding: 18px 18px 12px; }
+.companion-identity { gap: 11px; }
+.companion-identity h2 { margin: 1px 0 0; font-size: 18px; }
+.companion-panel-body { display: grid; gap: 13px; padding: 0 18px 18px; }
+.companion-greeting { margin: 0; color: #304d44; font-size: 14px; line-height: 1.6; }
+.companion-status-card { display: grid; gap: 8px; padding: 12px; border: 1px solid #dce7e1; border-radius: 14px; background: rgba(255,255,255,.76); }
+.companion-status-card small { color: #77857f; line-height: 1.55; }
+.companion-quick-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.companion-quick-actions button { display: grid; justify-items: center; gap: 5px; min-height: 58px; padding: 8px 5px; border: 1px solid #d7e2dc; border-radius: 12px; background: #fff; color: #48675d; cursor: pointer; }
+.companion-content { min-height: 150px; }
+.companion-empty { display: grid; gap: 5px; padding: 18px; border-radius: 14px; background: #eef4f0; color: #61736c; }
+.companion-bubble { position: absolute; right: 48px; width: 220px; padding: 10px 12px; border: 1px solid #d8e4dd; border-radius: 14px 14px 4px 14px; background: #fff; color: #496158; box-shadow: 0 12px 30px rgba(39,72,60,.14); font-size: 11px; line-height: 1.5; }
+@media (max-width: 1080px) { .browser-content.is-companion-enabled.is-companion-panel-open { grid-template-columns: minmax(0, 1fr) 320px 44px; } .companion-panel { min-width: 320px; } }
+@media (prefers-reduced-motion: reduce) { .companion-orb { animation: none !important; transition: none !important; } }
+
 .ui-action-audit-metrics {
   display: grid;
   grid-template-columns: repeat(5, minmax(92px, 1fr));
