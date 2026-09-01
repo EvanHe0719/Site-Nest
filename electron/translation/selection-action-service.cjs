@@ -339,6 +339,12 @@ class SelectionActionService {
     return this.translate({ webContents: contents, text, pageUrl: contents.getURL(), context, x: 24, y: 64 });
   }
 
+  async queryCurrentSelection(contents, context) {
+    if (!contents || contents.isDestroyed()) return false;
+    const text = await contents.executeJavaScript(CURRENT_SELECTION_SCRIPT, true).catch(() => "");
+    return this.query({ webContents: contents, text, pageUrl: contents.getURL(), context, x: 24, y: 64 });
+  }
+
   async retry(contents, context) {
     const memory = this.memory.get(contents?.id);
     if (!memory) return false;

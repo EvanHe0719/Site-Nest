@@ -202,7 +202,13 @@ const {
   createUIActionRegistry,
 } = require("./ui-actions/index.cjs");
 const { ShortcutDispatcher, ShortcutRegistry, electronInputAccelerator } = require("./shortcuts/index.cjs");
-const { CompanionRuntimeService, WeatherService } = require("./companion/index.cjs");
+const {
+  CompanionAIService,
+  CompanionPageSummaryExtractor,
+  CompanionRuntimeService,
+  WeatherService,
+  classifyPageForAI,
+} = require("./companion/index.cjs");
 
 const APP_ID = "local.qiye.sitehub";
 const SITE_PARTITION = "persist:qiye-sites";
@@ -337,6 +343,9 @@ let translationProviderRegistry;
 let translationService;
 let companionRuntimeService;
 let weatherService;
+let companionAIService;
+let companionPageSummaryExtractor;
+const companionSensitiveSiteApprovals = new Set();
 let companionSystemLocked = false;
 let companionSystemSleeping = false;
 let selectionActionService;
@@ -5284,6 +5293,32 @@ async function initializeWeatherService() {
   return weatherService;
 }
 
+function getCompanionAIServices() {
+  if (!companionAIService) companionAIService = new CompanionAIService({ translationService: getTranslationServices().service });
+  if (!companionPageSummaryExtractor) companionPageSummaryExtractor = new CompanionPageSummaryExtractor();
+  return { ai: companionAIService, extractor: companionPageSummaryExtractor };
+}
+
+async function confirmCompanionSensitivePage(classification) {
+  if (!classification.sensitive || companionSensitiveSiteApprovals.has(classification.hostname)) return true;
+  const result = await dialog.showMessageBox(mainWindow, {
+    type: "warning",
+    title: "确认发送当前页可见文字",
+    message: `当前页面属于敏感站点：${classification.hostname}`,
+    detail: "只有你主动点击总结后，栖页才会提取当前页有限的可见文字并发送到已配置的 DeepSeek。输入框、密码、隐藏内容、Cookie 和 Token 不会读取。",
+    buttons: ["仅本次允许", "始终允许此站点", "取消"],
+    defaultId: 2,
+    cancelId: 2,
+    noLink: true,
+  });
+  if (result.response === 1) companionSensitiveSiteApprovals.add(classification.hostname);
+  return result.response === 0 || result.response === 1;
+}
+
+function publicCompanionAIError(error) {
+  return { code: String(error?.code || "AI_ERROR").slice(0, 80), message: String(error?.message || "小序请求失败").replace(/(?:Bearer|Basic)\s+\S+/gi, "$1 [REDACTED]").slice(0, 300) };
+}
+
 async function clearUsageTracking() {
   const tracker = await initializeUsageRuntime();
   tracker.clear();
@@ -6009,6 +6044,32 @@ function registerIpc() {
     }
   });
   ipcMain.handle("companion:cancel-weather", async () => { weatherService?.cancel(); return { ok: true }; });
+  ipcMain.handle("companion:ai-status", async () => getCompanionAIServices().ai.status());
+  ipcMain.handle("companion:ask", async (_event, payload) => {
+    try {
+      return { ok: true, value: await getCompanionAIServices().ai.run(payload?.requestId, "ask", { question: payload?.question }) };
+    } catch (error) { return { ok: false, error: publicCompanionAIError(error) }; }
+  });
+  ipcMain.handle("companion:summarize-page", async (_event, payload) => {
+    const context = activeBrowserContext();
+    const contents = context?.view?.webContents;
+    if (!contents || contents.isDestroyed()) return { ok: false, error: { code: "DATA_UNAVAILABLE", message: "当前没有可总结的网页" } };
+    const classification = classifyPageForAI(contents.getURL());
+    if (!classification.allowed) return { ok: false, error: { code: "SENSITIVE_PAGE_BLOCKED", message: "登录、授权、支付或密码页面不能发送给 DeepSeek" } };
+    if (!await confirmCompanionSensitivePage(classification)) return { ok: false, error: { code: "USER_CANCELLED", message: "已取消网页总结" } };
+    try {
+      const extracted = await getCompanionAIServices().extractor.extract(contents, { maxCharacters: 15_000 });
+      const value = await getCompanionAIServices().ai.run(payload?.requestId, "summarize", { page: { ...extracted, url: classification.safeUrl } });
+      return { ok: true, value, meta: { characterCount: extracted.characterCount, truncated: extracted.truncated, sensitive: classification.sensitive } };
+    } catch (error) { return { ok: false, error: publicCompanionAIError(error) }; }
+  });
+  ipcMain.handle("companion:explain-selection", async () => {
+    const context = activeBrowserContext();
+    if (!context?.view || context.view.webContents.isDestroyed()) return { ok: false, error: { code: "DATA_UNAVAILABLE", message: "当前没有可解释的网页选区" } };
+    const shown = await getTranslationServices().selection.queryCurrentSelection(context.view.webContents, context);
+    return shown ? { ok: true } : { ok: false, error: { code: "SELECTION_UNAVAILABLE", message: "请先在网页中选择文字" } };
+  });
+  ipcMain.handle("companion:cancel-ai", async (_event, requestId) => ({ ok: true, cancelled: getCompanionAIServices().ai.cancel(requestId) }));
   ipcMain.handle("state:get", async () => {
     const state = await getState();
     return {

@@ -14,6 +14,11 @@ contextBridge.exposeInMainWorld("siteNest", {
   getCompanionWeather: () => ipcRenderer.invoke("companion:get-weather"),
   refreshCompanionWeather: () => ipcRenderer.invoke("companion:refresh-weather"),
   cancelCompanionWeather: () => ipcRenderer.invoke("companion:cancel-weather"),
+  getCompanionAIStatus: () => ipcRenderer.invoke("companion:ai-status"),
+  askCompanion: (requestId, question) => ipcRenderer.invoke("companion:ask", { requestId, question }),
+  summarizeCompanionPage: (requestId) => ipcRenderer.invoke("companion:summarize-page", { requestId }),
+  explainCompanionSelection: () => ipcRenderer.invoke("companion:explain-selection"),
+  cancelCompanionAI: (requestId) => ipcRenderer.invoke("companion:cancel-ai", requestId),
   setActiveWorkspace: (workspaceId) =>
     ipcRenderer.invoke("workspace:set-active", workspaceId),
   updateUiSettings: (patch) => ipcRenderer.invoke("settings:update-ui", patch),

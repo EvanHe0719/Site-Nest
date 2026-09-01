@@ -217,6 +217,51 @@ class OpenAICompatibleTranslationProvider {
     }
   }
 
+  async completeCompanion(task, input = {}, options = {}) {
+    const endpoint = endpointForBaseUrl(options.baseUrl);
+    const apiKey = String(options.apiKey || "").trim();
+    const model = String(options.model || "").trim();
+    if (!apiKey || !model) throw new TranslationProviderError("NOT_CONFIGURED", "DeepSeek 尚未配置 API Key 或模型");
+    const systemPrompts = {
+      ask: "You are Xiaoxu, a concise desktop companion. Answer in Simplified Chinese in one or two short paragraphs. Be factual, state uncertainty, do not give medical diagnoses, and do not claim live web access.",
+      summarize: "Summarize only the supplied visible webpage text in Simplified Chinese. Use a short overview followed by at most five bullets. Do not infer missing facts and never claim to have browsed beyond the supplied text.",
+      reminder: "Rewrite the supplied confirmed reminder fact into one calm Simplified Chinese sentence. Do not add facts, diagnosis, urgency, weather claims, or medical advice.",
+    };
+    if (!systemPrompts[task]) throw new TranslationProviderError("INVALID_CONFIG", "不支持的小序 AI 任务");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(new Error("timeout")), options.timeoutMs || DEFAULT_TIMEOUT_MS);
+    const abortFromParent = () => controller.abort(options.signal?.reason);
+    options.signal?.addEventListener("abort", abortFromParent, { once: true });
+    try {
+      const response = await this.fetchFn(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          temperature: task === "summarize" ? 0.1 : 0.3,
+          max_tokens: task === "summarize" ? 1200 : 700,
+          messages: [
+            { role: "system", content: systemPrompts[task] },
+            { role: "user", content: JSON.stringify({ task, ...input }) },
+          ],
+        }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const code = response.status === 401 || response.status === 403 ? "AUTH_REQUIRED" : response.status === 429 ? "RATE_LIMITED" : "API_ERROR";
+        throw new TranslationProviderError(code, `DeepSeek 请求失败（HTTP ${response.status}）`);
+      }
+      return { answer: responseText(await response.json()) };
+    } catch (error) {
+      if (error instanceof TranslationProviderError) throw error;
+      if (controller.signal.aborted) throw new TranslationProviderError(options.signal?.aborted ? "CANCELLED" : "REQUEST_TIMEOUT", options.signal?.aborted ? "小序请求已取消" : "DeepSeek 请求超时");
+      throw new TranslationProviderError("NETWORK_ERROR", "无法连接 DeepSeek", { cause: error });
+    } finally {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", abortFromParent);
+    }
+  }
+
   async testConnection(options = {}) {
     const result = await this.translateSegments([{ segmentId: "test", text: "Hello" }], options);
     return { ok: result.length === 1, detectedLanguage: result[0]?.detectedLanguage || "unknown" };

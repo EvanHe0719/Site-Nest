@@ -233,6 +233,21 @@ class TranslationService {
     return { ...normalized, providerName: status.providerName };
   }
 
+  async queryCompanion(task, input = {}, options = {}) {
+    const status = await this.status();
+    const provider = this.registry.get(status.providerId);
+    if (!provider || typeof provider.completeCompanion !== "function") {
+      const error = Object.assign(new Error("当前 DeepSeek Provider 不支持小序问答"), { code: "NOT_CONFIGURED" });
+      throw error;
+    }
+    const payload = JSON.parse(JSON.stringify(input || {}));
+    const result = await provider.completeCompanion(task, payload, {
+      ...(await this.providerOptions(options.signal)),
+      signal: options.signal,
+    });
+    return { answer: String(result?.answer || "").trim(), providerName: status.providerName };
+  }
+
   clearMemoryCache() {
     this.cache.clear();
     this.insightCache.clear();

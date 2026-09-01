@@ -626,6 +626,8 @@ let companionPanelOpen = false;
 let activeRightPanel = null;
 let companionRuntime = { state: "silentHidden", reminder: null, quietReason: null };
 let companionWeather = { configured: false, status: "not-configured", snapshot: null, error: null };
+let companionAIRequestId = null;
+let companionAIResult = "";
 let pageActionRequestId = 0;
 let pageActionRefreshTimer = 0;
 let translationStatusCache = null;
@@ -8367,6 +8369,98 @@ async function refreshCompanionWeather() {
   if (result?.ok === false) showToast("天气刷新失败", result.error?.message || "请稍后重试", "error");
 }
 
+function companionAIRequestIdForNow() {
+  return `companion-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function renderCompanionAssistant(status = {}) {
+  dom.companionContent.replaceChildren();
+  const form = document.createElement("form");
+  form.className = "companion-ai-form";
+  const input = document.createElement("textarea");
+  input.rows = 3;
+  input.maxLength = 4_000;
+  input.placeholder = status.configured === false ? "请先在翻译设置中配置 DeepSeek" : "问一个简短的问题…";
+  input.disabled = status.configured === false;
+  input.setAttribute("aria-label", "询问小序");
+  const actions = document.createElement("div");
+  actions.className = "companion-ai-actions";
+  const ask = document.createElement("button");
+  ask.type = "submit";
+  ask.className = "primary-button compact-button";
+  ask.textContent = "询问";
+  ask.disabled = status.configured === false;
+  const summary = document.createElement("button");
+  summary.type = "button";
+  summary.className = "secondary-button compact-button";
+  summary.textContent = "总结本页";
+  summary.disabled = status.configured === false;
+  const explain = document.createElement("button");
+  explain.type = "button";
+  explain.className = "secondary-button compact-button";
+  explain.textContent = "解释选中文字";
+  explain.disabled = status.configured === false;
+  actions.append(ask, summary, explain);
+  const result = document.createElement("div");
+  result.className = "companion-ai-result";
+  result.textContent = companionAIResult || (status.configured === false ? "DeepSeek 未配置；天气、专注和本地健康提醒仍可正常使用。" : "问答内容只保留在当前面板内，关闭或清除后不写入本地数据。 ");
+  const resultActions = document.createElement("div");
+  resultActions.className = "companion-ai-result-actions";
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "text-button";
+  copy.textContent = "复制";
+  copy.disabled = !companionAIResult;
+  copy.addEventListener("click", () => void navigator.clipboard.writeText(companionAIResult));
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.className = "text-button";
+  clear.textContent = "清除";
+  clear.addEventListener("click", () => { companionAIResult = ""; result.textContent = "内容已清除，未写入本地数据。"; copy.disabled = true; });
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "text-button";
+  cancel.textContent = "取消请求";
+  cancel.hidden = true;
+  cancel.addEventListener("click", () => { if (companionAIRequestId) void window.siteNest?.cancelCompanionAI?.(companionAIRequestId); });
+  resultActions.append(copy, clear, cancel);
+  const run = async (operation) => {
+    companionAIRequestId = companionAIRequestIdForNow();
+    ask.disabled = true;
+    summary.disabled = true;
+    explain.disabled = true;
+    cancel.hidden = false;
+    result.textContent = "小序正在处理…";
+    let response;
+    if (operation === "ask") response = await window.siteNest?.askCompanion?.(companionAIRequestId, input.value);
+    if (operation === "summary") response = await window.siteNest?.summarizeCompanionPage?.(companionAIRequestId);
+    if (operation === "explain") response = await window.siteNest?.explainCompanionSelection?.();
+    companionAIRequestId = null;
+    cancel.hidden = true;
+    ask.disabled = status.configured === false;
+    summary.disabled = status.configured === false;
+    explain.disabled = status.configured === false;
+    if (response?.ok) {
+      companionAIResult = response.value?.answer || (operation === "explain" ? "解释已显示在网页选区旁。" : "已完成");
+      result.textContent = companionAIResult;
+      copy.disabled = !companionAIResult;
+    } else {
+      result.textContent = response?.error?.message || "请求未完成";
+      showToast("小序请求未完成", response?.error?.message || "请稍后重试", "error");
+    }
+  };
+  form.addEventListener("submit", (event) => { event.preventDefault(); void run("ask"); });
+  summary.addEventListener("click", () => void run("summary"));
+  explain.addEventListener("click", () => void run("explain"));
+  form.append(input, actions);
+  dom.companionContent.append(form, result, resultActions);
+}
+
+async function loadCompanionAssistant() {
+  const status = await window.siteNest?.getCompanionAIStatus?.();
+  renderCompanionAssistant(status || { configured: false });
+}
+
 function setCompanionPanelOpen(open, panel = "home") {
   const canOpen = Boolean(open && companionEnabled() && browserSnapshot.hasOpenPage && dom.browserPage.classList.contains("is-visible"));
   if (canOpen && pageActionPanelOpen) setPageActionPanelOpen(false);
@@ -8377,6 +8471,10 @@ function setCompanionPanelOpen(open, panel = "home") {
   dom.companionDock.setAttribute("aria-expanded", String(canOpen));
   dom.browserContent.classList.toggle("is-companion-panel-open", canOpen);
   dom.companionContent.dataset.panel = panel;
+  if (!canOpen && companionAIRequestId) {
+    void window.siteNest?.cancelCompanionAI?.(companionAIRequestId);
+    companionAIRequestId = null;
+  }
   if (canOpen) dom.closeCompanionPanel.focus({ preventScroll: true });
   requestAnimationFrame(() => requestAnimationFrame(syncBrowserBounds));
 }
@@ -8529,7 +8627,10 @@ function bindEvents() {
     setCompanionPanelOpen(true, "weather");
     void loadCompanionWeather();
   });
-  dom.companionAssistantButton.addEventListener("click", () => setCompanionPanelOpen(true, "assistant"));
+  dom.companionAssistantButton.addEventListener("click", () => {
+    setCompanionPanelOpen(true, "assistant");
+    void loadCompanionAssistant();
+  });
   dom.companionPauseButton.addEventListener("click", async () => {
     const snapshot = await window.siteNest?.companionAction?.("pause", { minutes: 60 });
     renderCompanionRuntime(snapshot);

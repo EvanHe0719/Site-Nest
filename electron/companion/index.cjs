@@ -5,5 +5,8 @@ const wellness = require("./wellness-engine.cjs");
 const runtime = require("./runtime-service.cjs");
 const weatherProvider = require("./open-meteo-provider.cjs");
 const weather = require("./weather-service.cjs");
+const contentGuard = require("./content-guard.cjs");
+const pageSummary = require("./page-summary-extractor.cjs");
+const ai = require("./ai-service.cjs");
 
-module.exports = { ...stateMachine, ...rightPanel, ...quietPolicy, ...wellness, ...runtime, ...weatherProvider, ...weather };
+module.exports = { ...stateMachine, ...rightPanel, ...quietPolicy, ...wellness, ...runtime, ...weatherProvider, ...weather, ...contentGuard, ...pageSummary, ...ai };

@@ -6200,6 +6200,12 @@ svg {
 .companion-weather-metrics small { color: #87928d; }
 .companion-weather-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 9px; color: #7b8882; }
 .companion-weather-footer small { min-width: 0; }
+.companion-ai-form { display: grid; gap: 9px; }
+.companion-ai-form textarea { width: 100%; resize: vertical; border: 1px solid #d4e0da; border-radius: 12px; padding: 10px 11px; color: #28463d; background: #fff; font: inherit; }
+.companion-ai-form textarea:focus { outline: 3px solid rgba(38,125,103,.14); border-color: #7cb19f; }
+.companion-ai-actions, .companion-ai-result-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.companion-ai-result { min-height: 96px; margin-top: 11px; padding: 13px; overflow-wrap: anywhere; white-space: pre-wrap; border-left: 3px solid #5a9a84; border-radius: 10px; color: #344f46; background: #edf5f1; line-height: 1.65; }
+.companion-ai-result-actions { justify-content: flex-end; margin-top: 6px; }
 @media (max-width: 1080px) { .browser-content.is-companion-enabled.is-companion-panel-open { grid-template-columns: minmax(0, 1fr) 320px 44px; } .companion-panel { min-width: 320px; } }
 @media (prefers-reduced-motion: reduce) { .companion-orb { animation: none !important; transition: none !important; } }
 
