@@ -202,7 +202,7 @@ const {
   createUIActionRegistry,
 } = require("./ui-actions/index.cjs");
 const { ShortcutDispatcher, ShortcutRegistry, electronInputAccelerator } = require("./shortcuts/index.cjs");
-const { CompanionRuntimeService } = require("./companion/index.cjs");
+const { CompanionRuntimeService, WeatherService } = require("./companion/index.cjs");
 
 const APP_ID = "local.qiye.sitehub";
 const SITE_PARTITION = "persist:qiye-sites";
@@ -336,6 +336,7 @@ let connectorSecretStore;
 let translationProviderRegistry;
 let translationService;
 let companionRuntimeService;
+let weatherService;
 let companionSystemLocked = false;
 let companionSystemSleeping = false;
 let selectionActionService;
@@ -5252,12 +5253,35 @@ async function initializeCompanionRuntime() {
   powerMonitor.on("suspend", () => {
     companionSystemSleeping = true;
     companionRuntimeService?.tick();
+    weatherService?.setSleeping(true);
   });
   powerMonitor.on("resume", () => {
     companionSystemSleeping = false;
     companionRuntimeService?.tick();
+    weatherService?.setSleeping(false);
   });
   return companionRuntimeService;
+}
+
+function emitWeatherStatus(status = weatherService?.status()) {
+  if (status && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("companion:weather", status);
+  return status;
+}
+
+async function initializeWeatherService() {
+  if (weatherService) return weatherService;
+  const state = await getState();
+  weatherService = new WeatherService({
+    fetchFn: (...args) => net.fetch(...args),
+    settings: state.uiSettings?.companion?.weather,
+    onUpdate: emitWeatherStatus,
+    onAlert: (event) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      mainWindow.webContents.send("companion:weather-alert", event);
+    },
+  });
+  weatherService.schedule();
+  return weatherService;
 }
 
 async function clearUsageTracking() {
@@ -5974,6 +5998,17 @@ function registerIpc() {
     return service.action(String(payload?.action || ""), payload || {});
   });
   ipcMain.on("companion:meaningful-action", () => companionRuntimeService?.recordMeaningfulAction());
+  ipcMain.handle("companion:get-weather", async () => (await initializeWeatherService()).status());
+  ipcMain.handle("companion:refresh-weather", async () => {
+    const service = await initializeWeatherService();
+    try {
+      const result = await service.refresh({ force: true });
+      return { ok: true, ...result, status: service.status() };
+    } catch (error) {
+      return { ok: false, error: { code: String(error?.code || "WEATHER_ERROR"), message: String(error?.message || "无法刷新天气").slice(0, 300) }, status: service.status() };
+    }
+  });
+  ipcMain.handle("companion:cancel-weather", async () => { weatherService?.cancel(); return { ok: true }; });
   ipcMain.handle("state:get", async () => {
     const state = await getState();
     return {
@@ -8193,6 +8228,9 @@ if (!hasSingleInstanceLock) {
     });
     void initializeCompanionRuntime().catch((error) => {
       console.error("Unable to initialize companion runtime:", error?.message || error);
+    });
+    void initializeWeatherService().catch((error) => {
+      console.error("Unable to initialize weather service:", error?.message || error);
     });
     void scheduleNaixiAutomation().catch((error) => {
       console.error("Unable to schedule automation:", error?.message || error);

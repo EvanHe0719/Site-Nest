@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld("siteNest", {
   getCompanionRuntime: () => ipcRenderer.invoke("companion:get-runtime"),
   companionAction: (action, input = {}) => ipcRenderer.invoke("companion:action", { action, ...input }),
   recordCompanionMeaningfulAction: () => ipcRenderer.send("companion:meaningful-action"),
+  getCompanionWeather: () => ipcRenderer.invoke("companion:get-weather"),
+  refreshCompanionWeather: () => ipcRenderer.invoke("companion:refresh-weather"),
+  cancelCompanionWeather: () => ipcRenderer.invoke("companion:cancel-weather"),
   setActiveWorkspace: (workspaceId) =>
     ipcRenderer.invoke("workspace:set-active", workspaceId),
   updateUiSettings: (patch) => ipcRenderer.invoke("settings:update-ui", patch),
@@ -307,6 +310,16 @@ contextBridge.exposeInMainWorld("siteNest", {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on("companion:runtime", listener);
     return () => ipcRenderer.removeListener("companion:runtime", listener);
+  },
+  onCompanionWeather: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("companion:weather", listener);
+    return () => ipcRenderer.removeListener("companion:weather", listener);
+  },
+  onCompanionWeatherAlert: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("companion:weather-alert", listener);
+    return () => ipcRenderer.removeListener("companion:weather-alert", listener);
   },
   onAutomationStatus: (callback) => {
     const listener = (_event, value) => callback(value);

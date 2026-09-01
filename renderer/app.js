@@ -625,6 +625,7 @@ let pageActionPanelOpen = false;
 let companionPanelOpen = false;
 let activeRightPanel = null;
 let companionRuntime = { state: "silentHidden", reminder: null, quietReason: null };
+let companionWeather = { configured: false, status: "not-configured", snapshot: null, error: null };
 let pageActionRequestId = 0;
 let pageActionRefreshTimer = 0;
 let translationStatusCache = null;
@@ -8281,6 +8282,91 @@ function renderCompanionRuntime(snapshot = companionRuntime) {
   else dom.companionGreeting.textContent = "我会安静地陪在这里。";
 }
 
+function weatherValue(value, suffix = "") {
+  return Number.isFinite(Number(value)) ? `${Math.round(Number(value))}${suffix}` : "—";
+}
+
+function renderCompanionWeather(status = companionWeather) {
+  companionWeather = { ...companionWeather, ...(status || {}) };
+  if (dom.companionContent.dataset.panel !== "weather") return;
+  dom.companionContent.replaceChildren();
+  if (!companionWeather.configured) {
+    const empty = document.createElement("div");
+    empty.className = "companion-empty";
+    const title = document.createElement("strong");
+    title.textContent = "天气尚未配置";
+    const detail = document.createElement("small");
+    detail.textContent = "在“设置与数据 → 计划与通知”中开启天气并填写城市。";
+    empty.append(title, detail);
+    dom.companionContent.appendChild(empty);
+    return;
+  }
+  const snapshot = companionWeather.snapshot;
+  if (!snapshot) {
+    const empty = document.createElement("div");
+    empty.className = "companion-empty";
+    const title = document.createElement("strong");
+    title.textContent = companionWeather.status === "refreshing" ? "正在获取天气" : "尚无天气数据";
+    const refresh = document.createElement("button");
+    refresh.type = "button";
+    refresh.className = "secondary-button compact-button";
+    refresh.textContent = "手动刷新";
+    refresh.addEventListener("click", () => void refreshCompanionWeather());
+    empty.append(title, refresh);
+    dom.companionContent.appendChild(empty);
+    return;
+  }
+  const card = document.createElement("div");
+  card.className = "companion-weather-card";
+  const heading = document.createElement("div");
+  const city = document.createElement("strong");
+  city.textContent = snapshot.city || "当前城市";
+  const condition = document.createElement("small");
+  condition.textContent = `${snapshot.condition || "天气未知"}${snapshot.stale ? " · 数据可能已过期" : ""}`;
+  heading.append(city, condition);
+  const temperature = document.createElement("span");
+  temperature.className = "companion-weather-temperature";
+  temperature.textContent = weatherValue(snapshot.temperature, "℃");
+  card.append(heading, temperature);
+  const metrics = document.createElement("div");
+  metrics.className = "companion-weather-metrics";
+  const rain = Math.max(...(snapshot.nextHours || []).map((item) => Number(item.precipitationProbability) || 0), 0);
+  [["体感", weatherValue(snapshot.apparentTemperature, "℃")], ["高 / 低", `${weatherValue(snapshot.todayHigh, "°")} / ${weatherValue(snapshot.todayLow, "°")}`], ["两小时降雨", `${Math.round(rain)}%`], ["风速", weatherValue(snapshot.windSpeed, " km/h")]].forEach(([label, value]) => {
+    const row = document.createElement("div");
+    const key = document.createElement("small");
+    key.textContent = label;
+    const text = document.createElement("strong");
+    text.textContent = value;
+    row.append(key, text);
+    metrics.appendChild(row);
+  });
+  const footer = document.createElement("div");
+  footer.className = "companion-weather-footer";
+  const updated = document.createElement("small");
+  updated.textContent = `更新：${snapshot.fetchedAt ? new Date(snapshot.fetchedAt).toLocaleString("zh-CN", { hour12: false }) : "未知"} · Open-Meteo`;
+  const refresh = document.createElement("button");
+  refresh.type = "button";
+  refresh.className = "text-button";
+  refresh.textContent = companionWeather.status === "refreshing" ? "刷新中…" : "刷新";
+  refresh.disabled = companionWeather.status === "refreshing";
+  refresh.addEventListener("click", () => void refreshCompanionWeather());
+  footer.append(updated, refresh);
+  dom.companionContent.append(card, metrics, footer);
+}
+
+async function loadCompanionWeather() {
+  const status = await window.siteNest?.getCompanionWeather?.();
+  renderCompanionWeather(status);
+}
+
+async function refreshCompanionWeather() {
+  companionWeather.status = "refreshing";
+  renderCompanionWeather(companionWeather);
+  const result = await window.siteNest?.refreshCompanionWeather?.();
+  renderCompanionWeather(result?.status || companionWeather);
+  if (result?.ok === false) showToast("天气刷新失败", result.error?.message || "请稍后重试", "error");
+}
+
 function setCompanionPanelOpen(open, panel = "home") {
   const canOpen = Boolean(open && companionEnabled() && browserSnapshot.hasOpenPage && dom.browserPage.classList.contains("is-visible"));
   if (canOpen && pageActionPanelOpen) setPageActionPanelOpen(false);
@@ -8439,7 +8525,10 @@ function bindEvents() {
     setCompanionPanelOpen(false);
     dom.companionDock.focus({ preventScroll: true });
   });
-  dom.companionWeatherButton.addEventListener("click", () => setCompanionPanelOpen(true, "weather"));
+  dom.companionWeatherButton.addEventListener("click", () => {
+    setCompanionPanelOpen(true, "weather");
+    void loadCompanionWeather();
+  });
   dom.companionAssistantButton.addEventListener("click", () => setCompanionPanelOpen(true, "assistant"));
   dom.companionPauseButton.addEventListener("click", async () => {
     const snapshot = await window.siteNest?.companionAction?.("pause", { minutes: 60 });
@@ -9771,6 +9860,12 @@ function bindEvents() {
   new ResizeObserver(syncBrowserBounds).observe(dom.webviewFrame);
   window.siteNest?.onBrowserState(handleBrowserState);
   window.siteNest?.onCompanionRuntime?.(renderCompanionRuntime);
+  window.siteNest?.onCompanionWeather?.(renderCompanionWeather);
+  window.siteNest?.onCompanionWeatherAlert?.((event) => {
+    dom.companionBubble.textContent = event?.message || "天气发生变化";
+    dom.companionBubble.hidden = !companionEnabled();
+    showToast("天气提醒", event?.message || "天气发生变化");
+  });
   window.siteNest?.onDataStatusUpdated?.((snapshot) => {
     mergeGoogleSyncState(snapshot);
     renderGoogleSync();
