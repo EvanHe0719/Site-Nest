@@ -32,7 +32,7 @@ class WebContextMenuService {
     const linkUrl = safeWebUrl(params.linkURL);
     const resourceUrl = safeWebUrl(params.srcURL);
     const mediaType = String(params.mediaType || "none");
-    const isMedia = Boolean(resourceUrl && ["image", "audio", "video"].includes(mediaType));
+    const isMedia = ["image", "audio", "video"].includes(mediaType);
     const isPassword = String(params.inputFieldType || "").toLowerCase() === "password";
     const hasSelection = Boolean(String(params.selectionText || "").trim()) && !isPassword;
 
@@ -137,11 +137,36 @@ class WebContextMenuService {
 
     if (isMedia) {
       return compactSeparators([
-        { label: "复制资源地址", click: () => this.clipboard.writeText(resourceUrl) },
-        { label: "在新页签打开", click: () => this.actions.openTab?.(resourceUrl, { source: "media", context }) },
-        { label: "在外部浏览器打开", click: () => this.actions.openExternal?.(resourceUrl) },
+        mediaType === "video"
+          ? {
+              label: params.mediaFlags?.isShowingPictureInPicture ? "退出画中画" : "开启画中画",
+              enabled: params.mediaFlags?.canShowPictureInPicture !== false
+                || params.mediaFlags?.isShowingPictureInPicture === true,
+              click: () => this.actions.togglePictureInPicture?.({
+                webContents,
+                context,
+                x: params.x,
+                y: params.y,
+              }),
+            }
+          : null,
+        mediaType === "video"
+          ? {
+              label: "视频全屏",
+              click: () => this.actions.toggleVideoFullscreen?.({
+                webContents,
+                context,
+                x: params.x,
+                y: params.y,
+              }),
+            }
+          : null,
+        mediaType === "video" ? { type: "separator" } : null,
+        { label: "复制资源地址", enabled: Boolean(resourceUrl), click: () => this.clipboard.writeText(resourceUrl) },
+        { label: "在新页签打开", enabled: Boolean(resourceUrl), click: () => this.actions.openTab?.(resourceUrl, { source: "media", context }) },
+        { label: "在外部浏览器打开", enabled: Boolean(resourceUrl), click: () => this.actions.openExternal?.(resourceUrl) },
         { type: "separator" },
-        { label: "检测可下载资源", click: () => this.actions.inspectResource?.({ url: resourceUrl, mediaType, context }) },
+        { label: "检测可下载资源", enabled: Boolean(resourceUrl), click: () => this.actions.inspectResource?.({ url: resourceUrl, mediaType, context }) },
       ]);
     }
 

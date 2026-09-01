@@ -2430,7 +2430,6 @@ svg {
   height: 100%;
   padding: 3px 6px;
   background: transparent;
-  -webkit-app-region: no-drag;
 }
 
 .app-shell.is-browser-active .titlebar .browser-tabbar {
@@ -2442,13 +2441,23 @@ svg {
   align-items: center;
   gap: 4px;
   min-width: 0;
-  flex: 1;
+  width: max-content;
+  max-width: calc(100% - 72px);
+  flex: 0 1 auto;
   overflow: auto hidden;
   scrollbar-width: none;
+  -webkit-app-region: no-drag;
 }
 
 .browser-tab-list::-webkit-scrollbar {
   display: none;
+}
+
+.browser-window-drag-region {
+  align-self: stretch;
+  flex: 1 1 72px;
+  min-width: 34px;
+  -webkit-app-region: drag;
 }
 
 .browser-tabbar-tool {
@@ -2463,6 +2472,7 @@ svg {
   background: rgba(255, 255, 255, 0.68);
   color: #64736d;
   cursor: pointer;
+  -webkit-app-region: no-drag;
 }
 
 .browser-tabbar-tool:hover { background: #fff; color: var(--accent); }

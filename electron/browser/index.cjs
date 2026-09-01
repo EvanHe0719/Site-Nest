@@ -14,6 +14,11 @@ const {
 const { ManagedPopupService } = require("./managed-popup-service.cjs");
 const { resolveNavigationTarget, securityStateForUrl } = require("./navigation-target.cjs");
 const { WebContextMenuService } = require("./web-context-menu-service.cjs");
+const {
+  BrowserMediaCapabilityService,
+  isSafeEmbeddedMediaPermission,
+  selectedVideoActionScript,
+} = require("./media-capability-service.cjs");
 const { WindowOpenPolicyService, isAuthenticationUrl, normalizeSitePopupPolicies } = require("./window-open-policy-service.cjs");
 const { standardChromiumUserAgent } = require("./browser-user-agent.cjs");
 const { NavigationPerformanceTracer } = require("./navigation-performance-tracer.cjs");
@@ -50,6 +55,9 @@ module.exports = {
   normalizeBrowserMemorySettings,
   ManagedPopupService,
   WebContextMenuService,
+  BrowserMediaCapabilityService,
+  isSafeEmbeddedMediaPermission,
+  selectedVideoActionScript,
   WindowOpenPolicyService,
   isAuthenticationUrl,
   normalizeSitePopupPolicies,

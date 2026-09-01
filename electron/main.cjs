@@ -73,7 +73,9 @@ const {
   SessionRuntimeState,
   WebViewLifecycleManager,
   WebContextMenuService,
+  BrowserMediaCapabilityService,
   WindowOpenPolicyService,
+  isSafeEmbeddedMediaPermission,
   standardChromiumUserAgent,
   securityStateForUrl,
   normalizeBrowserMemorySettings,
@@ -324,6 +326,7 @@ let externalProtocolService;
 let downloadManager;
 let managedPopupService;
 let webContextMenuService;
+let browserMediaCapabilityService;
 let windowOpenPolicyService;
 let connectorSecretStore;
 let translationProviderRegistry;
@@ -1184,12 +1187,13 @@ async function inspectCurrentPageResources(seed = []) {
 }
 
 function getBrowserServices() {
-  if (managedPopupService && webContextMenuService && downloadManager) {
+  if (managedPopupService && webContextMenuService && browserMediaCapabilityService && downloadManager) {
     return {
       downloads: downloadManager,
       externalProtocol: externalProtocolService,
       managedPopups: managedPopupService,
       contextMenus: webContextMenuService,
+      media: browserMediaCapabilityService,
       windowPolicy: windowOpenPolicyService,
     };
   }
@@ -1265,6 +1269,10 @@ function getBrowserServices() {
       browserAction: (action, context) => browserActionForContext(context, action),
       translateSelection: (input) => getTranslationServices().selection.translate(input),
       querySelection: (input) => getTranslationServices().selection.query(input),
+      togglePictureInPicture: ({ webContents, x, y }) =>
+        browserMediaCapabilityService.togglePictureInPicture(webContents, { x, y }),
+      toggleVideoFullscreen: ({ webContents, x, y }) =>
+        browserMediaCapabilityService.toggleVideoFullscreen(webContents, { x, y }),
       translatePage: ({ context }) => showTranslationPageMenu(context),
       addCurrentPage: ({ context }) => void addCurrentPageToSites(context),
       openPageActions: () => mainWindow?.webContents.send("assistants:open-panel"),
@@ -1275,11 +1283,15 @@ function getBrowserServices() {
       }]).catch((error) => emitBrowserNotice(error?.message || "资源扫描失败", "error")),
     },
   });
+  browserMediaCapabilityService = new BrowserMediaCapabilityService({
+    onNotice: emitBrowserNotice,
+  });
   return {
     downloads: downloadManager,
     externalProtocol: externalProtocolService,
     managedPopups: managedPopupService,
     contextMenus: webContextMenuService,
+    media: browserMediaCapabilityService,
     windowPolicy: windowOpenPolicyService,
   };
 }
@@ -2217,7 +2229,50 @@ function applySiteViewBounds(value, context = activeBrowserContext()) {
     context.detached ||
     context.viewOwner === "detached"
   ) return;
+  if (context.htmlFullscreenActive) {
+    const ownerBounds = mainWindow.getContentBounds();
+    context.view.setBounds({
+      x: 0,
+      y: 0,
+      width: Math.max(120, ownerBounds.width),
+      height: Math.max(120, ownerBounds.height),
+    });
+    return;
+  }
   context.view.setBounds(siteViewBounds);
+}
+
+function enterHtmlFullscreen(context) {
+  if (!context?.view || context.view.webContents.isDestroyed()) return;
+  const owner = browserOwnerWindow(context);
+  if (!owner || owner.isDestroyed()) return;
+  context.htmlFullscreenActive = true;
+  context.htmlFullscreenOwner = owner;
+  context.htmlFullscreenForcedOwner = !owner.isFullScreen();
+  if (context.htmlFullscreenForcedOwner) owner.setFullScreen(true);
+  if (context.viewOwner === "detached") applyDetachedViewBounds(context);
+  else applySiteViewBounds(siteViewBounds, context);
+  const timer = setTimeout(() => {
+    if (!context.htmlFullscreenActive || context.htmlFullscreenOwner !== owner) return;
+    if (context.viewOwner === "detached") applyDetachedViewBounds(context);
+    else applySiteViewBounds(siteViewBounds, context);
+  }, 80);
+  timer.unref?.();
+}
+
+function leaveHtmlFullscreen(context) {
+  if (!context?.htmlFullscreenActive && !context?.htmlFullscreenOwner) return;
+  const owner = context.htmlFullscreenOwner;
+  const forcedOwner = context.htmlFullscreenForcedOwner === true;
+  context.htmlFullscreenActive = false;
+  context.htmlFullscreenForcedOwner = false;
+  context.htmlFullscreenOwner = null;
+  if (forcedOwner && owner && !owner.isDestroyed() && owner.isFullScreen()) {
+    owner.setFullScreen(false);
+  }
+  if (!context.view || context.view.webContents.isDestroyed()) return;
+  if (context.viewOwner === "detached") applyDetachedViewBounds(context);
+  else if (context.viewOwner === "main") applySiteViewBounds(siteViewBounds, context);
 }
 
 function attachSiteView(context = activeBrowserContext()) {
@@ -2271,6 +2326,7 @@ function detachSiteView(context = activeBrowserContext()) {
   if (!context) return;
   context.attachRequested = false;
   if (!context.view || context.viewOwner !== "main") return;
+  leaveHtmlFullscreen(context);
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.contentView.removeChildView(context.view);
   }
@@ -2282,6 +2338,7 @@ function detachSiteView(context = activeBrowserContext()) {
 
 function detachSiteViewFromOwner(context) {
   if (!context?.view || context.viewOwner === "none") return;
+  leaveHtmlFullscreen(context);
   if (
     context.viewOwner === "main" &&
     mainWindow &&
@@ -2398,6 +2455,10 @@ function scheduleLifecycleEnforcement(reason = "pool-limit") {
   timer.unref?.();
 }
 
+function safeMediaPermissionUrl(...values) {
+  return values.find((value) => isSafeWebUrl(value)) || "";
+}
+
 function getBrowserSession(profileId = DEFAULT_BROWSER_PROFILE_ID) {
   if (browserSessions.has(profileId)) return browserSessions.get(profileId);
   const targetSession = session.fromPartition(
@@ -2405,9 +2466,27 @@ function getBrowserSession(profileId = DEFAULT_BROWSER_PROFILE_ID) {
     { cache: true },
   );
   targetSession.setPermissionRequestHandler(
-    (_contents, _permission, callback) => callback(false),
+    (contents, permission, callback, details = {}) => callback(
+      isSafeEmbeddedMediaPermission(
+        permission,
+        safeMediaPermissionUrl(
+          details.requestingUrl,
+          details.embeddingOrigin,
+          contents?.getURL?.(),
+        ),
+      ),
+    ),
   );
-  targetSession.setPermissionCheckHandler(() => false);
+  targetSession.setPermissionCheckHandler((contents, permission, requestingOrigin, details = {}) =>
+    isSafeEmbeddedMediaPermission(
+      permission,
+      safeMediaPermissionUrl(
+        requestingOrigin,
+        details.requestingUrl,
+        details.embeddingOrigin,
+        contents?.getURL?.(),
+      ),
+    ));
   targetSession.setUserAgent(standardChromiumUserAgent(targetSession.getUserAgent()));
   getBrowserServices().downloads.attach(targetSession);
   targetSession.readyPromise = targetSession
@@ -2744,6 +2823,8 @@ function ensureSiteView(context = activeBrowserContext()) {
   view.webContents.on("media-started-playing", emitAudioState);
   view.webContents.on("media-paused", emitAudioState);
   view.webContents.on("audio-state-changed", emitAudioState);
+  view.webContents.on("enter-html-full-screen", () => enterHtmlFullscreen(context));
+  view.webContents.on("leave-html-full-screen", () => leaveHtmlFullscreen(context));
   view.webContents.on("dom-ready", () => {
     if (context.navigationTraceId) {
       navigationPerformanceTracer.mark(context.navigationTraceId, "domReadyAt");
@@ -4184,6 +4265,15 @@ function applyDetachedViewBounds(tab) {
   const win = tab?.detachedWindow;
   if (!tab?.view || !win || win.isDestroyed()) return;
   const bounds = win.getContentBounds();
+  if (tab.htmlFullscreenActive) {
+    tab.view.setBounds({
+      x: 0,
+      y: 0,
+      width: Math.max(120, bounds.width),
+      height: Math.max(120, bounds.height),
+    });
+    return;
+  }
   tab.view.setBounds({
     x: 0,
     y: DETACHED_HEADER_HEIGHT,

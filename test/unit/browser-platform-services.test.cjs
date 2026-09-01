@@ -29,6 +29,11 @@ const {
   WebContextMenuService,
 } = require("../../electron/browser/web-context-menu-service.cjs");
 const {
+  BrowserMediaCapabilityService,
+  isSafeEmbeddedMediaPermission,
+  selectedVideoActionScript,
+} = require("../../electron/browser/media-capability-service.cjs");
+const {
   sanitizeDownloadFilename,
 } = require("../../electron/browser/download-manager.cjs");
 const {
@@ -233,7 +238,13 @@ test("link, media and ordinary page menus expose only fixed allowlisted commands
   assert.deepEqual(menuLabels(service.buildTemplate(webContents, {
     srcURL: "https://example.com/video.mp4",
     mediaType: "video",
-  })), ["复制资源地址", "在新页签打开", "在外部浏览器打开", "检测可下载资源"]);
+    mediaFlags: { canShowPictureInPicture: true },
+  })), ["开启画中画", "视频全屏", "复制资源地址", "在新页签打开", "在外部浏览器打开", "检测可下载资源"]);
+  assert.deepEqual(menuLabels(service.buildTemplate(webContents, {
+    srcURL: "blob:https://example.com/opaque-video",
+    mediaType: "video",
+    mediaFlags: { canShowPictureInPicture: true },
+  })).slice(0, 2), ["开启画中画", "视频全屏"]);
   assert.deepEqual(menuLabels(service.buildTemplate(webContents, {})), [
     "后退",
     "前进",
@@ -243,6 +254,38 @@ test("link, media and ordinary page menus expose only fixed allowlisted commands
     "添加到我的站点",
     "当前页面动作",
   ]);
+});
+
+test("embedded sessions allow only safe web media presentation permissions", () => {
+  assert.equal(isSafeEmbeddedMediaPermission("fullscreen", "https://www.bilibili.com/video/1"), true);
+  assert.equal(isSafeEmbeddedMediaPermission("picture-in-picture", "https://example.com/video"), true);
+  assert.equal(isSafeEmbeddedMediaPermission("automatic-fullscreen", "https://example.com/video"), false);
+  assert.equal(isSafeEmbeddedMediaPermission("media", "https://example.com/video"), false);
+  assert.equal(isSafeEmbeddedMediaPermission("fullscreen", "file:///C:/video.html"), false);
+  assert.equal(isSafeEmbeddedMediaPermission("fullscreen", "javascript:alert(1)"), false);
+});
+
+test("media fallback runs a fixed local action with a user gesture", async () => {
+  const calls = [];
+  const service = new BrowserMediaCapabilityService();
+  const webContents = {
+    isDestroyed: () => false,
+    executeJavaScript: async (script, userGesture) => {
+      calls.push({ script, userGesture });
+      return { ok: true, active: true };
+    },
+  };
+  const result = await service.togglePictureInPicture(webContents, { x: 48, y: 72 });
+  assert.deepEqual(result, { ok: true, active: true });
+  assert.equal(calls[0].userGesture, true);
+  assert.equal(calls[0].script, selectedVideoActionScript("picture-in-picture", { x: 48, y: 72 }));
+  assert.match(calls[0].script, /requestPictureInPicture/);
+  assert.doesNotMatch(calls[0].script, /fetch\(|XMLHttpRequest|document\.cookie|localStorage/);
+
+  const fullscreen = selectedVideoActionScript("fullscreen", { x: -5, y: Number.NaN });
+  assert.match(fullscreen, /requestFullscreen/);
+  assert.match(fullscreen, /const pointX = 0/);
+  assert.match(fullscreen, /const pointY = 0/);
 });
 
 test("external protocols auto-open only mail and phone while unknown schemes require confirmation", async () => {

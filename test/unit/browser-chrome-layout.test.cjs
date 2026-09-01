@@ -13,6 +13,7 @@ test("browser chrome is two fixed rows with the tab strip in the title row", () 
   const header = html.match(/<header class="titlebar"[\s\S]*?<\/header>/)?.[0] || "";
   const browserPage = html.match(/<section class="browser-page"[\s\S]*?<\/section>/)?.[0] || "";
   assert.match(header, /id="browserTabBar"/);
+  assert.match(header, /class="browser-window-drag-region"/);
   assert.match(header, /id="globalSearchTrigger"/);
   assert.match(header, /id="dataStatusButton"/);
   assert.doesNotMatch(browserPage, /id="browserTabBar"/);
@@ -21,6 +22,24 @@ test("browser chrome is two fixed rows with the tab strip in the title row", () 
   assert.match(css, /\.browser-page\s*\{[\s\S]*grid-template-rows:\s*var\(--navigation-row-height\) minmax\(0, 1fr\)/);
   assert.match(main, /MAIN_TITLE_TAB_ROW_HEIGHT\s*=\s*38/);
   assert.match(main, /titleBarOverlay:[\s\S]*height:\s*MAIN_TITLE_TAB_ROW_HEIGHT/);
+});
+
+test("browser title row keeps a native window drag handle outside interactive tabs", () => {
+  assert.match(css, /\.browser-window-drag-region\s*\{[\s\S]*?-webkit-app-region:\s*drag/);
+  assert.match(css, /\.browser-window-drag-region\s*\{[\s\S]*?flex:\s*1 1 72px/);
+  assert.match(css, /\.browser-tab-list\s*\{[\s\S]*?flex:\s*0 1 auto[\s\S]*?-webkit-app-region:\s*no-drag/);
+  assert.match(css, /\.browser-tabbar-tool\s*\{[\s\S]*?-webkit-app-region:\s*no-drag/);
+  const tabbarRule = css.match(/\.browser-tabbar\s*\{([\s\S]*?)\}/)?.[1] || "";
+  assert.doesNotMatch(tabbarRule, /-webkit-app-region:\s*no-drag/);
+});
+
+test("embedded media permissions and HTML fullscreen are handled by the browser owner", () => {
+  assert.match(main, /setPermissionRequestHandler\([\s\S]*?isSafeEmbeddedMediaPermission/);
+  assert.match(main, /setPermissionCheckHandler\([\s\S]*?isSafeEmbeddedMediaPermission/);
+  assert.match(main, /on\("enter-html-full-screen",\s*\(\) => enterHtmlFullscreen\(context\)\)/);
+  assert.match(main, /on\("leave-html-full-screen",\s*\(\) => leaveHtmlFullscreen\(context\)\)/);
+  assert.match(main, /function enterHtmlFullscreen[\s\S]*?owner\.setFullScreen\(true\)/);
+  assert.match(main, /function applyDetachedViewBounds[\s\S]*?tab\.htmlFullscreenActive/);
 });
 
 test("low frequency tab operations live in the native more menu", () => {
