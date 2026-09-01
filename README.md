@@ -39,7 +39,7 @@
 
 应用状态保存在 Electron 的 Windows `userData` 目录中的 `site-nest-data.json`。
 
-0.5.5 使用 schema v10；新增搜索偏好和本机搜索历史，不删除书签、站点、固定数据，也不清理浏览分区中的 Cookie。v2/v3/v4/v5/v6/v7/v8/v9 升级时：
+0.5.6 使用 schema v10；新增搜索偏好和本机搜索历史，不删除书签、站点、固定数据，也不清理浏览分区中的 Cookie。v2/v3/v4/v5/v6/v7/v8/v9 升级时：
 
 - 旧站点和固定项进入个人空间；原 ID、URL、书签、最近访问和奶昔状态保留。
 - 旧站点补齐 `workspaceId: personal`、`siteKind: normal`、`openMode: internal`、`browserProfileId: default` 和空助手绑定。

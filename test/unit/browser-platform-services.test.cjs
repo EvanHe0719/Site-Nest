@@ -21,6 +21,11 @@ const {
   zohoDeskAuthReturnUrl,
 } = require("../../electron/browser/zoho-auth-return.cjs");
 const {
+  isZohoDeskTicketListUrl,
+  refreshZohoDeskTicketList,
+  zohoDeskTicketListRefreshScript,
+} = require("../../electron/browser/zoho-desk-refresh.cjs");
+const {
   WebContextMenuService,
 } = require("../../electron/browser/web-context-menu-service.cjs");
 const {
@@ -126,6 +131,31 @@ test("Zoho relogin return targets reject non-Desk, insecure and lookalike hosts"
   assert.equal(zohoDeskAuthReturnUrl(wrap("https://desk.zoho.com.cn.evil.example/agent/tickets")), null);
   assert.equal(zohoDeskAuthReturnUrl(wrap("https://desk.zoho.com.cn/agent/tickets", "accounts.zoho.com.cn.evil.example")), null);
   assert.equal(isZohoDeskUrl("https://desk.zoho.com.cn.evil.example/agent/tickets"), false);
+});
+
+test("Zoho ticket list routes use the page's own refresh control", async () => {
+  const listUrl = "https://desk.zoho.com.cn/agent/customerportal/techsonic-1/tickets/list/my-open-cases";
+  assert.equal(isZohoDeskTicketListUrl(listUrl), true);
+  assert.equal(
+    isZohoDeskTicketListUrl("https://desk.zoho.com.cn/agent/customerportal/techsonic-1/tickets/details/10005638"),
+    false,
+  );
+  assert.equal(isZohoDeskTicketListUrl("https://desk.zoho.com.cn.evil.example/tickets/list/open"), false);
+
+  let executedScript = "";
+  const handled = await refreshZohoDeskTicketList({
+    executeJavaScript: async (script, userGesture) => {
+      executedScript = script;
+      assert.equal(userGesture, true);
+      return { handled: true };
+    },
+  });
+  assert.equal(handled, true);
+  assert.equal(executedScript, zohoDeskTicketListRefreshScript());
+  assert.match(executedScript, /aria-label/);
+  assert.match(executedScript, /title/);
+  assert.match(executedScript, /target\.click\(\)/);
+  assert.doesNotMatch(executedScript, /fetch\(|XMLHttpRequest|location\.(?:assign|reload)|document\.cookie/);
 });
 
 test("a policy that disallows POST blocks the form window instead of dropping its body", () => {

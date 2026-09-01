@@ -84,6 +84,8 @@ const {
   isAuthenticationUrl,
   durableBrowserUrl,
   isZohoDeskUrl,
+  isZohoDeskTicketListUrl,
+  refreshZohoDeskTicketList,
   zohoDeskAuthReturnUrl,
   sapRetryUrl,
   tabCloseDecision,
@@ -4068,10 +4070,17 @@ async function browserActionForContext(context, action, value) {
       {
         const currentUrl = contents.getURL();
         const returnUrl = zohoDeskAuthReturnUrl(currentUrl);
-        const zohoNavigationUrl = returnUrl || (isZohoDeskUrl(currentUrl) ? currentUrl : null);
-        if (zohoNavigationUrl) {
+        if (isZohoDeskTicketListUrl(currentUrl)) {
+          const handled = await refreshZohoDeskTicketList(contents);
+          if (!handled) {
+            compactBrowserState({
+              loading: false,
+              error: "未找到 Zoho 页面内刷新按钮，请稍后重试",
+            }, context);
+          }
+        } else if (returnUrl || isZohoDeskUrl(currentUrl)) {
           compactBrowserState({ loading: true, error: "" }, context);
-          await loadUrlAllowingRedirectAbort(contents, zohoNavigationUrl);
+          await loadUrlAllowingRedirectAbort(contents, returnUrl || currentUrl);
         } else {
           contents.reload();
         }

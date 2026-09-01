@@ -25,6 +25,11 @@ const {
   zohoDeskAuthReturnUrl,
 } = require("./zoho-auth-return.cjs");
 const {
+  isZohoDeskTicketListUrl,
+  refreshZohoDeskTicketList,
+  zohoDeskTicketListRefreshScript,
+} = require("./zoho-desk-refresh.cjs");
+const {
   clearSapAuthenticationState,
   hasSapLoginRejection,
   isSapSearchTarget,
@@ -55,6 +60,9 @@ module.exports = {
   durableBrowserUrl,
   isZohoDeskUrl,
   zohoDeskAuthReturnUrl,
+  isZohoDeskTicketListUrl,
+  refreshZohoDeskTicketList,
+  zohoDeskTicketListRefreshScript,
   resolveNavigationTarget,
   securityStateForUrl,
   clearSapAuthenticationState,
