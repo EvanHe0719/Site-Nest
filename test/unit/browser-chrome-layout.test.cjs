@@ -62,6 +62,9 @@ test("web view bounds updates are frame-coalesced and skip identical rectangles"
 });
 
 test("narrow chrome keeps tabs and collapses only the search trigger", () => {
+  assert.match(css, /\.titlebar-search-trigger\s*\{[\s\S]*?width:\s*96px[\s\S]*?border-radius:\s*999px/);
+  assert.doesNotMatch(html, /<kbd>Ctrl K<\/kbd>/);
+  assert.match(html, /id="globalSearchTrigger"[^>]*title="搜索（Ctrl\+K）"/);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.titlebar-search-trigger\s*\{[^}]*width:\s*30px/);
   assert.match(css, /\.browser-tab-list\s*\{[\s\S]*overflow:\s*auto hidden/);
   assert.match(css, /\.titlebar\s*\{[\s\S]*grid-template-columns:[^;]*minmax\(0, 1fr\)/);

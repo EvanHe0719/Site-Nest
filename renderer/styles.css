@@ -6231,30 +6231,25 @@ svg {
   -webkit-app-region: no-drag;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  width: clamp(260px, 24vw, 340px);
-  min-width: 0;
-  height: 31px;
-  padding: 0 9px 0 11px;
+  justify-content: center;
+  gap: 6px;
+  width: 96px;
+  min-width: 96px;
+  height: 30px;
+  padding: 0 13px;
   border: 1px solid #d9dedb;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.82);
-  color: #68756f;
+  border-radius: 999px;
+  background: rgba(247, 249, 248, 0.92);
+  color: #3f4b46;
   cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .titlebar-search-trigger:hover { border-color: #bed0c8; background: #fff; }
-.titlebar-search-trigger > [data-icon] { width: 14px; height: 14px; color: var(--accent); }
-.titlebar-search-trigger > span:nth-child(2) { flex: 1; text-align: left; }
-.titlebar-search-trigger kbd {
-  padding: 2px 5px;
-  border: 1px solid #dce2de;
-  border-radius: 5px;
-  background: #f4f6f4;
-  color: #8b9691;
-  font-size: 8px;
-  font-family: inherit;
-}
+.titlebar-search-trigger:focus-visible { outline: 2px solid rgba(30, 123, 94, .24); outline-offset: 2px; }
+.titlebar-search-trigger > [data-icon] { width: 13px; height: 13px; color: #34413c; }
+.titlebar-search-trigger > span:nth-child(2) { text-align: center; }
 .titlebar-data-status {
   -webkit-app-region: no-drag;
   display: inline-grid;
@@ -6470,9 +6465,6 @@ svg {
 .search-history-row button { border: 0; background: transparent; color: #9a7770; cursor: pointer; font-size: 8px; }
 
 @media (max-width: 980px) {
-  .titlebar-search-trigger { width: clamp(180px, 22vw, 240px); }
-  .titlebar-search-trigger > span:nth-child(2) { font-size: 0; }
-  .titlebar-search-trigger > span:nth-child(2)::after { content: "搜索"; font-size: 11px; }
   .settings-layout { grid-template-columns: 1fr; }
   .settings-navigation { display: none; }
   .settings-mobile-section { display: grid; gap: 6px; max-width: 1100px; margin: 0 auto 12px; color: #6d7873; font-size: 9px; }
@@ -6484,8 +6476,7 @@ svg {
   .titlebar { grid-template-columns: 40px minmax(0,1fr) auto; padding-left: 8px; }
   .brand-name, .brand-version { display: none; }
   .titlebar-search-trigger { width: 30px; min-width: 30px; justify-content: center; padding: 0; }
-  .titlebar-search-trigger > span:nth-child(2),
-  .titlebar-search-trigger kbd { display: none; }
+  .titlebar-search-trigger > span:nth-child(2) { display: none; }
   .global-search-header { grid-template-columns: 20px minmax(0,1fr) 32px; }
   .global-search-header select { grid-column: 1/-1; grid-row: 2; }
   .workspace-search-form--hero { width: calc(100% - 24px); }
