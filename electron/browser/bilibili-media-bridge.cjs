@@ -25,6 +25,50 @@ function largestVisibleVideo(documentObject, windowObject) {
     .sort((left, right) => right.area - left.area)[0]?.video || null;
 }
 
+function bilibiliMediaBridgeScript() {
+  return `(() => {
+    const selector = ${JSON.stringify(BILIBILI_PICTURE_IN_PICTURE_SELECTOR)};
+    const hostname = String(location.hostname || "").toLowerCase().replace(/\\.$/, "");
+    if (hostname !== "bilibili.com" && !hostname.endsWith(".bilibili.com")) {
+      return { installed: false, reason: "HOST_NOT_ALLOWED" };
+    }
+    if (window.__qiyeBilibiliMediaBridgeInstalled === true) {
+      return { installed: true, reused: true };
+    }
+    Object.defineProperty(window, "__qiyeBilibiliMediaBridgeInstalled", {
+      value: true,
+      configurable: true,
+    });
+    window.addEventListener("click", (event) => {
+      if (!event.isTrusted || !event.target?.closest?.(selector)) return;
+      const visibleArea = (video) => {
+        const rect = video?.getBoundingClientRect?.();
+        if (!rect || rect.width < 2 || rect.height < 2) return 0;
+        const width = Math.max(0, Math.min(innerWidth, rect.right) - Math.max(0, rect.left));
+        const height = Math.max(0, Math.min(innerHeight, rect.bottom) - Math.max(0, rect.top));
+        return width * height;
+      };
+      const current = document.pictureInPictureElement;
+      const video = current || Array.from(document.querySelectorAll("video"))
+        .map((item) => ({ item, area: visibleArea(item) }))
+        .sort((left, right) => right.area - left.area)[0]?.item;
+      if (!video) return;
+      const operation = current
+        ? document.exitPictureInPicture?.()
+        : document.pictureInPictureEnabled
+          && !video.disablePictureInPicture
+          && typeof video.requestPictureInPicture === "function"
+          ? video.requestPictureInPicture()
+          : null;
+      if (!operation) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      Promise.resolve(operation).catch(() => undefined);
+    }, true);
+    return { installed: true, reused: false };
+  })()`;
+}
+
 /** @param {{ windowObject?: any, documentObject?: any, locationObject?: any }} [options] */
 function installBilibiliMediaBridge(options = {}) {
   const { windowObject, documentObject, locationObject } = options;
@@ -53,6 +97,7 @@ function installBilibiliMediaBridge(options = {}) {
 
 module.exports = {
   BILIBILI_PICTURE_IN_PICTURE_SELECTOR,
+  bilibiliMediaBridgeScript,
   bilibiliPictureInPictureControl,
   installBilibiliMediaBridge,
   isOfficialBilibiliHost,

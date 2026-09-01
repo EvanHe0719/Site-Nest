@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const vm = require("node:vm");
 
 const {
   DEFAULT_SEARCH_URL,
@@ -31,10 +32,12 @@ const {
 const {
   BrowserMediaCapabilityService,
   isSafeEmbeddedMediaPermission,
+  readWebContentsAudioState,
   selectedVideoActionScript,
 } = require("../../electron/browser/media-capability-service.cjs");
 const {
   BILIBILI_PICTURE_IN_PICTURE_SELECTOR,
+  bilibiliMediaBridgeScript,
   bilibiliPictureInPictureControl,
   installBilibiliMediaBridge,
   isOfficialBilibiliHost,
@@ -294,6 +297,23 @@ test("media fallback runs a fixed local action with a user gesture", async () =>
   assert.match(fullscreen, /const pointY = 0/);
 });
 
+test("late audio events during WebContentsView teardown are read as silent", () => {
+  assert.deepEqual(readWebContentsAudioState(undefined), { audible: false, muted: false });
+  assert.deepEqual(readWebContentsAudioState({ isDestroyed: () => true }), {
+    audible: false,
+    muted: false,
+  });
+  assert.deepEqual(readWebContentsAudioState({
+    isDestroyed: () => false,
+    isCurrentlyAudible: () => true,
+    isAudioMuted: () => false,
+  }), { audible: true, muted: false });
+  assert.deepEqual(readWebContentsAudioState({
+    isDestroyed: () => false,
+    isCurrentlyAudible: () => { throw new Error("closing"); },
+  }), { audible: false, muted: false });
+});
+
 test("Bilibili picture-in-picture compatibility is exact and rejects lookalike hosts", () => {
   assert.equal(isOfficialBilibiliHost("www.bilibili.com"), true);
   assert.equal(isOfficialBilibiliHost("bilibili.com"), true);
@@ -358,6 +378,45 @@ test("Bilibili bridge handles only a trusted explicit picture-in-picture click",
     target: { closest: () => ({}) },
     preventDefault: () => { prevented += 1; },
     stopImmediatePropagation: () => { stopped += 1; },
+  });
+  assert.equal(requested, 1);
+});
+
+test("Bilibili main-world bridge script installs and preserves the click user gesture", () => {
+  let clickListener;
+  let requested = 0;
+  const video = {
+    disablePictureInPicture: false,
+    getBoundingClientRect: () => ({ left: 0, top: 0, right: 640, bottom: 360, width: 640, height: 360 }),
+    requestPictureInPicture: () => {
+      requested += 1;
+      return Promise.resolve();
+    },
+  };
+  const sandbox = {
+    location: { hostname: "www.bilibili.com" },
+    window: {
+      addEventListener: (_type, listener, capture) => {
+        assert.equal(capture, true);
+        clickListener = listener;
+      },
+    },
+    document: {
+      pictureInPictureElement: null,
+      pictureInPictureEnabled: true,
+      querySelectorAll: () => [video],
+    },
+    innerWidth: 1280,
+    innerHeight: 720,
+    Promise,
+  };
+  const result = vm.runInNewContext(bilibiliMediaBridgeScript(), sandbox);
+  assert.equal(result.installed, true);
+  clickListener({
+    isTrusted: true,
+    target: { closest: () => ({}) },
+    preventDefault: () => undefined,
+    stopImmediatePropagation: () => undefined,
   });
   assert.equal(requested, 1);
 });

@@ -3,6 +3,7 @@ const http = require("node:http");
 const {
   BrowserMediaCapabilityService,
   isSafeEmbeddedMediaPermission,
+  readWebContentsAudioState,
 } = require("../../electron/browser/media-capability-service.cjs");
 
 function listen(server) {
@@ -80,6 +81,16 @@ app.whenReady().then(async () => {
   win.contentView.addChildView(view);
   view.setBounds({ x: 0, y: 0, width: 640, height: 430 });
 
+  const mediaContents = view.webContents;
+  let audioStateEvents = 0;
+  const readLateAudioState = () => {
+    readWebContentsAudioState(mediaContents);
+    audioStateEvents += 1;
+  };
+  mediaContents.on("media-started-playing", readLateAudioState);
+  mediaContents.on("media-paused", readLateAudioState);
+  mediaContents.on("audio-state-changed", readLateAudioState);
+
   let enteredFullscreen = 0;
   let leftFullscreen = 0;
   view.webContents.on("enter-html-full-screen", () => {
@@ -112,6 +123,11 @@ app.whenReady().then(async () => {
   if (fullscreenActive) await media.toggleVideoFullscreen(view.webContents, { x: 280, y: 150 });
   await wait(150);
 
+  win.contentView.removeChildView(view);
+  mediaContents.close();
+  await wait(200);
+  const mediaCloseSurvived = mediaContents.isDestroyed();
+
   process.stdout.write(`${JSON.stringify({ browserMediaElectronProbe: {
     capability,
     pictureInPicture,
@@ -120,9 +136,10 @@ app.whenReady().then(async () => {
     fullscreenActive,
     enteredFullscreen,
     leftFullscreen,
+    audioStateEvents,
+    mediaCloseSurvived,
     permissionLog,
   } })}\n`);
-  if (!view.webContents.isDestroyed()) view.webContents.close();
   if (!win.isDestroyed()) win.destroy();
   await new Promise((resolve) => server.close(resolve));
   app.quit();

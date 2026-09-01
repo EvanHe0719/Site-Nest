@@ -19,6 +19,22 @@ function isSafeEmbeddedMediaPermission(permission, rawUrl) {
   return SAFE_MEDIA_PERMISSIONS.has(normalizedPermission(permission)) && isSafeHttpUrl(rawUrl);
 }
 
+function readWebContentsAudioState(webContents) {
+  if (!webContents || webContents.isDestroyed?.()) {
+    return { audible: false, muted: false };
+  }
+  try {
+    return {
+      audible: Boolean(webContents.isCurrentlyAudible?.()),
+      muted: Boolean(webContents.isAudioMuted?.()),
+    };
+  } catch {
+    // Media events can arrive after WebContentsView has begun closing. Treat
+    // that short teardown window as silent instead of crashing the main process.
+    return { audible: false, muted: false };
+  }
+}
+
 function safePoint(value) {
   const number = Math.round(Number(value));
   return Number.isFinite(number) ? Math.max(0, Math.min(100_000, number)) : 0;
@@ -126,5 +142,6 @@ class BrowserMediaCapabilityService {
 module.exports = {
   BrowserMediaCapabilityService,
   isSafeEmbeddedMediaPermission,
+  readWebContentsAudioState,
   selectedVideoActionScript,
 };

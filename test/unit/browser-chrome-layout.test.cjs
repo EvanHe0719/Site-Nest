@@ -40,6 +40,8 @@ test("embedded media permissions and HTML fullscreen are handled by the browser 
   assert.match(main, /on\("leave-html-full-screen",\s*\(\) => leaveHtmlFullscreen\(context\)\)/);
   assert.match(main, /function enterHtmlFullscreen[\s\S]*?owner\.setFullScreen\(true\)/);
   assert.match(main, /function applyDetachedViewBounds[\s\S]*?tab\.htmlFullscreenActive/);
+  assert.match(main, /const contents = view\.webContents;[\s\S]*?readWebContentsAudioState\(contents\)/);
+  assert.match(main, /isOfficialBilibiliHost\(hostname\)[\s\S]*?executeJavaScript\(bilibiliMediaBridgeScript\(\)\)/);
 });
 
 test("low frequency tab operations live in the native more menu", () => {

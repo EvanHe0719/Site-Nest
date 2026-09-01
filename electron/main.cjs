@@ -75,7 +75,10 @@ const {
   WebContextMenuService,
   BrowserMediaCapabilityService,
   WindowOpenPolicyService,
+  bilibiliMediaBridgeScript,
   isSafeEmbeddedMediaPermission,
+  isOfficialBilibiliHost,
+  readWebContentsAudioState,
   standardChromiumUserAgent,
   securityStateForUrl,
   normalizeBrowserMemorySettings,
@@ -657,6 +660,7 @@ function findRuntimeTab(tabId) {
 }
 
 function tabSummary(tab, activeTabId) {
+  const audioState = readWebContentsAudioState(tab.view?.webContents);
   const liveURL =
     tab.view && !tab.view.webContents.isDestroyed()
       ? tab.view.webContents.getURL()
@@ -695,8 +699,8 @@ function tabSummary(tab, activeTabId) {
     groupSortOrder: Number(tab.groupSortOrder) || 0,
     keepRunning: Boolean(tab.keepRunning),
     lifecycleState: tab.runtimeState?.state || (tab.view ? "warm" : "suspended"),
-    audible: Boolean(tab.view?.webContents?.isCurrentlyAudible?.()),
-    muted: Boolean(tab.view?.webContents?.isAudioMuted?.()),
+    audible: audioState.audible,
+    muted: audioState.muted,
     active: tab.tabId === activeTabId,
   };
 }
@@ -2816,16 +2820,25 @@ function ensureSiteView(context = activeBrowserContext()) {
       context,
     );
   });
-  const emitAudioState = () => compactBrowserState({
-    audible: view.webContents.isCurrentlyAudible?.() || false,
-    muted: view.webContents.isAudioMuted?.() || false,
-  }, context);
-  view.webContents.on("media-started-playing", emitAudioState);
-  view.webContents.on("media-paused", emitAudioState);
-  view.webContents.on("audio-state-changed", emitAudioState);
-  view.webContents.on("enter-html-full-screen", () => enterHtmlFullscreen(context));
-  view.webContents.on("leave-html-full-screen", () => leaveHtmlFullscreen(context));
-  view.webContents.on("dom-ready", () => {
+  const contents = view.webContents;
+  const emitAudioState = () => compactBrowserState(
+    readWebContentsAudioState(contents),
+    context,
+  );
+  contents.on("media-started-playing", emitAudioState);
+  contents.on("media-paused", emitAudioState);
+  contents.on("audio-state-changed", emitAudioState);
+  contents.on("enter-html-full-screen", () => enterHtmlFullscreen(context));
+  contents.on("leave-html-full-screen", () => leaveHtmlFullscreen(context));
+  contents.on("dom-ready", () => {
+    try {
+      const hostname = new URL(contents.getURL()).hostname;
+      if (isOfficialBilibiliHost(hostname)) {
+        void contents.executeJavaScript(bilibiliMediaBridgeScript()).catch(() => undefined);
+      }
+    } catch {
+      // A navigation may be replaced while dom-ready is being delivered.
+    }
     if (context.navigationTraceId) {
       navigationPerformanceTracer.mark(context.navigationTraceId, "domReadyAt");
       navigationPerformanceTracer.update(context.navigationTraceId, {

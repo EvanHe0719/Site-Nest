@@ -31,7 +31,7 @@ function runProbe() {
   });
 }
 
-test("real Electron WebContentsView supports video picture-in-picture and HTML fullscreen", { timeout: 40_000 }, async () => {
+test("real Electron WebContentsView supports media presentation and closes without a late audio-state crash", { timeout: 40_000 }, async () => {
   const stdout = await runProbe();
   const line = stdout.split(/\r?\n/).find((value) => value.includes("browserMediaElectronProbe"));
   assert.ok(line, stdout);
@@ -46,5 +46,7 @@ test("real Electron WebContentsView supports video picture-in-picture and HTML f
   assert.equal(probe.fullscreenActive, true);
   assert.equal(probe.enteredFullscreen, 1);
   assert.equal(probe.leftFullscreen, 1);
+  assert.ok(probe.audioStateEvents >= 1);
+  assert.equal(probe.mediaCloseSurvived, true);
   assert.ok(probe.permissionLog.some((item) => item.permission === "fullscreen" && item.allowed === true));
 });

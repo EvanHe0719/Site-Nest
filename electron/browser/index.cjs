@@ -17,8 +17,13 @@ const { WebContextMenuService } = require("./web-context-menu-service.cjs");
 const {
   BrowserMediaCapabilityService,
   isSafeEmbeddedMediaPermission,
+  readWebContentsAudioState,
   selectedVideoActionScript,
 } = require("./media-capability-service.cjs");
+const {
+  bilibiliMediaBridgeScript,
+  isOfficialBilibiliHost,
+} = require("./bilibili-media-bridge.cjs");
 const { WindowOpenPolicyService, isAuthenticationUrl, normalizeSitePopupPolicies } = require("./window-open-policy-service.cjs");
 const { standardChromiumUserAgent } = require("./browser-user-agent.cjs");
 const { NavigationPerformanceTracer } = require("./navigation-performance-tracer.cjs");
@@ -57,7 +62,10 @@ module.exports = {
   WebContextMenuService,
   BrowserMediaCapabilityService,
   isSafeEmbeddedMediaPermission,
+  readWebContentsAudioState,
   selectedVideoActionScript,
+  bilibiliMediaBridgeScript,
+  isOfficialBilibiliHost,
   WindowOpenPolicyService,
   isAuthenticationUrl,
   normalizeSitePopupPolicies,
