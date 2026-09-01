@@ -624,6 +624,7 @@ let pageActionSnapshot = null;
 let pageActionPanelOpen = false;
 let companionPanelOpen = false;
 let activeRightPanel = null;
+let companionRuntime = { state: "silentHidden", reminder: null, quietReason: null };
 let pageActionRequestId = 0;
 let pageActionRefreshTimer = 0;
 let translationStatusCache = null;
@@ -8267,6 +8268,19 @@ function renderCompanionShell() {
   requestAnimationFrame(() => requestAnimationFrame(syncBrowserBounds));
 }
 
+function renderCompanionRuntime(snapshot = companionRuntime) {
+  companionRuntime = { ...companionRuntime, ...(snapshot || {}) };
+  const labels = { idle: "待机", focusedDocked: "专注中", resting: "休息中", bubbleTip: "轻提示", expanded: "已展开", silentHidden: "已隐藏" };
+  dom.companionStateLabel.textContent = labels[companionRuntime.state] || "待机";
+  dom.companionDock.dataset.state = companionRuntime.state;
+  const reminder = companionRuntime.reminder;
+  dom.companionBubble.hidden = !(reminder && companionRuntime.state === "bubbleTip" && companionEnabled());
+  dom.companionBubble.textContent = reminder?.message || "";
+  if (reminder) dom.companionGreeting.textContent = reminder.message;
+  else if (companionRuntime.quietReason) dom.companionGreeting.textContent = "当前处于安静状态，我不会主动打扰。";
+  else dom.companionGreeting.textContent = "我会安静地陪在这里。";
+}
+
 function setCompanionPanelOpen(open, panel = "home") {
   const canOpen = Boolean(open && companionEnabled() && browserSnapshot.hasOpenPage && dom.browserPage.classList.contains("is-visible"));
   if (canOpen && pageActionPanelOpen) setPageActionPanelOpen(false);
@@ -8427,9 +8441,9 @@ function bindEvents() {
   });
   dom.companionWeatherButton.addEventListener("click", () => setCompanionPanelOpen(true, "weather"));
   dom.companionAssistantButton.addEventListener("click", () => setCompanionPanelOpen(true, "assistant"));
-  dom.companionPauseButton.addEventListener("click", () => {
-    dom.companionStateLabel.textContent = "已暂停";
-    dom.companionGreeting.textContent = "好的，我会先安静一会儿。";
+  dom.companionPauseButton.addEventListener("click", async () => {
+    const snapshot = await window.siteNest?.companionAction?.("pause", { minutes: 60 });
+    renderCompanionRuntime(snapshot);
   });
   dom.globalSearchTrigger.addEventListener("click", () => openGlobalSearchPalette());
   dom.closeGlobalSearch.addEventListener("click", () => closeGlobalSearchPalette());
@@ -9745,6 +9759,7 @@ function bindEvents() {
     if (now - lastMeaningfulUsageAt < 5_000) return;
     lastMeaningfulUsageAt = now;
     window.siteNest?.recordMeaningfulUsageAction?.();
+    window.siteNest?.recordCompanionMeaningfulAction?.();
   };
   document.addEventListener("pointerdown", recordMeaningfulUsage, { passive: true });
   document.addEventListener("wheel", recordMeaningfulUsage, { passive: true });
@@ -9755,6 +9770,7 @@ function bindEvents() {
 
   new ResizeObserver(syncBrowserBounds).observe(dom.webviewFrame);
   window.siteNest?.onBrowserState(handleBrowserState);
+  window.siteNest?.onCompanionRuntime?.(renderCompanionRuntime);
   window.siteNest?.onDataStatusUpdated?.((snapshot) => {
     mergeGoogleSyncState(snapshot);
     renderGoogleSync();
@@ -9833,6 +9849,7 @@ async function initialize() {
   bindEvents();
   try {
     appState = await window.siteNest.getState();
+    renderCompanionRuntime(await window.siteNest?.getCompanionRuntime?.());
     await loadShortcuts();
     timelineState = {
       ...timelineState,

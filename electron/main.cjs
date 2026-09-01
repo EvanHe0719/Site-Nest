@@ -202,6 +202,7 @@ const {
   createUIActionRegistry,
 } = require("./ui-actions/index.cjs");
 const { ShortcutDispatcher, ShortcutRegistry, electronInputAccelerator } = require("./shortcuts/index.cjs");
+const { CompanionRuntimeService } = require("./companion/index.cjs");
 
 const APP_ID = "local.qiye.sitehub";
 const SITE_PARTITION = "persist:qiye-sites";
@@ -334,6 +335,9 @@ let windowOpenPolicyService;
 let connectorSecretStore;
 let translationProviderRegistry;
 let translationService;
+let companionRuntimeService;
+let companionSystemLocked = false;
+let companionSystemSleeping = false;
 let selectionActionService;
 let pageTranslationController;
 const translationSessionAllowedHosts = new Set();
@@ -2253,6 +2257,7 @@ function enterHtmlFullscreen(context) {
   context.htmlFullscreenActive = true;
   context.htmlFullscreenOwner = owner;
   context.htmlFullscreenForcedOwner = !owner.isFullScreen();
+  companionRuntimeService?.tick();
   if (context.htmlFullscreenForcedOwner) owner.setFullScreen(true);
   if (context.viewOwner === "detached") applyDetachedViewBounds(context);
   else applySiteViewBounds(siteViewBounds, context);
@@ -2271,6 +2276,7 @@ function leaveHtmlFullscreen(context) {
   context.htmlFullscreenActive = false;
   context.htmlFullscreenForcedOwner = false;
   context.htmlFullscreenOwner = null;
+  companionRuntimeService?.tick();
   if (forcedOwner && owner && !owner.isDestroyed() && owner.isFullScreen()) {
     owner.setFullScreen(false);
   }
@@ -5203,6 +5209,57 @@ async function setUsageTrackingEnabled(enabled) {
   return habitSnapshot(cachedState);
 }
 
+function companionRuntimeContext() {
+  const context = activeBrowserContext();
+  let hostname = "";
+  try { hostname = new URL(context?.view?.webContents?.getURL?.() || "").hostname; } catch {}
+  return {
+    foreground: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused()),
+    minimized: Boolean(mainWindow?.isMinimized?.()),
+    locked: companionSystemLocked,
+    sleeping: companionSystemSleeping,
+    fullscreen: Boolean(mainWindow?.isFullScreen?.() || context?.htmlFullscreenActive),
+    screenSharing: Boolean(context?.screenSharingActive),
+    backgroundAutomation: Boolean(automationRunPromise || googleSyncMeta?.status === "syncing"),
+    hostname,
+  };
+}
+
+function emitCompanionRuntime(snapshot = companionRuntimeService?.snapshot()) {
+  if (!snapshot || !mainWindow || mainWindow.isDestroyed()) return snapshot;
+  mainWindow.webContents.send("companion:runtime", snapshot);
+  return snapshot;
+}
+
+async function initializeCompanionRuntime() {
+  if (companionRuntimeService) return companionRuntimeService;
+  const state = await getState();
+  companionRuntimeService = new CompanionRuntimeService({
+    settings: state.uiSettings?.companion,
+    getIdleSeconds: () => powerMonitor.getSystemIdleTime(),
+    getContext: companionRuntimeContext,
+    onSnapshot: (snapshot) => emitCompanionRuntime(snapshot),
+  });
+  companionRuntimeService.start();
+  powerMonitor.on("lock-screen", () => {
+    companionSystemLocked = true;
+    companionRuntimeService?.tick();
+  });
+  powerMonitor.on("unlock-screen", () => {
+    companionSystemLocked = false;
+    companionRuntimeService?.tick();
+  });
+  powerMonitor.on("suspend", () => {
+    companionSystemSleeping = true;
+    companionRuntimeService?.tick();
+  });
+  powerMonitor.on("resume", () => {
+    companionSystemSleeping = false;
+    companionRuntimeService?.tick();
+  });
+  return companionRuntimeService;
+}
+
 async function clearUsageTracking() {
   const tracker = await initializeUsageRuntime();
   tracker.clear();
@@ -5911,6 +5968,12 @@ function registerIpc() {
   });
   ipcMain.handle("shortcuts:dispatch", async (_event, request) =>
     shortcutDispatcher.authorize(await getState(), request));
+  ipcMain.handle("companion:get-runtime", async () => (await initializeCompanionRuntime()).snapshot());
+  ipcMain.handle("companion:action", async (_event, payload) => {
+    const service = await initializeCompanionRuntime();
+    return service.action(String(payload?.action || ""), payload || {});
+  });
+  ipcMain.on("companion:meaningful-action", () => companionRuntimeService?.recordMeaningfulAction());
   ipcMain.handle("state:get", async () => {
     const state = await getState();
     return {
@@ -6824,14 +6887,15 @@ function createMainWindow() {
     if (url !== mainWindow.webContents.getURL()) event.preventDefault();
   });
   mainWindow.on("resize", () => applySiteViewBounds(siteViewBounds));
-  mainWindow.on("focus", updateUsageEligibility);
+  mainWindow.on("focus", () => { updateUsageEligibility(); companionRuntimeService?.tick(); });
   mainWindow.on("blur", () => {
     updateUsageEligibility();
+    companionRuntimeService?.tick();
     void usageTracker?.flush().catch(() => undefined);
   });
-  mainWindow.on("minimize", updateUsageEligibility);
-  mainWindow.on("restore", updateUsageEligibility);
-  mainWindow.on("show", updateUsageEligibility);
+  mainWindow.on("minimize", () => { updateUsageEligibility(); companionRuntimeService?.tick(); });
+  mainWindow.on("restore", () => { updateUsageEligibility(); companionRuntimeService?.tick(); });
+  mainWindow.on("show", () => { updateUsageEligibility(); companionRuntimeService?.tick(); });
   mainWindow.on("hide", () => {
     updateUsageEligibility();
     void usageTracker?.flush().catch(() => undefined);
@@ -8126,6 +8190,9 @@ if (!hasSingleInstanceLock) {
     });
     void initializeUsageRuntime().catch((error) => {
       console.error("Unable to initialize local usage tracking:", error?.message || error);
+    });
+    void initializeCompanionRuntime().catch((error) => {
+      console.error("Unable to initialize companion runtime:", error?.message || error);
     });
     void scheduleNaixiAutomation().catch((error) => {
       console.error("Unable to schedule automation:", error?.message || error);

@@ -8,6 +8,9 @@ contextBridge.exposeInMainWorld("siteNest", {
   updateShortcut: (input) => ipcRenderer.invoke("shortcuts:update", input),
   resetShortcuts: (options) => ipcRenderer.invoke("shortcuts:reset", options),
   dispatchShortcut: (request) => ipcRenderer.invoke("shortcuts:dispatch", request),
+  getCompanionRuntime: () => ipcRenderer.invoke("companion:get-runtime"),
+  companionAction: (action, input = {}) => ipcRenderer.invoke("companion:action", { action, ...input }),
+  recordCompanionMeaningfulAction: () => ipcRenderer.send("companion:meaningful-action"),
   setActiveWorkspace: (workspaceId) =>
     ipcRenderer.invoke("workspace:set-active", workspaceId),
   updateUiSettings: (patch) => ipcRenderer.invoke("settings:update-ui", patch),
@@ -299,6 +302,11 @@ contextBridge.exposeInMainWorld("siteNest", {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on("shortcuts:trigger", listener);
     return () => ipcRenderer.removeListener("shortcuts:trigger", listener);
+  },
+  onCompanionRuntime: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("companion:runtime", listener);
+    return () => ipcRenderer.removeListener("companion:runtime", listener);
   },
   onAutomationStatus: (callback) => {
     const listener = (_event, value) => callback(value);
