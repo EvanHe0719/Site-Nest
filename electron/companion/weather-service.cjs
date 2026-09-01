@@ -68,7 +68,7 @@ class WeatherService {
   }
 
   async refresh(options = {}) {
-    if (this.settings.enabled !== true || !String(this.settings.city || "").trim()) throw new WeatherProviderError("NOT_CONFIGURED", "请先在设置中开启天气并填写城市");
+    if (this.settings.enabled !== true || !String(this.settings.city || "").trim()) throw new WeatherProviderError("WEATHER_NOT_CONFIGURED", "请先在设置中开启天气并填写城市");
     if (!options.force) {
       const cached = this.cache.get();
       if (cached && !cached.stale) return { snapshot: cached, alerts: [], cached: true };
@@ -93,7 +93,7 @@ class WeatherService {
         for (const event of events) this.onAlert?.(event);
         return { snapshot, alerts: events, cached: false };
       } catch (error) {
-        if (signal.aborted || attempt >= 2 || !["NETWORK_ERROR", "API_ERROR", "RATE_LIMITED"].includes(error?.code)) throw error;
+        if (signal.aborted || attempt >= 2 || !["WEATHER_NETWORK_ERROR", "WEATHER_TIMEOUT", "WEATHER_RATE_LIMITED"].includes(error?.code)) throw error;
         await new Promise((resolve) => setTimeout(resolve, [500, 1_500][attempt++]));
       }
     }

@@ -219,6 +219,28 @@ test(
 );
 
 test(
+  "小序 100 次展开收起和状态转换保持单实例、单调度器与稳定监听器",
+  { timeout: 90000 },
+  async (t) => {
+    const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-companion-performance-"));
+    t.after(async () => {
+      await fsp.rm(userData, { recursive: true, force: true });
+    });
+    const probe = await runElectron({ userData, route: "companion-performance" });
+    const line = probe.stdout.split(/\r?\n/).find((item) => item.includes('"companionPerformanceProbe"'));
+    assert.ok(line, probe.stdout);
+    const result = JSON.parse(line).companionPerformanceProbe;
+    assert.equal(result.sameInstance, true);
+    assert.equal(result.before.schedulerCount, 1);
+    assert.equal(result.after.schedulerCount, 1);
+    assert.equal(result.after.powerListeners, result.before.powerListeners);
+    assert.deepEqual(result.after.webContents, result.before.webContents);
+    assert.ok(result.heapDeltaMiB < 16, `heap delta was ${result.heapDeltaMiB} MiB`);
+    assert.equal(result.finalState, "focusedDocked");
+  },
+);
+
+test(
   "工作和个人波形时间轴独立读取、切换视图、生成任务草稿并持久化",
   { timeout: 90000 },
   async (t) => {

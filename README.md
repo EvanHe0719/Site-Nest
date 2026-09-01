@@ -35,12 +35,13 @@
 - Chrome 导入只读扫描本机 `Bookmarks` 与 `AccountBookmarks`，不会读取密码、历史、Cookie 或标签页。
 - 左下角 Google 入口将账号身份与 Drive 授权分开显示；Desktop OAuth 使用同一账号申请最小 `drive.appdata` Scope，可同步站点、计划、设置、栖页搜索/浏览历史和用户脚本元数据；这不是 Chrome 书签或 Chrome 历史同步。
 - “设置与数据”改为分类导航和当前分类独立滚动；只挂载当前分类，Zoho 详细表单在用户点击配置后才创建。设置搜索来自已实现的设置注册表，旧书签、Zoho、翻译、任务、内存和弹窗入口继续定位到新分类。
+- 可选的“小序”伴随助手使用 Shell Renderer 内的单实例 44px Rail 与共用右侧面板，不向远程网页注入机器人 DOM，也不创建额外 BrowserWindow/Renderer。专注、休息、护眼、喝水和活动判断只使用低频前台/空闲状态；天气由主进程按需访问 Open-Meteo，主动问答和网页总结复用已有 DeepSeek 安全凭据。
 
 ## 本地数据与迁移
 
 应用状态保存在 Electron 的 Windows `userData` 目录中的 `site-nest-data.json`。
 
-0.5.6 使用 schema v10；新增搜索偏好和本机搜索历史，不删除书签、站点、固定数据，也不清理浏览分区中的 Cookie。v2/v3/v4/v5/v6/v7/v8/v9 升级时：
+0.5.6 当前使用 schema v18；新增小序设置与本机提醒运行态，不删除书签、站点、固定数据，也不清理浏览分区中的 Cookie。v2 至 v17 升级时：
 
 - 旧站点和固定项进入个人空间；原 ID、URL、书签、最近访问和奶昔状态保留。
 - 旧站点补齐 `workspaceId: personal`、`siteKind: normal`、`openMode: internal`、`browserProfileId: default` 和空助手绑定。
@@ -54,6 +55,7 @@
 - v8 缺失的 `uiSettings.browserMemory` 会补齐为标准模式/15 分钟，页签 `keepRunning` 默认关闭；不创建新分区或清理浏览存储。
 - v9 增加系统浏览身份 `sap-support`；现有 SAP Support、SAP for Me、SAP ID 和认证链页签会迁移到 `persist:qiye-sap-support`，非 SAP 页签继续使用原 `persist:qiye-sites`。原分区数据不会被删除。
 - v10 增加 `uiSettings.search` 与 `searchHistory`；默认 Google、保存历史、100 条上限和最后设置分类。旧数据缺少字段时只补默认值，不重置 Google/Zoho OAuth、站点、书签、会话、BrowserProfile 或 Partition。
+- v18 增加 `uiSettings.companion` 与 `companionRuntimeState`；旧用户默认关闭，不创建假天气、假提醒或 AI 对话。暂停、延后和敏感站点确认保留在本机；Google Drive 只同步可移植的非敏感偏好，不同步城市、天气缓存、运行态或页面内容。
 - v3 首次升级也创建版本备份；连接器与界面默认项可重复归一化，不重复创建默认连接。
 
 ## 登录会话边界

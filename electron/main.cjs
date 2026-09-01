@@ -13,6 +13,7 @@ const {
   session,
   shell,
   powerMonitor,
+  webContents,
 } = require("electron");
 const { createHash, randomUUID } = require("node:crypto");
 const fs = require("node:fs");
@@ -5303,7 +5304,9 @@ async function performCompanionRuntimeAction(action, input = {}) {
   }
   const service = await initializeCompanionRuntime();
   const snapshot = service.action(action, input);
-  await persistCompanionRuntimeState();
+  if (["pause", "resume", "dismiss-today", "snooze", "ack-water", "acknowledge"].includes(action)) {
+    await persistCompanionRuntimeState();
+  }
   return emitCompanionRuntime(snapshot);
 }
 
@@ -5354,7 +5357,16 @@ async function confirmCompanionSensitivePage(classification) {
 }
 
 function publicCompanionAIError(error) {
-  return { code: String(error?.code || "AI_ERROR").slice(0, 80), message: String(error?.message || "小序请求失败").replace(/(?:Bearer|Basic)\s+\S+/gi, "$1 [REDACTED]").slice(0, 300) };
+  const code = {
+    NOT_CONFIGURED: "AI_NOT_CONFIGURED",
+    AUTH_REQUIRED: "AI_AUTH_FAILED",
+    NETWORK_ERROR: "AI_NETWORK_ERROR",
+    REQUEST_TIMEOUT: "AI_TIMEOUT",
+    RATE_LIMITED: "AI_RATE_LIMITED",
+    INVALID_RESPONSE: "AI_INVALID_RESPONSE",
+    CANCELLED: "CANCELLED",
+  }[error?.code] || "AI_INVALID_RESPONSE";
+  return { code, message: String(error?.message || "小序请求失败").replace(/(?:Bearer|Basic)\s+\S+/gi, "$1 [REDACTED]").slice(0, 300) };
 }
 
 async function clearUsageTracking() {
@@ -6097,9 +6109,9 @@ function registerIpc() {
   ipcMain.handle("companion:summarize-page", async (_event, payload) => {
     const context = activeBrowserContext();
     const contents = context?.view?.webContents;
-    if (!contents || contents.isDestroyed()) return { ok: false, error: { code: "DATA_UNAVAILABLE", message: "当前没有可总结的网页" } };
+    if (!contents || contents.isDestroyed()) return { ok: false, error: { code: "PAGE_CONTEXT_UNAVAILABLE", message: "当前没有可总结的网页" } };
     const classification = classifyPageForAI(contents.getURL());
-    if (!classification.allowed) return { ok: false, error: { code: "SENSITIVE_PAGE_BLOCKED", message: "登录、授权、支付或密码页面不能发送给 DeepSeek" } };
+    if (!classification.allowed) return { ok: false, error: { code: "PAGE_SUMMARY_NOT_ALLOWED", message: "登录、授权、支付或密码页面不能发送给 DeepSeek" } };
     if (!await confirmCompanionSensitivePage(classification)) return { ok: false, error: { code: "USER_CANCELLED", message: "已取消网页总结" } };
     try {
       const extracted = await getCompanionAIServices().extractor.extract(contents, { maxCharacters: 15_000 });
@@ -7152,6 +7164,36 @@ function createMainWindow() {
           })()`);
           console.log(JSON.stringify({ googleLiveProbe: result }));
           await new Promise((resolve) => setTimeout(resolve, 500));
+        } else if (CAPTURE_ROUTE === "companion-performance") {
+          const service = await initializeCompanionRuntime();
+          service.updateSettings({ ...(cachedState.uiSettings?.companion || {}), enabled: true });
+          const handleSnapshot = () => ({
+            heapUsedMiB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024 * 100) / 100,
+            webContents: webContents.getAllWebContents().map((item) => item.getType()).sort(),
+            powerListeners: ["lock-screen", "unlock-screen", "suspend", "resume"].reduce((total, eventName) => total + powerMonitor.listenerCount(eventName), 0),
+            schedulerCount: service.timer ? 1 : 0,
+          });
+          const before = handleSnapshot();
+          const cpuBefore = process.cpuUsage();
+          for (let index = 0; index < 100; index += 1) {
+            service.action("expand", { panel: index % 2 ? "weather" : "assistant" });
+            service.action("collapse");
+          }
+          for (let index = 0; index < 100; index += 1) {
+            service.machine.transition(index % 2 ? "focus" : "rest", { reason: "performance-probe" });
+          }
+          const after = handleSnapshot();
+          const cpu = process.cpuUsage(cpuBefore);
+          const sameInstance = service === await initializeCompanionRuntime();
+          console.log(JSON.stringify({ companionPerformanceProbe: {
+            before,
+            after,
+            sameInstance,
+            finalState: service.snapshot().state,
+            heapDeltaMiB: Math.round((after.heapUsedMiB - before.heapUsedMiB) * 100) / 100,
+            cpuUserMs: Math.round(cpu.user / 1000 * 100) / 100,
+            cpuSystemMs: Math.round(cpu.system / 1000 * 100) / 100,
+          }}));
         } else if (["settings", "settings-popup", "settings-translation", "settings-tasks", "settings-memory", "settings-diagnostics", "settings-companion"].includes(CAPTURE_ROUTE)) {
           await mainWindow.webContents.executeJavaScript("navigateTo('settings')");
           await new Promise((resolve) => setTimeout(resolve, 700));
@@ -8464,6 +8506,9 @@ app.on("before-quit", (event) => {
     void persistState().catch(() => undefined);
   }
   desktopNotificationService?.closeAll();
+  companionRuntimeService?.stop();
+  weatherService?.stop();
+  companionAIService?.cancelAll();
   trayService?.destroy();
   webViewLifecycleManager?.stop();
   pageResourceService?.stopNetworkDetection("app-quit");

@@ -1154,6 +1154,7 @@ function openGlobalSearchPalette(prefill = "") {
   globalSearchOpen = true;
   globalSearchPreviousFocus = document.activeElement;
   window.siteNest?.hideBrowser();
+  dom.companionBubble.hidden = true;
   dom.globalSearchPalette.hidden = false;
   dom.globalSearchInput.value = String(prefill || "");
   dom.globalSearchEngine.value = searchState.settings.defaultSearchEngineId;
@@ -7029,6 +7030,7 @@ function renderAll() {
 
 function openModal(modal) {
   window.siteNest?.hideBrowser();
+  dom.companionBubble.hidden = true;
   modal.classList.add("is-open");
   const firstInput = modal.querySelector("input:not([type=radio]):not([type=hidden]), button:not([disabled])");
   window.setTimeout(() => firstInput?.focus(), 50);
@@ -8306,9 +8308,10 @@ function companionEnabled() {
 
 function renderCompanionShell() {
   const enabled = companionEnabled();
-  dom.companionEdgeRail.hidden = !enabled;
-  dom.browserContent.classList.toggle("is-companion-enabled", enabled);
-  if (!enabled && companionPanelOpen) setCompanionPanelOpen(false);
+  const visible = enabled && companionRuntime.state !== "silentHidden";
+  dom.companionEdgeRail.hidden = !visible;
+  dom.browserContent.classList.toggle("is-companion-enabled", visible);
+  if (!visible && companionPanelOpen) setCompanionPanelOpen(false);
   dom.companionDock.setAttribute("aria-expanded", String(companionPanelOpen));
   requestAnimationFrame(() => requestAnimationFrame(syncBrowserBounds));
 }
@@ -8324,6 +8327,7 @@ function renderCompanionRuntime(snapshot = companionRuntime) {
   if (reminder) dom.companionGreeting.textContent = reminder.message;
   else if (companionRuntime.quietReason) dom.companionGreeting.textContent = "当前处于安静状态，我不会主动打扰。";
   else dom.companionGreeting.textContent = "我会安静地陪在这里。";
+  renderCompanionShell();
 }
 
 function weatherValue(value, suffix = "") {
@@ -8468,7 +8472,30 @@ function renderCompanionAssistant(status = {}) {
   cancel.textContent = "取消请求";
   cancel.hidden = true;
   cancel.addEventListener("click", () => { if (companionAIRequestId) void window.siteNest?.cancelCompanionAI?.(companionAIRequestId); });
-  resultActions.append(copy, clear, cancel);
+  const createTask = document.createElement("button");
+  createTask.type = "button";
+  createTask.className = "text-button";
+  createTask.textContent = "创建任务";
+  createTask.dataset.actionId = "task.quick-create";
+  createTask.disabled = !companionAIResult;
+  createTask.addEventListener("click", () => {
+    openTaskModal();
+    dom.taskTitle.value = companionAIResult.split(/\r?\n/).find((line) => line.trim())?.replace(/^#+\s*/, "").slice(0, 120) || "小序建议";
+    dom.taskNotes.value = companionAIResult.slice(0, 5_000);
+  });
+  const createTimeline = document.createElement("button");
+  createTimeline.type = "button";
+  createTimeline.className = "text-button";
+  createTimeline.textContent = "记录时间轴";
+  createTimeline.dataset.actionId = "timeline.quick-create";
+  createTimeline.disabled = !companionAIResult;
+  createTimeline.addEventListener("click", () => openTimelineEventModal(null, {
+    title: companionAIResult.split(/\r?\n/).find((line) => line.trim())?.replace(/^#+\s*/, "").slice(0, 160) || "小序记录",
+    summary: companionAIResult.slice(0, 5_000),
+    workspaceId: activeWorkspaceId(),
+    sourceType: "manual",
+  }));
+  resultActions.append(createTask, createTimeline, copy, clear, cancel);
   const run = async (operation) => {
     companionAIRequestId = companionAIRequestIdForNow();
     ask.disabled = true;
@@ -10015,6 +10042,11 @@ function bindEvents() {
         setPageActionPanelOpen(false);
         if (currentZohoTicketId()) void rememberContextAssistantCollapsed(true);
         dom.pageActionsButton.focus();
+        return;
+      }
+      if (companionPanelOpen) {
+        setCompanionPanelOpen(false);
+        dom.companionDock.focus({ preventScroll: true });
         return;
       }
       if (currentSite) {

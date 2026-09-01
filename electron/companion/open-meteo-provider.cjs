@@ -35,7 +35,7 @@ function hourlyWindow(hourly = {}, currentTime, count = 2) {
 
 function normalizeForecast(payload, location, now = new Date()) {
   if (!payload || typeof payload !== "object" || !payload.current || !payload.daily) {
-    throw new WeatherProviderError("INVALID_RESPONSE", "天气服务返回的数据不完整");
+    throw new WeatherProviderError("WEATHER_INVALID_RESPONSE", "天气服务返回的数据不完整");
   }
   const current = payload.current;
   const daily = payload.daily;
@@ -68,20 +68,32 @@ class OpenMeteoWeatherProvider {
   }
 
   async requestJson(url, signal) {
+    const controller = new AbortController();
+    let timedOut = false;
+    const forwardAbort = () => controller.abort();
+    if (signal?.aborted) controller.abort();
+    else signal?.addEventListener("abort", forwardAbort, { once: true });
+    const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 15_000);
+    timeout.unref?.();
     try {
-      const response = await this.fetchFn(url, { signal, headers: { accept: "application/json" } });
-      if (!response.ok) throw new WeatherProviderError(response.status === 429 ? "RATE_LIMITED" : "API_ERROR", `天气服务请求失败（HTTP ${response.status}）`);
-      return await response.json();
+      const response = await this.fetchFn(url, { signal: controller.signal, headers: { accept: "application/json" } });
+      if (!response.ok) throw new WeatherProviderError(response.status === 429 ? "WEATHER_RATE_LIMITED" : response.status >= 500 ? "WEATHER_NETWORK_ERROR" : "WEATHER_INVALID_RESPONSE", `天气服务请求失败（HTTP ${response.status}）`);
+      try { return await response.json(); }
+      catch (error) { throw new WeatherProviderError("WEATHER_INVALID_RESPONSE", "天气服务返回了无法解析的数据", { cause: error }); }
     } catch (error) {
       if (error instanceof WeatherProviderError) throw error;
+      if (timedOut) throw new WeatherProviderError("WEATHER_TIMEOUT", "天气服务响应超时，请稍后重试");
       if (signal?.aborted) throw new WeatherProviderError("CANCELLED", "天气请求已取消");
-      throw new WeatherProviderError("NETWORK_ERROR", "无法连接天气服务", { cause: error });
+      throw new WeatherProviderError("WEATHER_NETWORK_ERROR", "无法连接天气服务", { cause: error });
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener?.("abort", forwardAbort);
     }
   }
 
   async resolveCity(city, signal) {
     const name = String(city || "").trim();
-    if (name.length < 2) throw new WeatherProviderError("NOT_CONFIGURED", "请先设置至少两个字的城市名称");
+    if (name.length < 2) throw new WeatherProviderError("WEATHER_NOT_CONFIGURED", "请先设置至少两个字的城市名称");
     const url = new URL(this.geocodingBaseUrl);
     url.searchParams.set("name", name);
     url.searchParams.set("count", "1");
@@ -90,7 +102,7 @@ class OpenMeteoWeatherProvider {
     const payload = await this.requestJson(url, signal);
     const result = payload?.results?.[0];
     if (!result || finite(result.latitude) === null || finite(result.longitude) === null) {
-      throw new WeatherProviderError("LOCATION_NOT_FOUND", "没有找到这个城市，请补充省份或国家后重试");
+      throw new WeatherProviderError("WEATHER_LOCATION_NOT_FOUND", "没有找到这个城市，请补充省份或国家后重试");
     }
     return { name: result.name, country: result.country, timezone: result.timezone, latitude: finite(result.latitude), longitude: finite(result.longitude) };
   }

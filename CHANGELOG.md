@@ -1,5 +1,14 @@
 # 变更记录
 
+## 开发中 - 小序伴随助手 Sprint
+
+- 在 Shell Renderer 中新增单实例 44px Companion Rail 与共用右侧面板；不依赖 WebContentsView 上方的 CSS z-index，不向远程网页注入小序 DOM，也不新增 Companion BrowserWindow/Renderer。
+- 新增六状态机、低频前台/空闲活动判断、护眼/喝水/活动提醒、Cooldown、Snooze、安静时间、全屏/锁屏/睡眠静默及 Windows 桌面通知操作。
+- 新增主进程 Open-Meteo Provider、30 分钟默认缓存、有限重试、15 秒超时、本地天气规则与 6 小时事件去重；未配置时不显示假天气。
+- 复用已有 DeepSeek/OpenAI-compatible Provider 与同一 `safeStorage` 密钥，只有用户显式问答、总结当前页或解释选区时调用；登录/OAuth/支付页禁止总结，敏感工作站点首次发送需确认。
+- 小序设置进入现有设置搜索、UIActionRegistry 和快捷键中心；城市、天气缓存、提醒运行态和敏感站点批准不进入 Google Drive，非敏感可移植偏好继续使用记录级同步。
+- schemaVersion 从 17 升至 18；正式 App Version 保持 0.5.6，appId 与现有 Partition 不变。本 Sprint 未执行 electron-builder、打包、发布或生成 EXE/MSI。
+
 ## 开发中 - Google Drive 同步治理 Sprint
 
 - Google Identity 与 Drive Sync 状态分离；旧 Token 缺少 `drive.appdata` 时保留账号登录并提示同账号重新授权。

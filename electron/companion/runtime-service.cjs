@@ -17,6 +17,7 @@ class CompanionRuntimeService {
     this.activeSince = null;
     this.lastMeaningfulAt = null;
     this.currentReminder = null;
+    this.bubbleExpiresAt = null;
     this.temporarilyHidden = false;
     this.timer = null;
     this.tickIntervalMs = Math.max(5_000, Number(options.tickIntervalMs) || 15_000);
@@ -64,12 +65,15 @@ class CompanionRuntimeService {
     } else if (name === "snooze" && this.currentReminder) {
       this.wellness.snooze(this.currentReminder.kind, input.minutes, now);
       this.currentReminder = null;
+      this.bubbleExpiresAt = null;
     } else if (name === "ack-water") {
       this.wellness.acknowledge("water", now);
       if (this.currentReminder?.kind === "water") this.currentReminder = null;
+      this.bubbleExpiresAt = null;
     } else if (name === "acknowledge" && this.currentReminder) {
       this.wellness.acknowledge(this.currentReminder.kind, now);
       this.currentReminder = null;
+      this.bubbleExpiresAt = null;
     } else if (name === "hide") {
       this.temporarilyHidden = true;
       this.machine.transition("disable", { reason: "user-hidden" });
@@ -91,6 +95,10 @@ class CompanionRuntimeService {
     if (eligible && this.activeSince === null) this.activeSince = now;
     if (!eligible) this.activeSince = null;
     const quiet = quietReason(this.settings, context, new Date(now));
+    if (this.currentReminder && this.bubbleExpiresAt && now >= this.bubbleExpiresAt && this.machine.snapshot().state === "bubbleTip") {
+      this.machine.transition(eligible ? "focus" : "rest", { reason: "tip-expired" });
+      this.bubbleExpiresAt = null;
+    }
     if (this.settings.enabled !== true || this.temporarilyHidden || quiet && ["fullscreen", "screen-sharing", "system-away"].includes(quiet)) {
       if (this.machine.snapshot().state !== "silentHidden") this.machine.transition("disable", { reason: quiet || "disabled" });
     } else if (this.machine.snapshot().enabled !== true) {
@@ -105,6 +113,7 @@ class CompanionRuntimeService {
       const reminder = this.wellness.due(this.activeSince, now);
       if (reminder) {
         this.currentReminder = reminder;
+        this.bubbleExpiresAt = now + 12_000;
         this.wellness.markShown(reminder.kind, now);
         if (this.machine.snapshot().state !== "expanded") this.machine.transition("tip", { reason: reminder.kind });
       }
