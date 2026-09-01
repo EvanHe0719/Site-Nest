@@ -3965,6 +3965,29 @@ function showBrowserTabContextMenu(event, payload) {
       },
       { type: "separator" },
       {
+        label: "开启或退出画中画",
+        enabled: Boolean(source.view && !source.view.webContents.isDestroyed()),
+        click: () => {
+          select("toggle-picture-in-picture");
+          void browserMediaCapabilityService.togglePictureInPicture(
+            source.view.webContents,
+            { x: 0, y: 0 },
+          );
+        },
+      },
+      {
+        label: "视频全屏",
+        enabled: Boolean(source.view && !source.view.webContents.isDestroyed()),
+        click: () => {
+          select("toggle-video-fullscreen");
+          void browserMediaCapabilityService.toggleVideoFullscreen(
+            source.view.webContents,
+            { x: 0, y: 0 },
+          );
+        },
+      },
+      { type: "separator" },
+      {
         label: "添加到分组",
         submenu: [
           { label: "新建分组…", click: () => select("new-group") },

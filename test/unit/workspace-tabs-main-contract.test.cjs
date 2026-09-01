@@ -86,6 +86,10 @@ test("top tab context menu is native so WebContentsView cannot cover it", () => 
   assert.match(nativeMenu, /label:\s*["']复制页签["']/);
   assert.match(nativeMenu, /label:\s*["']复制页面链接["']/);
   assert.match(nativeMenu, /label:\s*["']在外部浏览器打开["']/);
+  assert.match(nativeMenu, /label:\s*["']开启或退出画中画["']/);
+  assert.match(nativeMenu, /label:\s*["']视频全屏["']/);
+  assert.match(nativeMenu, /browserMediaCapabilityService\.togglePictureInPicture/);
+  assert.match(nativeMenu, /browserMediaCapabilityService\.toggleVideoFullscreen/);
   assert.match(nativeMenu, /label:\s*["']关闭页签["']/);
   assert.match(nativeMenu, /label:\s*["']添加到分组["']/);
   assert.match(nativeMenu, /label:\s*["']将相同站点页签分组…?["']/);

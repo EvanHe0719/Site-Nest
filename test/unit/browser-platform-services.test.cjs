@@ -34,6 +34,12 @@ const {
   selectedVideoActionScript,
 } = require("../../electron/browser/media-capability-service.cjs");
 const {
+  BILIBILI_PICTURE_IN_PICTURE_SELECTOR,
+  bilibiliPictureInPictureControl,
+  installBilibiliMediaBridge,
+  isOfficialBilibiliHost,
+} = require("../../electron/browser/bilibili-media-bridge.cjs");
+const {
   sanitizeDownloadFilename,
 } = require("../../electron/browser/download-manager.cjs");
 const {
@@ -286,6 +292,74 @@ test("media fallback runs a fixed local action with a user gesture", async () =>
   assert.match(fullscreen, /requestFullscreen/);
   assert.match(fullscreen, /const pointX = 0/);
   assert.match(fullscreen, /const pointY = 0/);
+});
+
+test("Bilibili picture-in-picture compatibility is exact and rejects lookalike hosts", () => {
+  assert.equal(isOfficialBilibiliHost("www.bilibili.com"), true);
+  assert.equal(isOfficialBilibiliHost("bilibili.com"), true);
+  assert.equal(isOfficialBilibiliHost("www.bilibili.com.evil.example"), false);
+  assert.equal(isOfficialBilibiliHost("notbilibili.com"), false);
+  let receivedSelector = "";
+  const control = {};
+  assert.equal(bilibiliPictureInPictureControl({
+    closest: (selector) => {
+      receivedSelector = selector;
+      return control;
+    },
+  }), control);
+  assert.equal(receivedSelector, BILIBILI_PICTURE_IN_PICTURE_SELECTOR);
+  assert.match(receivedSelector, /bpx-player-ctrl-pip/);
+  assert.doesNotMatch(receivedSelector, /\*=|\^=|\$=/);
+});
+
+test("Bilibili bridge handles only a trusted explicit picture-in-picture click", () => {
+  let clickListener;
+  let requested = 0;
+  let prevented = 0;
+  let stopped = 0;
+  const video = {
+    disablePictureInPicture: false,
+    getBoundingClientRect: () => ({ left: 0, top: 0, right: 640, bottom: 360 }),
+    requestPictureInPicture: () => {
+      requested += 1;
+      return Promise.resolve();
+    },
+  };
+  const installed = installBilibiliMediaBridge({
+    windowObject: {
+      innerWidth: 1280,
+      innerHeight: 720,
+      addEventListener: (type, listener, capture) => {
+        assert.equal(type, "click");
+        assert.equal(capture, true);
+        clickListener = listener;
+      },
+    },
+    documentObject: {
+      pictureInPictureElement: null,
+      pictureInPictureEnabled: true,
+      querySelectorAll: () => [video],
+    },
+    locationObject: { hostname: "www.bilibili.com" },
+  });
+  assert.equal(installed, true);
+  clickListener({
+    isTrusted: true,
+    target: { closest: () => ({}) },
+    preventDefault: () => { prevented += 1; },
+    stopImmediatePropagation: () => { stopped += 1; },
+  });
+  assert.equal(requested, 1);
+  assert.equal(prevented, 1);
+  assert.equal(stopped, 1);
+
+  clickListener({
+    isTrusted: false,
+    target: { closest: () => ({}) },
+    preventDefault: () => { prevented += 1; },
+    stopImmediatePropagation: () => { stopped += 1; },
+  });
+  assert.equal(requested, 1);
 });
 
 test("external protocols auto-open only mail and phone while unknown schemes require confirmation", async () => {
