@@ -111,9 +111,9 @@ test(
     await fsp.writeFile(dataFile, JSON.stringify(v2Fixture, null, 2), "utf8");
 
     const first = await runElectron({ userData, route: "state-probe" });
-    assert.match(first.stdout, /"version":17/);
+    assert.match(first.stdout, /"version":18/);
     const migrated = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(migrated.version, 17);
+    assert.equal(migrated.version, 18);
     assert.equal(migrated.activeWorkspaceId, "personal");
     assert.deepEqual(
       migrated.workspaces.map((workspace) => workspace.id),
@@ -165,7 +165,7 @@ test(
 
     const dataFile = path.join(userData, "site-nest-data.json");
     const persisted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(persisted.version, 17);
+    assert.equal(persisted.version, 18);
     assert.equal(persisted.localTasks.length, 1);
     assert.equal(persisted.localTasks[0].title, "IPC 本地任务已更新");
     assert.equal(persisted.taskReminders.length, 1);
@@ -180,6 +180,41 @@ test(
     const restarted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
     assert.equal(restarted.localTasks.length, 1);
     assert.equal(restarted.taskReminders[0].state, "snoozed");
+  },
+);
+
+test(
+  "小序设置通过窄 IPC 保存，默认本地城市与运行态可跨重启保留",
+  { timeout: 90000 },
+  async (t) => {
+    const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-companion-integration-"));
+    t.after(async () => {
+      await fsp.rm(userData, { recursive: true, force: true });
+    });
+
+    const probe = await runElectron({ userData, route: "settings-companion", width: 1400, height: 900 });
+    const line = probe.stdout.split(/\r?\n/).find((item) => item.includes('"companionSettingsProbe"'));
+    assert.ok(line, probe.stdout);
+    const result = JSON.parse(line).companionSettingsProbe;
+    assert.equal(result.enabled, true);
+    assert.equal(result.city, "上海");
+    assert.equal(result.focusDockSeconds, 35);
+    assert.equal(result.stateLabel, "已启用");
+    assert.ok(["paused", "background"].includes(result.pauseReason));
+    assert.equal(result.settingsVisible, true);
+    assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
+
+    const dataFile = path.join(userData, "site-nest-data.json");
+    const persisted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
+    assert.equal(persisted.version, 18);
+    assert.equal(persisted.uiSettings.companion.weather.city, "上海");
+    assert.ok(Date.parse(persisted.companionRuntimeState.pausedUntil) > Date.now());
+
+    await runElectron({ userData, route: "state-probe" });
+    const restarted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
+    assert.equal(restarted.uiSettings.companion.enabled, true);
+    assert.equal(restarted.uiSettings.companion.weather.city, "上海");
+    assert.ok(restarted.companionRuntimeState.pausedUntil);
   },
 );
 
@@ -233,7 +268,7 @@ test(
     assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
 
     const persisted = JSON.parse(await fsp.readFile(path.join(userData, "site-nest-data.json"), "utf8"));
-    assert.equal(persisted.version, 17);
+    assert.equal(persisted.version, 18);
     assert.deepEqual(persisted.timelineTracks.map((track) => track.id), ["work", "personal"]);
     assert.equal(persisted.timelineEvents.filter((event) => !event.deletedAt).length, 3);
     assert.equal(persisted.timelineUiSettings.viewMode, "timeline");
@@ -260,7 +295,7 @@ test(
 
     const dataFile = path.join(userData, "site-nest-data.json");
     const persisted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(persisted.version, 17);
+    assert.equal(persisted.version, 18);
     assert.equal(persisted.habits.length, 1);
     assert.equal(persisted.habitCheckIns.filter((item) => !item.deletedAt).length, 1);
     assert.equal(persisted.rewardLedger.filter((item) => !item.reversedAt).length, 1);
@@ -290,7 +325,7 @@ test(
     assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
 
     const persisted = JSON.parse(await fsp.readFile(path.join(userData, "site-nest-data.json"), "utf8"));
-    assert.equal(persisted.version, 17);
+    assert.equal(persisted.version, 18);
     assert.equal(persisted.contentTagGroups.length, 1);
     assert.equal(persisted.contentTags.filter((item) => !item.deletedAt).length, 2);
     assert.equal(persisted.contentTagMergeRecords.length, 1);
@@ -311,8 +346,8 @@ test(
     const line = probe.stdout.split(/\r?\n/).find((item) => item.includes('"uiActionAuditProbe"'));
     assert.ok(line, probe.stdout);
     const result = JSON.parse(line).uiActionAuditProbe;
-    assert.equal(result.totalActions, 73);
-    assert.equal(result.registeredActions, 73);
+    assert.equal(result.totalActions, 89);
+    assert.equal(result.registeredActions, 89);
     assert.equal(result.missingHandlers, 0);
     assert.equal(result.invalidIpcChannels, 0);
     assert.equal(result.missingTests, 0);

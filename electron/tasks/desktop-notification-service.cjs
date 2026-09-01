@@ -9,6 +9,10 @@ class DesktopNotificationService {
     onCompleteHabit,
     onSnoozeHabit,
     onSkipHabit,
+    onCompanionOpen,
+    onCompanionAcknowledge,
+    onCompanionSnooze,
+    onCompanionDismissToday,
   }) {
     this.Notification = Notification;
     this.icon = icon;
@@ -19,6 +23,10 @@ class DesktopNotificationService {
     this.onCompleteHabit = onCompleteHabit;
     this.onSnoozeHabit = onSnoozeHabit;
     this.onSkipHabit = onSkipHabit;
+    this.onCompanionOpen = onCompanionOpen;
+    this.onCompanionAcknowledge = onCompanionAcknowledge;
+    this.onCompanionSnooze = onCompanionSnooze;
+    this.onCompanionDismissToday = onCompanionDismissToday;
     this.active = new Map();
   }
 
@@ -75,6 +83,26 @@ class DesktopNotificationService {
     notification.once("close", () => this.active.delete(reminder.notificationKey));
     this.active.get(reminder.notificationKey)?.close?.();
     this.active.set(reminder.notificationKey, notification);
+    notification.show();
+    return { supported: true };
+  }
+
+  showCompanion(reminder, options = {}) {
+    if (!this.Notification?.isSupported?.()) return { supported: false };
+    const notificationKey = `companion:${reminder.kind}:${reminder.dueAt}`;
+    const actions = reminder.kind === "water"
+      ? [{ type: "button", text: "已喝水" }, { type: "button", text: "延后 10 分钟" }, { type: "button", text: "今天不再提醒" }]
+      : [{ type: "button", text: "知道了" }, { type: "button", text: "延后 10 分钟" }, { type: "button", text: "今天不再提醒" }];
+    const notification = new this.Notification({ title: "小序", body: String(reminder.message || "休息一下吧").slice(0, 300), icon: this.icon, silent: options.sound === false, actions, timeoutType: "default" });
+    notification.on("click", () => this.onCompanionOpen?.());
+    notification.on("action", (_event, index) => {
+      if (index === 0) this.onCompanionAcknowledge?.(reminder.kind);
+      if (index === 1) this.onCompanionSnooze?.(reminder.kind, 10);
+      if (index === 2) this.onCompanionDismissToday?.();
+    });
+    notification.once("close", () => this.active.delete(notificationKey));
+    this.active.get(notificationKey)?.close?.();
+    this.active.set(notificationKey, notification);
     notification.show();
     return { supported: true };
   }

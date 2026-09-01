@@ -10,10 +10,14 @@ class CompanionRuntimeService {
     this.onSnapshot = typeof options.onSnapshot === "function" ? options.onSnapshot : null;
     this.settings = { enabled: false, focusDockSeconds: 30, idleThresholdSeconds: 120, ...(options.settings || {}) };
     this.machine = new CompanionStateMachine({ enabled: this.settings.enabled, state: this.settings.enabled ? "idle" : "silentHidden" }, { now: () => new Date(this.now()) });
-    this.wellness = new WellnessEngine(this.settings.wellness, { now: this.now });
+    this.runtime = options.runtime && typeof options.runtime === "object" ? { ...options.runtime } : {};
+    this.settings.pausedUntil = this.runtime.pausedUntil || this.settings.pausedUntil;
+    this.settings.dismissedUntil = this.runtime.dismissedUntil || this.settings.dismissedUntil;
+    this.wellness = new WellnessEngine(this.settings.wellness, { now: this.now, runtime: this.runtime });
     this.activeSince = null;
     this.lastMeaningfulAt = null;
     this.currentReminder = null;
+    this.temporarilyHidden = false;
     this.timer = null;
     this.tickIntervalMs = Math.max(5_000, Number(options.tickIntervalMs) || 15_000);
   }
@@ -48,7 +52,11 @@ class CompanionRuntimeService {
   action(name, input = {}) {
     const now = this.now();
     if (name === "pause") this.settings.pausedUntil = new Date(now + Math.max(1, Number(input.minutes) || 60) * 60_000).toISOString();
-    else if (name === "resume") this.settings.pausedUntil = null;
+    else if (name === "resume") {
+      this.settings.pausedUntil = null;
+      this.settings.dismissedUntil = null;
+      this.temporarilyHidden = false;
+    }
     else if (name === "dismiss-today") {
       const tomorrow = new Date(now);
       tomorrow.setHours(24, 0, 0, 0);
@@ -59,7 +67,17 @@ class CompanionRuntimeService {
     } else if (name === "ack-water") {
       this.wellness.acknowledge("water", now);
       if (this.currentReminder?.kind === "water") this.currentReminder = null;
-    } else if (["expand", "collapse", "wake"].includes(name)) {
+    } else if (name === "acknowledge" && this.currentReminder) {
+      this.wellness.acknowledge(this.currentReminder.kind, now);
+      this.currentReminder = null;
+    } else if (name === "hide") {
+      this.temporarilyHidden = true;
+      this.machine.transition("disable", { reason: "user-hidden" });
+    } else if (name === "wake") {
+      this.temporarilyHidden = false;
+      if (this.settings.enabled && this.machine.snapshot().enabled !== true) this.machine.transition("enable", { reason: "user-wake" });
+      this.machine.transition("wake", { focused: this.activeSince !== null });
+    } else if (["expand", "collapse"].includes(name)) {
       this.machine.transition(name, { panel: input.panel, focused: this.activeSince !== null });
     }
     return this.tick(now);
@@ -73,7 +91,7 @@ class CompanionRuntimeService {
     if (eligible && this.activeSince === null) this.activeSince = now;
     if (!eligible) this.activeSince = null;
     const quiet = quietReason(this.settings, context, new Date(now));
-    if (this.settings.enabled !== true || quiet && ["fullscreen", "screen-sharing", "system-away"].includes(quiet)) {
+    if (this.settings.enabled !== true || this.temporarilyHidden || quiet && ["fullscreen", "screen-sharing", "system-away"].includes(quiet)) {
       if (this.machine.snapshot().state !== "silentHidden") this.machine.transition("disable", { reason: quiet || "disabled" });
     } else if (this.machine.snapshot().enabled !== true) {
       this.machine.transition("enable", { reason: "eligible" });
@@ -104,6 +122,16 @@ class CompanionRuntimeService {
       idleSeconds: Math.max(0, Math.round(Number(idleSeconds) || 0)),
       quietReason: quiet,
       reminder: this.currentReminder ? { ...this.currentReminder } : null,
+      temporarilyHidden: this.temporarilyHidden,
+    };
+  }
+
+  runtimeState() {
+    return {
+      pausedUntil: this.settings.pausedUntil || null,
+      dismissedUntil: this.settings.dismissedUntil || null,
+      ...this.wellness.runtimeState(),
+      aiAllowedHosts: Array.isArray(this.runtime.aiAllowedHosts) ? [...this.runtime.aiAllowedHosts] : [],
     };
   }
 }

@@ -8,5 +8,6 @@ const weather = require("./weather-service.cjs");
 const contentGuard = require("./content-guard.cjs");
 const pageSummary = require("./page-summary-extractor.cjs");
 const ai = require("./ai-service.cjs");
+const settings = require("./settings.cjs");
 
-module.exports = { ...stateMachine, ...rightPanel, ...quietPolicy, ...wellness, ...runtime, ...weatherProvider, ...weather, ...contentGuard, ...pageSummary, ...ai };
+module.exports = { ...stateMachine, ...rightPanel, ...quietPolicy, ...wellness, ...runtime, ...weatherProvider, ...weather, ...contentGuard, ...pageSummary, ...ai, ...settings };

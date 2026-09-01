@@ -1,4 +1,5 @@
 const { createHash } = require("node:crypto");
+const { syncableCompanionSettings } = require("../companion/settings.cjs");
 
 const AUTH_QUERY_KEYS = new Set([
   "access_token", "auth", "authorization", "code", "id_token", "oauth_token",
@@ -48,6 +49,7 @@ const SINGLETON_SPECS = Object.freeze({
       search: value?.search || {},
       sitePopupPolicies: value?.sitePopupPolicies || {},
       translation: value?.translation || {},
+      companion: syncableCompanionSettings(value?.companion),
     }),
   },
   taskSetting: { stateKey: "taskSettings", entityId: "default" },
@@ -198,9 +200,20 @@ function applyEntityOperationToState(state, operation) {
     if (entityType === "syncPreference") {
       next.uiSettings = { ...(next.uiSettings || {}), googleSync: deleting ? {} : clone(operation.payload) };
     } else if (entityType === "applicationSetting") {
+      const incoming = clone(operation.payload);
+      if (incoming?.companion) {
+        incoming.companion = {
+          ...(next.uiSettings?.companion || {}),
+          ...incoming.companion,
+          weather: {
+            ...(next.uiSettings?.companion?.weather || {}),
+            ...(incoming.companion.weather || {}),
+          },
+        };
+      }
       next.uiSettings = deleting
         ? { ...(next.uiSettings || {}), search: {}, sitePopupPolicies: {}, translation: {} }
-        : { ...(next.uiSettings || {}), ...clone(operation.payload) };
+        : { ...(next.uiSettings || {}), ...incoming };
     } else {
       next[singletonSpec.stateKey] = deleting ? (Array.isArray(next[singletonSpec.stateKey]) ? [] : {}) : clone(operation.payload);
     }

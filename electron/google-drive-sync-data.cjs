@@ -1,5 +1,6 @@
 const { createHash } = require("node:crypto");
 const { CURRENT_SCHEMA_VERSION } = require("./state-model.cjs");
+const { syncableCompanionSettings } = require("./companion/settings.cjs");
 
 const SYNC_ENVELOPE_KIND = "site-nest-google-drive-sync";
 const SYNC_ENVELOPE_VERSION = 1;
@@ -698,6 +699,8 @@ function createSafeSnapshot(state, options = {}) {
     if (item?.module === "browsingHistory") return syncOptions.browsingHistory;
     return true;
   });
+  const syncSettings = syncOptions.settings ? structuredClone(input.uiSettings || {}) : {};
+  if (syncSettings.companion) syncSettings.companion = syncableCompanionSettings(syncSettings.companion);
   return normalizeSnapshot({
     version: input.version,
     workspaces: input.workspaces,
@@ -708,7 +711,7 @@ function createSafeSnapshot(state, options = {}) {
     automationSettings: syncOptions.settings ? (input.automationSettings || input.automations) : {},
     syncOptions,
     plans: syncOptions.plans ? input.localTasks : [],
-    settings: syncOptions.settings ? input.uiSettings : {},
+    settings: syncSettings,
     searchHistory: syncOptions.searchHistory ? input.searchHistory : [],
     browsingHistory: syncOptions.browsingHistory ? input.browsingHistory : [],
     userScriptMetadata,

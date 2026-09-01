@@ -34,6 +34,7 @@ class WellnessEngine {
     this.snoozedUntil = new Map();
     this.acknowledgedAt = new Map();
     this.now = typeof options.now === "function" ? options.now : () => Date.now();
+    this.loadRuntime(options.runtime);
   }
 
   updateSettings(value) {
@@ -67,6 +68,24 @@ class WellnessEngine {
     this.acknowledgedAt.set(kind, at);
     this.markShown(kind, at);
     return true;
+  }
+
+  loadRuntime(value = {}) {
+    const load = (target, source) => {
+      target.clear();
+      for (const [kind, timestamp] of Object.entries(source && typeof source === "object" ? source : {})) {
+        const parsed = Date.parse(timestamp);
+        if (WELLNESS_KINDS.includes(kind) && Number.isFinite(parsed)) target.set(kind, parsed);
+      }
+    };
+    load(this.lastShownAt, value.lastShownAt);
+    load(this.snoozedUntil, value.snoozedUntil);
+    load(this.acknowledgedAt, value.acknowledgedAt);
+  }
+
+  runtimeState() {
+    const dump = (source) => Object.fromEntries(Array.from(source, ([kind, timestamp]) => [kind, new Date(timestamp).toISOString()]));
+    return { lastShownAt: dump(this.lastShownAt), snoozedUntil: dump(this.snoozedUntil), acknowledgedAt: dump(this.acknowledgedAt) };
   }
 }
 

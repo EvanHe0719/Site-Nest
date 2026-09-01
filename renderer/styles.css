@@ -6206,6 +6206,9 @@ svg {
 .companion-ai-actions, .companion-ai-result-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 .companion-ai-result { min-height: 96px; margin-top: 11px; padding: 13px; overflow-wrap: anywhere; white-space: pre-wrap; border-left: 3px solid #5a9a84; border-radius: 10px; color: #344f46; background: #edf5f1; line-height: 1.65; }
 .companion-ai-result-actions { justify-content: flex-end; margin-top: 6px; }
+.companion-settings-groups { display: grid; gap: 12px; margin: 15px 0; }
+.companion-settings-groups > section { padding: 13px; border: 1px solid #e0e6e2; border-radius: 13px; background: #fafbf9; }
+.companion-settings-groups h4 { margin: 0 0 10px; color: #345248; font-size: 12px; }
 @media (max-width: 1080px) { .browser-content.is-companion-enabled.is-companion-panel-open { grid-template-columns: minmax(0, 1fr) 320px 44px; } .companion-panel { min-width: 320px; } }
 @media (prefers-reduced-motion: reduce) { .companion-orb { animation: none !important; transition: none !important; } }
 

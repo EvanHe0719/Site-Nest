@@ -11,6 +11,7 @@ const {
   redactConnectorText,
 } = require("../../electron/connectors/index.cjs");
 const { parseZohoOAuthConfig } = require("../../electron/connectors/zoho/oauth.cjs");
+const { normalizeCompanionSettings } = require("../../electron/companion/index.cjs");
 const { normalizePublicConfig } = require("../../electron/connectors/zoho/service.cjs");
 const { normalizeTicket } = require("../../electron/connectors/zoho/ticket-normalizer.cjs");
 const {
@@ -297,10 +298,12 @@ test("v10 migration keeps sites separate from sessions and is idempotent", () =>
   const initial = createInitialState({ now: NOW, defaultSites: [
     { id: "site-a", name: "站点 A", url: "https://a.example/", workspaceId: "work" },
   ] });
-  assert.equal(initial.version, 17);
+  assert.equal(initial.version, 18);
   assert.equal(initial.sites.length, 1);
   assert.equal(initial.workspaceBrowserStates.work.tabs.length, 0);
-  assert.deepEqual(initial.uiSettings, {
+  const { companion, ...initialUiSettings } = initial.uiSettings;
+  assert.deepEqual(companion, normalizeCompanionSettings());
+  assert.deepEqual(initialUiSettings, {
     sessionVisibility: "all",
     contextAssistantCollapsed: false,
     usageTrackingEnabled: true,
@@ -345,7 +348,9 @@ test("session visibility and context-assistant preferences survive state normali
     usageTrackingEnabled: true,
   }, { now: NOW }).state;
   const restarted = migrateState(JSON.parse(JSON.stringify(updated)), { now: NOW }).state;
-  assert.deepEqual(restarted.uiSettings, {
+  const { companion, ...restartedUiSettings } = restarted.uiSettings;
+  assert.deepEqual(companion, normalizeCompanionSettings());
+  assert.deepEqual(restartedUiSettings, {
     sessionVisibility: "workspace",
     contextAssistantCollapsed: true,
     usageTrackingEnabled: true,

@@ -395,6 +395,22 @@ const dom = {
   habitCheckInState: document.getElementById("habitCheckInState"),
   habitCheckInNote: document.getElementById("habitCheckInNote"),
   deleteHabitCheckInButton: document.getElementById("deleteHabitCheckInButton"),
+  companionSettingsStatus: document.getElementById("companionSettingsStatus"),
+  companionEnabledSetting: document.getElementById("companionEnabledSetting"),
+  companionFocusSeconds: document.getElementById("companionFocusSeconds"),
+  companionWeatherEnabled: document.getElementById("companionWeatherEnabled"),
+  companionWeatherCity: document.getElementById("companionWeatherCity"),
+  companionWeatherPollMinutes: document.getElementById("companionWeatherPollMinutes"),
+  companionEyeRestEnabled: document.getElementById("companionEyeRestEnabled"),
+  companionEyeRestMinutes: document.getElementById("companionEyeRestMinutes"),
+  companionWaterEnabled: document.getElementById("companionWaterEnabled"),
+  companionWaterMinutes: document.getElementById("companionWaterMinutes"),
+  companionMovementEnabled: document.getElementById("companionMovementEnabled"),
+  companionMovementMinutes: document.getElementById("companionMovementMinutes"),
+  companionQuietEnabled: document.getElementById("companionQuietEnabled"),
+  companionQuietStart: document.getElementById("companionQuietStart"),
+  companionQuietEnd: document.getElementById("companionQuietEnd"),
+  saveCompanionSettings: document.getElementById("saveCompanionSettings"),
   taskReminderSettingsStatus: document.getElementById("taskReminderSettingsStatus"),
   taskRemindersEnabled: document.getElementById("taskRemindersEnabled"),
   taskTrayOnClose: document.getElementById("taskTrayOnClose"),
@@ -780,6 +796,7 @@ const SETTINGS_SEARCH_INDEX = Object.freeze([
   { section: "browsing", panel: "memory", title: "网页视图内存", description: "内存模式、后台自动休眠和保持运行" },
   { section: "browsing", panel: "popup-policy", title: "新窗口与登录弹窗", description: "OAuth、SSO、POST 和站点弹窗策略" },
   { section: "translation", panel: "translation", title: "DeepSeek 翻译与划词查询", description: "DeepSeek API、目标语言与敏感网站确认" },
+  { section: "notifications", panel: "companion", title: "小序伴随助手", description: "天气、专注贴边、护眼、喝水、活动和安静时间" },
   { section: "notifications", panel: "notifications", title: "通知与后台", description: "桌面提醒、托盘、系统启动和勿扰时间" },
   { section: "connections", panel: "zoho", title: "Zoho Desk", description: "只读工单、组织 ID、SLA 与 OAuth" },
   { section: "connections", panel: "connections", title: "Emma、Customer Ops、Gitee、B1 运维台", description: "连接器状态和接口说明" },
@@ -1592,6 +1609,8 @@ async function executeShortcutAction(actionId) {
   else if (actionId === "automation.open") navigateTo("automations");
   else if (actionId === "page-actions.open") setPageActionPanelOpen(true);
   else if (actionId === "translation.page") await window.siteNest.showTranslationPageMenu();
+  else if (actionId === "companion.expand") setCompanionPanelOpen(true);
+  else if (actionId === "companion.ai.summarize") await summarizeCurrentPageWithCompanion();
   else if (actionId === "google.sync") await runGoogleSyncAction("sync");
   else throw new Error("当前界面没有这个动作的可执行入口");
 }
@@ -5648,6 +5667,28 @@ function renderTaskSettings() {
     : "完全退出后提醒停止";
 }
 
+function renderCompanionSettings() {
+  if (!dom.companionEnabledSetting) return;
+  const settings = appState.uiSettings?.companion || {};
+  const wellness = settings.wellness || {};
+  dom.companionEnabledSetting.checked = settings.enabled === true;
+  dom.companionFocusSeconds.value = String(settings.focusDockSeconds || 30);
+  dom.companionWeatherEnabled.checked = settings.weather?.enabled === true;
+  dom.companionWeatherCity.value = settings.weather?.city || "";
+  dom.companionWeatherPollMinutes.value = String(settings.weather?.pollMinutes || 30);
+  dom.companionEyeRestEnabled.checked = wellness.kinds?.["eye-rest"] !== false;
+  dom.companionEyeRestMinutes.value = String(wellness.intervalsMinutes?.["eye-rest"] || 20);
+  dom.companionWaterEnabled.checked = wellness.kinds?.water !== false;
+  dom.companionWaterMinutes.value = String(wellness.intervalsMinutes?.water || 45);
+  dom.companionMovementEnabled.checked = wellness.kinds?.movement !== false;
+  dom.companionMovementMinutes.value = String(wellness.intervalsMinutes?.movement || 60);
+  dom.companionQuietEnabled.checked = settings.quietHours?.enabled === true;
+  dom.companionQuietStart.value = settings.quietHours?.start || "22:00";
+  dom.companionQuietEnd.value = settings.quietHours?.end || "07:00";
+  dom.companionSettingsStatus.textContent = settings.enabled ? "已启用" : "默认关闭";
+  dom.companionSettingsStatus.classList.toggle("status-pill--success", settings.enabled === true);
+}
+
 function applyTaskSnapshot(snapshot = {}) {
   taskState = {
     tasks: Array.isArray(snapshot.tasks) ? snapshot.tasks : taskState.tasks,
@@ -6964,6 +7005,7 @@ function renderAll() {
   renderPlan();
   renderWorkspaceTaskWidgets();
   renderTaskSettings();
+  renderCompanionSettings();
   const siteCount = appState.sites.length;
   dom.sidebarSiteCount.textContent = siteCount > 99 ? "99+" : String(siteCount);
   renderQuickSites();
@@ -8387,16 +8429,19 @@ function renderCompanionAssistant(status = {}) {
   actions.className = "companion-ai-actions";
   const ask = document.createElement("button");
   ask.type = "submit";
+  ask.dataset.actionId = "companion.ai.ask";
   ask.className = "primary-button compact-button";
   ask.textContent = "询问";
   ask.disabled = status.configured === false;
   const summary = document.createElement("button");
   summary.type = "button";
+  summary.dataset.actionId = "companion.ai.summarize";
   summary.className = "secondary-button compact-button";
   summary.textContent = "总结本页";
   summary.disabled = status.configured === false;
   const explain = document.createElement("button");
   explain.type = "button";
+  explain.dataset.actionId = "companion.ai.explain-selection";
   explain.className = "secondary-button compact-button";
   explain.textContent = "解释选中文字";
   explain.disabled = status.configured === false;
@@ -8459,6 +8504,24 @@ function renderCompanionAssistant(status = {}) {
 async function loadCompanionAssistant() {
   const status = await window.siteNest?.getCompanionAIStatus?.();
   renderCompanionAssistant(status || { configured: false });
+}
+
+async function summarizeCurrentPageWithCompanion() {
+  setCompanionPanelOpen(true, "assistant");
+  const status = await window.siteNest?.getCompanionAIStatus?.() || { configured: false };
+  renderCompanionAssistant(status);
+  if (status.configured === false) {
+    showToast("DeepSeek 尚未配置", "请先在设置与数据 → 翻译中完成安全配置", "error");
+    return;
+  }
+  companionAIRequestId = companionAIRequestIdForNow();
+  companionAIResult = "小序正在处理…";
+  renderCompanionAssistant(status);
+  const response = await window.siteNest?.summarizeCompanionPage?.(companionAIRequestId);
+  companionAIRequestId = null;
+  companionAIResult = response?.ok ? (response.value?.answer || "已完成") : (response?.error?.message || "请求未完成");
+  renderCompanionAssistant(status);
+  if (!response?.ok) showToast("小序请求未完成", companionAIResult, "error");
 }
 
 function setCompanionPanelOpen(open, panel = "home") {
@@ -9260,6 +9323,35 @@ function bindEvents() {
       showToast("无法删除任务", error?.message || "请稍后重试", "error");
     }
   });
+  dom.saveCompanionSettings.addEventListener("click", async () => {
+    dom.saveCompanionSettings.disabled = true;
+    const current = appState.uiSettings?.companion || {};
+    const companion = {
+      ...current,
+      enabled: dom.companionEnabledSetting.checked,
+      onboardingSeen: true,
+      focusDockSeconds: Number(dom.companionFocusSeconds.value),
+      weather: { ...(current.weather || {}), enabled: dom.companionWeatherEnabled.checked, city: dom.companionWeatherCity.value.trim(), locationMode: "manual", pollMinutes: Number(dom.companionWeatherPollMinutes.value) },
+      wellness: {
+        ...(current.wellness || {}),
+        enabled: true,
+        kinds: { "eye-rest": dom.companionEyeRestEnabled.checked, water: dom.companionWaterEnabled.checked, movement: dom.companionMovementEnabled.checked },
+        intervalsMinutes: { "eye-rest": Number(dom.companionEyeRestMinutes.value), water: Number(dom.companionWaterMinutes.value), movement: Number(dom.companionMovementMinutes.value) },
+      },
+      quietHours: { enabled: dom.companionQuietEnabled.checked, start: dom.companionQuietStart.value, end: dom.companionQuietEnd.value },
+    };
+    try {
+      const result = await window.siteNest.updateUiSettings({ companion });
+      appState = result.state || { ...appState, uiSettings: result.uiSettings };
+      renderCompanionSettings();
+      renderCompanionShell();
+      renderCompanionRuntime(await window.siteNest.getCompanionRuntime());
+      companionWeather = await window.siteNest.getCompanionWeather();
+      showToast("小序设置已保存", companion.enabled ? "小序已启用" : "小序已停用");
+    } catch (error) {
+      showToast("无法保存小序设置", error?.message || "请稍后重试", "error");
+    } finally { dom.saveCompanionSettings.disabled = false; }
+  });
   dom.saveTaskSettingsButton.addEventListener("click", async () => {
     dom.saveTaskSettingsButton.disabled = true;
     try {
@@ -9371,6 +9463,9 @@ function bindEvents() {
   window.siteNest.onShortcutTrigger?.((payload) => {
     if (!payload?.actionId || !payload?.accelerator) return;
     invokeConfiguredShortcut(payload.actionId, payload.accelerator);
+  });
+  window.siteNest.onAppCommand?.((payload) => {
+    if (payload?.action === "companion.open") setCompanionPanelOpen(true);
   });
   dom.shortcutSearchInput?.addEventListener("input", renderShortcuts);
   dom.shortcutCategoryFilter?.addEventListener("change", renderShortcuts);

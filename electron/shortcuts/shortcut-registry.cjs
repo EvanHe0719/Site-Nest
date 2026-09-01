@@ -29,6 +29,8 @@ const DEFAULT_SHORTCUTS = Object.freeze([
   ["plan.open", "计划与记录", "workspace", "Mod+Shift+P", "打开计划页面"],
   ["timeline.quick-create", "计划与记录", "workspace", "Mod+Alt+T", "新增时间轴记录"],
   ["automation.open", "自动化与脚本", "workspace", "Mod+Shift+A", "打开自动化中心"],
+  ["companion.expand", "AI 与关怀", "browser", "", "展开小序面板"],
+  ["companion.ai.summarize", "AI 与关怀", "browser", "", "显式总结当前网页"],
 ].map(([actionId, category, scope, accelerator, description]) => Object.freeze({
   actionId, category, scope, accelerator, description,
 })));

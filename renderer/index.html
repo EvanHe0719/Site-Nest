@@ -923,6 +923,39 @@
                   </div>
                 </article>
 
+                <article class="settings-card settings-card--wide companion-settings-card" id="companionSettingsCard" data-settings-section="notifications" data-settings-panel="companion">
+                  <div class="settings-card-icon" data-icon="spark"></div>
+                  <div class="settings-card-copy">
+                    <div class="settings-title-row"><div><span class="section-kicker">XIAOXU COMPANION</span><h3>小序伴随助手</h3></div><span class="status-pill" id="companionSettingsStatus">默认关闭</span></div>
+                    <p>本地活动判断、天气和健康关怀默认关闭。开启后只使用低频前台/空闲状态；不会记录鼠标坐标、按键内容或网页正文。</p>
+                    <div class="companion-settings-groups">
+                      <section><h4>小序</h4><div class="task-settings-grid">
+                        <label class="settings-switch-row"><span><strong>启用小序</strong><small>旧用户默认关闭，可随时停用</small></span><input id="companionEnabledSetting" type="checkbox" /></label>
+                        <label class="task-time-setting"><span>专注贴边阈值（秒）</span><input id="companionFocusSeconds" type="number" min="20" max="60" value="30" /></label>
+                      </div></section>
+                      <section><h4>天气</h4><div class="task-settings-grid">
+                        <label class="settings-switch-row"><span><strong>启用天气感知</strong><small>仅主进程访问 Open-Meteo</small></span><input id="companionWeatherEnabled" type="checkbox" /></label>
+                        <label class="task-time-setting"><span>手动城市</span><input id="companionWeatherCity" maxlength="120" placeholder="例如：上海" /></label>
+                        <label class="task-time-setting"><span>刷新间隔（分钟）</span><input id="companionWeatherPollMinutes" type="number" min="10" max="180" value="30" /></label>
+                      </div><small class="settings-inline-note">不会在首次启动时请求定位；城市与天气快照不进入 Google Drive。</small></section>
+                      <section><h4>健康关怀</h4><div class="task-settings-grid">
+                        <label class="settings-switch-row"><span><strong>护眼提醒</strong><small>仅做一般休息提示</small></span><input id="companionEyeRestEnabled" type="checkbox" /></label>
+                        <label class="task-time-setting"><span>间隔（分钟）</span><input id="companionEyeRestMinutes" type="number" min="5" max="240" value="20" /></label>
+                        <label class="settings-switch-row"><span><strong>喝水提醒</strong><small>“已喝水”只用于提醒冷却</small></span><input id="companionWaterEnabled" type="checkbox" /></label>
+                        <label class="task-time-setting"><span>间隔（分钟）</span><input id="companionWaterMinutes" type="number" min="5" max="240" value="45" /></label>
+                        <label class="settings-switch-row"><span><strong>活动提醒</strong><small>不提供医疗诊断或建议</small></span><input id="companionMovementEnabled" type="checkbox" /></label>
+                        <label class="task-time-setting"><span>间隔（分钟）</span><input id="companionMovementMinutes" type="number" min="5" max="240" value="60" /></label>
+                      </div></section>
+                      <section><h4>安静时间</h4><div class="task-settings-grid">
+                        <label class="settings-switch-row"><span><strong>启用安静时间</strong><small>全屏、锁屏和睡眠时始终自动隐藏</small></span><input id="companionQuietEnabled" type="checkbox" /></label>
+                        <label class="task-time-setting"><span>开始</span><input id="companionQuietStart" type="time" value="22:00" /></label>
+                        <label class="task-time-setting"><span>结束</span><input id="companionQuietEnd" type="time" value="07:00" /></label>
+                      </div></section>
+                    </div>
+                    <div class="translation-form-actions"><button class="primary-button compact-button" id="saveCompanionSettings" type="button" data-action-id="companion.settings.save">保存小序设置</button><span class="settings-inline-note">DeepSeek 密钥继续使用“翻译与 DeepSeek”的安全配置。</span></div>
+                  </div>
+                </article>
+
                 <article class="settings-card settings-card--wide" id="taskNotificationSettings" data-settings-section="notifications" data-settings-panel="notifications">
                   <div class="settings-card-icon" data-icon="calendar"></div>
                   <div class="settings-card-copy">
@@ -1445,7 +1478,7 @@
                     <span class="companion-orb companion-orb--small" aria-hidden="true"><i></i></span>
                     <div><span class="section-kicker">COMPANION</span><h2>小序</h2></div>
                   </div>
-                  <button class="icon-button" id="closeCompanionPanel" type="button" aria-label="收起小序"><span data-icon="close"></span></button>
+                  <button class="icon-button" id="closeCompanionPanel" type="button" aria-label="收起小序" data-action-id="companion.collapse"><span data-icon="close"></span></button>
                 </header>
                 <div class="companion-panel-body">
                   <p class="companion-greeting" id="companionGreeting">我会安静地陪在这里。</p>
@@ -1454,9 +1487,9 @@
                     <small>默认不读取网页正文，也不会记录鼠标位置或按键内容。</small>
                   </div>
                   <div class="companion-quick-actions" aria-label="小序快捷操作">
-                    <button type="button" id="companionWeatherButton"><span data-icon="cloud"></span>天气</button>
-                    <button type="button" id="companionAssistantButton"><span data-icon="spark"></span>问小序</button>
-                    <button type="button" id="companionPauseButton"><span data-icon="clock"></span>暂停提醒</button>
+                    <button type="button" id="companionWeatherButton" data-action-id="companion.weather.open"><span data-icon="cloud"></span>天气</button>
+                    <button type="button" id="companionAssistantButton" data-action-id="companion.ai.ask"><span data-icon="spark"></span>问小序</button>
+                    <button type="button" id="companionPauseButton" data-action-id="companion.pause"><span data-icon="clock"></span>暂停提醒</button>
                   </div>
                   <section class="companion-content" id="companionContent" aria-live="polite">
                     <div class="companion-empty"><strong>功能尚未启用</strong><small>可在“设置与数据 → 计划与通知”中开启。</small></div>
@@ -1464,7 +1497,7 @@
                 </div>
               </aside>
               <div class="companion-edge-rail" id="companionEdgeRail" hidden>
-                <button class="companion-dock" id="companionDock" type="button" aria-label="打开小序" aria-controls="companionPanel" aria-expanded="false" title="小序">
+                <button class="companion-dock" id="companionDock" type="button" aria-label="打开小序" aria-controls="companionPanel" aria-expanded="false" title="小序" data-action-id="companion.expand">
                   <span class="companion-orb" aria-hidden="true"><i></i></span>
                   <span class="companion-dock-label">小序</span>
                 </button>

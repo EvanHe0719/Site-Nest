@@ -208,6 +208,8 @@ const {
   CompanionRuntimeService,
   WeatherService,
   classifyPageForAI,
+  normalizeCompanionRuntimeState,
+  normalizeCompanionSettings,
 } = require("./companion/index.cjs");
 
 const APP_ID = "local.qiye.sitehub";
@@ -348,6 +350,7 @@ let companionPageSummaryExtractor;
 const companionSensitiveSiteApprovals = new Set();
 let companionSystemLocked = false;
 let companionSystemSleeping = false;
+let lastCompanionNotificationKey = "";
 let selectionActionService;
 let pageTranslationController;
 const translationSessionAllowedHosts = new Set();
@@ -5238,6 +5241,11 @@ function companionRuntimeContext() {
 function emitCompanionRuntime(snapshot = companionRuntimeService?.snapshot()) {
   if (!snapshot || !mainWindow || mainWindow.isDestroyed()) return snapshot;
   mainWindow.webContents.send("companion:runtime", snapshot);
+  const reminderKey = snapshot.reminder ? `${snapshot.reminder.kind}:${snapshot.reminder.dueAt}` : "";
+  if (reminderKey && reminderKey !== lastCompanionNotificationKey && desktopNotificationService) {
+    lastCompanionNotificationKey = reminderKey;
+    desktopNotificationService.showCompanion(snapshot.reminder, { sound: cachedState?.taskSettings?.notificationSound !== false });
+  }
   return snapshot;
 }
 
@@ -5246,10 +5254,12 @@ async function initializeCompanionRuntime() {
   const state = await getState();
   companionRuntimeService = new CompanionRuntimeService({
     settings: state.uiSettings?.companion,
+    runtime: state.companionRuntimeState,
     getIdleSeconds: () => powerMonitor.getSystemIdleTime(),
     getContext: companionRuntimeContext,
     onSnapshot: (snapshot) => emitCompanionRuntime(snapshot),
   });
+  for (const hostname of state.companionRuntimeState?.aiAllowedHosts || []) companionSensitiveSiteApprovals.add(hostname);
   companionRuntimeService.start();
   powerMonitor.on("lock-screen", () => {
     companionSystemLocked = true;
@@ -5270,6 +5280,31 @@ async function initializeCompanionRuntime() {
     weatherService?.setSleeping(false);
   });
   return companionRuntimeService;
+}
+
+async function persistCompanionRuntimeState() {
+  if (!companionRuntimeService) return;
+  const state = await getState();
+  await commitStateCandidate({ ...state, companionRuntimeState: normalizeCompanionRuntimeState({ ...companionRuntimeService.runtimeState(), aiAllowedHosts: Array.from(companionSensitiveSiteApprovals) }) });
+}
+
+async function performCompanionRuntimeAction(action, input = {}) {
+  if (action === "toggle") {
+    const state = await getState();
+    const companion = normalizeCompanionSettings({
+      ...(state.uiSettings?.companion || {}),
+      enabled: state.uiSettings?.companion?.enabled !== true,
+    });
+    const result = updateUiSettingsInState(state, { companion }, { defaultSites: DEFAULT_SITES });
+    await commitStateCandidate(result.state);
+    const service = await initializeCompanionRuntime();
+    const snapshot = service.updateSettings(companion);
+    return emitCompanionRuntime(snapshot);
+  }
+  const service = await initializeCompanionRuntime();
+  const snapshot = service.action(action, input);
+  await persistCompanionRuntimeState();
+  return emitCompanionRuntime(snapshot);
 }
 
 function emitWeatherStatus(status = weatherService?.status()) {
@@ -5311,7 +5346,10 @@ async function confirmCompanionSensitivePage(classification) {
     cancelId: 2,
     noLink: true,
   });
-  if (result.response === 1) companionSensitiveSiteApprovals.add(classification.hostname);
+  if (result.response === 1) {
+    companionSensitiveSiteApprovals.add(classification.hostname);
+    void persistCompanionRuntimeState().catch(() => undefined);
+  }
   return result.response === 0 || result.response === 1;
 }
 
@@ -5744,6 +5782,13 @@ function taskRuntime() {
     onCompleteHabit: (habitId, localDate) => void checkInHabitFromNotification(habitId, localDate, "completed"),
     onSnoozeHabit: (reminderId, minutes) => void snoozeHabitReminder(reminderId, minutes),
     onSkipHabit: (habitId, localDate) => void checkInHabitFromNotification(habitId, localDate, "skipped"),
+    onCompanionOpen: () => {
+      void openMainWindowForTask();
+      mainWindow?.webContents.send("app:command", { action: "companion.open" });
+    },
+    onCompanionAcknowledge: (kind) => void performCompanionRuntimeAction(kind === "water" ? "ack-water" : "acknowledge"),
+    onCompanionSnooze: (_kind, minutes) => void performCompanionRuntimeAction("snooze", { minutes }),
+    onCompanionDismissToday: () => void performCompanionRuntimeAction("dismiss-today"),
   });
   trayService = new TrayService({
     Tray,
@@ -6029,8 +6074,7 @@ function registerIpc() {
     shortcutDispatcher.authorize(await getState(), request));
   ipcMain.handle("companion:get-runtime", async () => (await initializeCompanionRuntime()).snapshot());
   ipcMain.handle("companion:action", async (_event, payload) => {
-    const service = await initializeCompanionRuntime();
-    return service.action(String(payload?.action || ""), payload || {});
+    return performCompanionRuntimeAction(String(payload?.action || ""), payload || {});
   });
   ipcMain.on("companion:meaningful-action", () => companionRuntimeService?.recordMeaningfulAction());
   ipcMain.handle("companion:get-weather", async () => (await initializeWeatherService()).status());
@@ -6092,6 +6136,11 @@ function registerIpc() {
     await persistState();
     if (Object.hasOwn(patch || {}, "browserMemory")) {
       await getWebViewLifecycleManager().updateSettings(result.uiSettings.browserMemory);
+    }
+    if (Object.hasOwn(patch || {}, "companion")) {
+      const settings = normalizeCompanionSettings(result.uiSettings.companion);
+      companionRuntimeService?.updateSettings(settings);
+      weatherService?.updateSettings(settings.weather);
     }
     return { state: cachedState, uiSettings: result.uiSettings };
   });
@@ -7103,7 +7152,7 @@ function createMainWindow() {
           })()`);
           console.log(JSON.stringify({ googleLiveProbe: result }));
           await new Promise((resolve) => setTimeout(resolve, 500));
-        } else if (["settings", "settings-popup", "settings-translation", "settings-tasks", "settings-memory", "settings-diagnostics"].includes(CAPTURE_ROUTE)) {
+        } else if (["settings", "settings-popup", "settings-translation", "settings-tasks", "settings-memory", "settings-diagnostics", "settings-companion"].includes(CAPTURE_ROUTE)) {
           await mainWindow.webContents.executeJavaScript("navigateTo('settings')");
           await new Promise((resolve) => setTimeout(resolve, 700));
           if (CAPTURE_ROUTE === "settings-popup") {
@@ -7143,6 +7192,32 @@ function createMainWindow() {
               };
             })()`);
             console.log(JSON.stringify({ uiActionAuditProbe: auditResult }));
+            await new Promise((resolve) => setTimeout(resolve, 350));
+          } else if (CAPTURE_ROUTE === "settings-companion") {
+            const companionResult = await mainWindow.webContents.executeJavaScript(`(async () => {
+              const current = (await window.siteNest.getState()).uiSettings.companion || {};
+              const updated = await window.siteNest.updateUiSettings({ companion: {
+                ...current,
+                enabled: true,
+                onboardingSeen: true,
+                focusDockSeconds: 35,
+                weather: { ...(current.weather || {}), enabled: false, city: '上海', locationMode: 'manual', pollMinutes: 45 },
+                quietHours: { enabled: true, start: '22:30', end: '07:15' }
+              }});
+              appState = updated.state;
+              renderAll();
+              showSettingsSection('notifications', 'companion');
+              const paused = await window.siteNest.companionAction('pause', { minutes: 5 });
+              return {
+                enabled: appState.uiSettings.companion.enabled,
+                city: appState.uiSettings.companion.weather.city,
+                focusDockSeconds: appState.uiSettings.companion.focusDockSeconds,
+                stateLabel: document.getElementById('companionSettingsStatus')?.textContent,
+                pauseReason: paused.quietReason,
+                settingsVisible: !document.getElementById('companionSettingsCard')?.hidden
+              };
+            })()`);
+            console.log(JSON.stringify({ companionSettingsProbe: companionResult }));
             await new Promise((resolve) => setTimeout(resolve, 350));
           }
         } else if (CAPTURE_ROUTE === "habits") {

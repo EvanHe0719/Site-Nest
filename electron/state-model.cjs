@@ -40,8 +40,9 @@ const {
 const {
   normalizeTabGroups,
 } = require("./browser/tab-organization.cjs");
+const { normalizeCompanionRuntimeState, normalizeCompanionSettings } = require("./companion/settings.cjs");
 
-const CURRENT_SCHEMA_VERSION = 17;
+const CURRENT_SCHEMA_VERSION = 18;
 const MAX_RECENTLY_CLOSED_TABS = 50;
 const DEFAULT_WORKSPACE_ID = "personal";
 const DEFAULT_BROWSER_PROFILE_ID = "default";
@@ -326,6 +327,7 @@ function normalizeUiSettings(value) {
     translation: normalizeTranslationSettings(input.translation),
     browserMemory: normalizeBrowserMemorySettings(input.browserMemory),
     search: normalizeSearchSettings(input.search),
+    companion: normalizeCompanionSettings(input.companion),
     googleSync: {
       sites: input.googleSync?.sites !== false,
       plans: input.googleSync?.plans !== false,
@@ -973,6 +975,7 @@ function createInitialState(options = {}) {
     habitReminders: [],
     rewardLedger: [],
     usageDayAggregates: [],
+    companionRuntimeState: normalizeCompanionRuntimeState(),
     contentTagGroups: [],
     contentTags: [],
     contentTagAliases: [],
@@ -1162,6 +1165,7 @@ function normalizeStateV4(value, options = {}) {
     habitReminders,
     rewardLedger,
     usageDayAggregates: normalizeUsageDayAggregates(input.usageDayAggregates),
+    companionRuntimeState: normalizeCompanionRuntimeState(input.companionRuntimeState),
     ...contentTagState,
     timeZone: String(input.timeZone || deviceTimeZone()).slice(0, 100),
     userScripts,

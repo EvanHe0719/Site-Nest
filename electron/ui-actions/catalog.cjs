@@ -75,6 +75,22 @@ const UI_ACTION_CATALOG = Object.freeze([
   ["content-tag.merge", "合并内容标签", "content-tags"],
   ["settings.search.save", "保存搜索设置", "settings"],
   ["diagnostics.audit.refresh", "刷新界面动作审计", "diagnostics"],
+  ["companion.toggle", "启用或停用小序", "companion"],
+  ["companion.expand", "展开小序", "companion"],
+  ["companion.collapse", "收起小序", "companion"],
+  ["companion.hide", "隐藏小序", "companion"],
+  ["companion.wake", "唤醒小序", "companion"],
+  ["companion.pause", "暂停小序提醒", "companion"],
+  ["companion.resume", "恢复小序提醒", "companion"],
+  ["companion.snooze", "延后小序提醒", "companion"],
+  ["companion.ack-water", "确认已喝水", "companion"],
+  ["companion.weather.open", "打开小序天气", "companion"],
+  ["companion.weather.refresh", "刷新小序天气", "companion"],
+  ["companion.ai.ask", "询问小序", "companion"],
+  ["companion.ai.summarize", "用小序总结当前页", "companion"],
+  ["companion.ai.explain-selection", "用小序解释选中文字", "companion"],
+  ["companion.settings.open", "打开小序设置", "companion"],
+  ["companion.settings.save", "保存小序设置", "companion"],
 ].map(([id, label, domain]) => Object.freeze({ id, label, domain })));
 
 const UI_ACTION_IDS = Object.freeze(UI_ACTION_CATALOG.map((action) => action.id));
