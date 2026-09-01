@@ -54,5 +54,8 @@
       ],
       "artifactName": "栖页-${version}-便携版.${ext}"
     }
+  },
+  "dependencies": {
+    "pinyin-pro": "3.29.3"
   }
 }

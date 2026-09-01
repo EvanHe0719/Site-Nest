@@ -37,8 +37,10 @@ test("real Electron extracts visible text, renders both modes, detects dynamic t
   assert.equal(probe.insightShown.shown, true);
   assert.equal(probe.insight.count, 1);
   assert.match(probe.insight.text, /DeepSeek 查询/);
-  assert.match(probe.insight.text, /AI 解读 · 非实时网页搜索/);
-  assert.match(probe.insight.text, /这是页内 DeepSeek 解读/);
+  assert.match(probe.insight.text, /本地拼音 · DeepSeek 释义/);
+  assert.match(probe.insight.text, /古代文人让酒杯随曲水漂流/);
+  assert.match(probe.insight.pronunciation, /qū/);
+  assert.match(probe.insight.pronunciation, /shāng/);
   assert.match(probe.insight.position.left, /px$/);
   assert.match(probe.insight.position.top, /px$/);
   assert.match(probe.insight.pageUrl, /^data:text\/html/);

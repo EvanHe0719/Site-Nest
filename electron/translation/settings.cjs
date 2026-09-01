@@ -1,5 +1,7 @@
 const VALID_MODES = new Set(["bilingual", "translated"]);
 const VALID_RULE_MODES = new Set(["manual", "always", "never"]);
+const VALID_SHORT_SELECTION_MODES = new Set(["pronunciation-with-explanation", "pronunciation-only", "off"]);
+const { normalizeShortSelectionMaxCharacters } = require("./pronunciation-service.cjs");
 const DEFAULT_TRANSLATION_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_TRANSLATION_MODEL = "deepseek-v4-flash";
 const SENSITIVE_HOST_PATTERNS = [
@@ -62,6 +64,12 @@ function normalizeTranslationSettings(value = {}) {
     targetLanguage: String(input.targetLanguage || "zh-CN").trim().slice(0, 30) || "zh-CN",
     defaultMode: VALID_MODES.has(input.defaultMode) ? input.defaultMode : "bilingual",
     selectionButtonEnabled: input.selectionButtonEnabled !== false,
+    shortSelectionPronunciationMode: VALID_SHORT_SELECTION_MODES.has(input.shortSelectionPronunciationMode)
+      ? input.shortSelectionPronunciationMode
+      : input.shortSelectionPronunciationEnabled === false
+        ? "off"
+        : "pronunciation-with-explanation",
+    shortSelectionMaxCharacters: normalizeShortSelectionMaxCharacters(input.shortSelectionMaxCharacters),
     siteRules,
   };
 }

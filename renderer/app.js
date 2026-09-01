@@ -421,6 +421,8 @@ const dom = {
   translationTargetLanguage: document.getElementById("translationTargetLanguage"),
   translationDefaultMode: document.getElementById("translationDefaultMode"),
   translationSelectionButton: document.getElementById("translationSelectionButton"),
+  translationShortPronunciation: document.getElementById("translationShortPronunciation"),
+  translationShortPronunciationMax: document.getElementById("translationShortPronunciationMax"),
   testTranslationButton: document.getElementById("testTranslationButton"),
   clearTranslationKeyButton: document.getElementById("clearTranslationKeyButton"),
   zohoConfigForm: null,
@@ -551,6 +553,7 @@ const dom = {
 
 const DEFAULT_DEEPSEEK_API_BASE = "https://api.deepseek.com";
 const DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash";
+const DEFAULT_SHORT_PRONUNCIATION_MAX = 8;
 
 let appState = {
   workspaces: FALLBACK_WORKSPACES,
@@ -571,6 +574,8 @@ let appState = {
       targetLanguage: "zh-CN",
       defaultMode: "bilingual",
       selectionButtonEnabled: true,
+      shortSelectionPronunciationMode: "pronunciation-with-explanation",
+      shortSelectionMaxCharacters: DEFAULT_SHORT_PRONUNCIATION_MAX,
       siteRules: [],
     },
     browserMemory: { mode: "standard", inactiveMinutes: 15 },
@@ -4539,6 +4544,9 @@ function renderTranslationSettings() {
   dom.translationTargetLanguage.value = settings.targetLanguage || "zh-CN";
   dom.translationDefaultMode.value = settings.defaultMode || "bilingual";
   dom.translationSelectionButton.checked = settings.selectionButtonEnabled !== false;
+  dom.translationShortPronunciation.value = settings.shortSelectionPronunciationMode || "pronunciation-with-explanation";
+  dom.translationShortPronunciationMax.value = String(settings.shortSelectionMaxCharacters || DEFAULT_SHORT_PRONUNCIATION_MAX);
+  dom.translationShortPronunciationMax.disabled = dom.translationShortPronunciation.value === "off";
   dom.translationSettingsStatus.textContent = configured ? "DeepSeek 已配置" : "DeepSeek 未配置";
   dom.translationSettingsStatus.classList.toggle("status-pill--success", configured);
   dom.translatePageButton.classList.toggle("is-configured", configured);
@@ -4577,6 +4585,8 @@ function translationFormPayload() {
     targetLanguage: dom.translationTargetLanguage.value,
     defaultMode: dom.translationDefaultMode.value,
     selectionButtonEnabled: dom.translationSelectionButton.checked,
+    shortSelectionPronunciationMode: dom.translationShortPronunciation.value,
+    shortSelectionMaxCharacters: Number(dom.translationShortPronunciationMax.value || DEFAULT_SHORT_PRONUNCIATION_MAX),
   };
 }
 
@@ -8606,6 +8616,9 @@ function bindEvents() {
   });
   dom.toggleZohoConfig.addEventListener("click", () => toggleZohoConfigForm());
   dom.translationConfigForm.addEventListener("input", () => dirtySettingsPanels.add("translation"));
+  dom.translationShortPronunciation.addEventListener("change", () => {
+    dom.translationShortPronunciationMax.disabled = dom.translationShortPronunciation.value === "off";
+  });
   window.addEventListener("popstate", () => {
     const parsed = parseSettingsRoute(window.location.hash.slice(1));
     if (parsed) {

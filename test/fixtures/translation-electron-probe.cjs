@@ -6,6 +6,7 @@ const {
   CAPTURE_SELECTION_SCRIPT,
   insightPopoverScript,
 } = require("../../electron/translation/selection-action-service.cjs");
+const { pronunciationForSelection } = require("../../electron/translation/pronunciation-service.cjs");
 
 app.enableSandbox();
 
@@ -28,8 +29,10 @@ app.whenReady().then(async () => {
   })()`);
   const selectionAnchor = await window.webContents.executeJavaScript(CAPTURE_SELECTION_SCRIPT, true);
   const insightShown = await window.webContents.executeJavaScript(insightPopoverScript({
-    original: "First paragraph",
-    answer: "这是页内 DeepSeek 解读。",
+    original: "曲水流觞",
+    answer: "古代文人让酒杯随曲水漂流。",
+    pronunciation: pronunciationForSelection("曲水流觞"),
+    queryKind: "pronunciation",
     providerName: "DeepSeek",
     realtimeSearch: false,
     x: selectionAnchor.left,
@@ -41,6 +44,7 @@ app.whenReady().then(async () => {
     return {
       count: document.querySelectorAll('[data-qiye-selection-insight-popover]').length,
       text: panel?.textContent || '',
+      pronunciation: panel?.querySelector('[data-qiye-pronunciation]')?.textContent || '',
       position: panel ? { left: panel.style.left, top: panel.style.top } : null,
       pageUrl: location.href,
     };

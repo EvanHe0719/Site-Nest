@@ -1,5 +1,6 @@
 const { createHash } = require("node:crypto");
 const { normalizeTranslationSettings } = require("./settings.cjs");
+const { pronunciationForSelection } = require("./pronunciation-service.cjs");
 
 const SECRET_REFERENCE = "translation:openai-compatible:default";
 
@@ -168,17 +169,38 @@ class TranslationService {
     });
   }
 
+  async previewSelection(text) {
+    const selectedText = String(text || "").trim();
+    const status = await this.status();
+    const pronunciation = status.settings.shortSelectionPronunciationMode !== "off"
+      ? pronunciationForSelection(selectedText, {
+          maxCharacters: status.settings.shortSelectionMaxCharacters,
+        })
+      : null;
+    return {
+      configured: status.configured,
+      providerName: status.providerName,
+      pronunciation,
+      pronunciationOnly: Boolean(pronunciation && status.settings.shortSelectionPronunciationMode === "pronunciation-only"),
+      queryKind: pronunciation ? "pronunciation" : "explanation",
+    };
+  }
+
   async querySelection(text, options = {}) {
     const selectedText = String(text || "").trim();
     const status = await this.status();
+    const preview = await this.previewSelection(selectedText);
     const provider = this.registry.get(status.providerId);
     if (!provider || typeof provider.querySelection !== "function") {
       const error = Object.assign(new Error("当前 Provider 不支持划词查询"), { code: "NOT_CONFIGURED" });
       throw error;
     }
-    const providerOptions = await this.providerOptions(options.signal);
+    const providerOptions = {
+      ...(await this.providerOptions(options.signal)),
+      pronunciation: preview.pronunciation,
+    };
     const cacheKey = createHash("sha256")
-      .update(`selection-insight\n${provider.id}\n${providerOptions.model}\n${selectedText}`)
+      .update(`selection-insight\n${provider.id}\n${providerOptions.model}\n${preview.queryKind}\n${preview.pronunciation?.display || ""}\n${selectedText}`)
       .digest("hex");
     const cached = this.insightCache.get(cacheKey);
     if (cached) return { ...cached, providerName: status.providerName };
@@ -198,6 +220,8 @@ class TranslationService {
     }
     const normalized = {
       answer: String(result?.answer || "").trim(),
+      pronunciation: result?.pronunciation || preview.pronunciation,
+      queryKind: result?.queryKind || preview.queryKind,
       realtimeSearch: result?.realtimeSearch === true,
     };
     if (!normalized.answer) {

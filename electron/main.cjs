@@ -6257,6 +6257,8 @@ function registerIpc() {
       targetLanguage: payload?.targetLanguage,
       defaultMode: payload?.defaultMode,
       selectionButtonEnabled: payload?.selectionButtonEnabled,
+      shortSelectionPronunciationMode: payload?.shortSelectionPronunciationMode,
+      shortSelectionMaxCharacters: payload?.shortSelectionMaxCharacters,
     });
   });
   ipcMain.handle("translation:test", (_event, payload) =>

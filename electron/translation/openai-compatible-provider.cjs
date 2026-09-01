@@ -156,6 +156,10 @@ class OpenAICompatibleTranslationProvider {
     const timeout = setTimeout(() => controller.abort(new Error("timeout")), options.timeoutMs || DEFAULT_TIMEOUT_MS);
     const abortFromParent = () => controller.abort(options.signal?.reason);
     options.signal?.addEventListener("abort", abortFromParent, { once: true });
+    const pronunciation = options.pronunciation && typeof options.pronunciation === "object"
+      ? options.pronunciation
+      : null;
+    const pronunciationMode = pronunciation?.display ? "short_chinese_term" : "explain_selected_text";
     try {
       const response = await this.fetchFn(endpoint, {
         method: "POST",
@@ -170,13 +174,16 @@ class OpenAICompatibleTranslationProvider {
           messages: [
             {
               role: "system",
-              content: "You explain user-selected text in concise Simplified Chinese. Give the likely meaning, relevant context, and one short example when useful. Clearly state uncertainty. You do not have live web search in this request, so never claim that you browsed the web or verified current information. Return plain text only.",
+              content: pronunciationMode === "short_chinese_term"
+                ? "You explain a short Chinese word or idiom in concise Simplified Chinese. A local dictionary already supplies the displayed pinyin; do not replace it or invent a conflicting reading. Explain the meaning in the current term, mention a polyphonic ambiguity only when relevant, and give one short example. You do not have live web search in this request. Return plain text only."
+                : "You explain user-selected text in concise Simplified Chinese. Give the likely meaning, relevant context, and one short example when useful. Clearly state uncertainty. You do not have live web search in this request, so never claim that you browsed the web or verified current information. Return plain text only.",
             },
             {
               role: "user",
               content: JSON.stringify({
-                task: "explain_selected_text",
+                task: pronunciationMode,
                 selectedText,
+                localDictionaryPinyin: pronunciation?.display || undefined,
                 outputLanguage: options.targetLanguage || "zh-CN",
               }),
             },
@@ -192,7 +199,12 @@ class OpenAICompatibleTranslationProvider {
             : "API_ERROR";
         throw new TranslationProviderError(code, `DeepSeek 查询失败（HTTP ${response.status}）`);
       }
-      return { answer: responseText(await response.json()), realtimeSearch: false };
+      return {
+        answer: responseText(await response.json()),
+        pronunciation,
+        queryKind: pronunciationMode === "short_chinese_term" ? "pronunciation" : "explanation",
+        realtimeSearch: false,
+      };
     } catch (error) {
       if (error instanceof TranslationProviderError) throw error;
       if (controller.signal.aborted) {

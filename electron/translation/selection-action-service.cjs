@@ -84,19 +84,30 @@ function insightPopoverScript(payload) {
     const header=document.createElement('div'); header.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px';
     const heading=document.createElement('div'); heading.style.cssText='display:grid;gap:2px';
     const title=document.createElement('strong'); title.style.cssText='font:700 14px/1.3 system-ui,sans-serif;color:#173f36'; title.textContent='DeepSeek 查询';
-    const badge=document.createElement('small'); badge.style.cssText='font:11px/1.3 system-ui,sans-serif;color:#77847d'; badge.textContent=data.realtimeSearch ? '已连接实时搜索' : 'AI 解读 · 非实时网页搜索';
+    const badge=document.createElement('small'); badge.style.cssText='font:11px/1.3 system-ui,sans-serif;color:#77847d'; badge.textContent=data.pronunciation ? (data.pronunciationOnly ? '本地拼音 · 未调用 DeepSeek' : '本地拼音 · DeepSeek 释义') : (data.realtimeSearch ? '已连接实时搜索' : 'AI 解读 · 非实时网页搜索');
     heading.append(title,badge);
     const close=makeButton('关闭',()=>{ panel.remove(); window.open('qiye-action://translation-close','_blank'); });
     header.append(heading,close);
     const query=document.createElement('div'); query.style.cssText='color:#637069;background:#f5f5f1;border-radius:9px;padding:8px 10px;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 system-ui,sans-serif'; query.textContent=data.original;
+    let reading=null;
+    if(data.pronunciation && Array.isArray(data.pronunciation.items) && data.pronunciation.items.length){
+      reading=document.createElement('section'); reading.dataset.qiyePronunciation='true'; reading.style.cssText='margin-top:9px;padding:11px;background:#fff8e8;border:1px solid #ead8ae;border-radius:10px;color:#42351d';
+      const readingTitle=document.createElement('small'); readingTitle.style.cssText='display:block;color:#876b32;margin-bottom:7px;font:600 11px/1.3 system-ui,sans-serif'; readingTitle.textContent='拼音（本地词典）';
+      const syllables=document.createElement('div'); syllables.style.cssText='display:flex;flex-wrap:wrap;gap:7px 9px';
+      data.pronunciation.items.forEach((item)=>{ const cell=document.createElement('span');cell.style.cssText='display:grid;justify-items:center;gap:1px;min-width:30px';const py=document.createElement('span');py.style.cssText='font:600 13px/1.2 system-ui,sans-serif;color:#a05e1c';py.textContent=String(item.pinyin||'');const hz=document.createElement('strong');hz.style.cssText='font:700 21px/1.2 system-ui,sans-serif;color:#2f281c';hz.textContent=String(item.character||'');cell.append(py,hz);syllables.append(cell)});
+      reading.append(readingTitle,syllables);
+      if(Array.isArray(data.pronunciation.alternatives) && data.pronunciation.alternatives.length){const alt=document.createElement('small');alt.style.cssText='display:block;margin-top:7px;color:#806d49;font:11px/1.45 system-ui,sans-serif';alt.textContent='其他常见读音：'+data.pronunciation.alternatives.map((item)=>String(item.character||'')+' '+(item.readings||[]).join(' / ')).join('；');reading.append(alt)}
+    }
     const answer=document.createElement('div'); answer.style.cssText='font:14px/1.65 system-ui,sans-serif;background:#edf7f2;border-left:3px solid #27856e;border-radius:9px;padding:10px;margin-top:9px;white-space:pre-wrap;overflow-wrap:anywhere;color:#17231f';
     answer.textContent=data.loading ? '正在查询 DeepSeek…' : (data.error || data.answer || '没有返回结果');
     if(data.error) answer.style.cssText += ';background:#fff1ee;border-left-color:#c5685c;color:#8b4038';
-    const provider=document.createElement('small'); provider.style.cssText='display:block;color:#77847d;margin:7px 0;font:11px/1.4 system-ui,sans-serif'; provider.textContent='服务：' + (data.providerName || 'DeepSeek');
+    const provider=document.createElement('small'); provider.style.cssText='display:block;color:#77847d;margin:7px 0;font:11px/1.4 system-ui,sans-serif'; provider.textContent=data.pronunciation ? (data.pronunciationOnly ? '拼音：本地词典 · 没有发送到外部服务' : '拼音：本地词典 · 释义：' + (data.providerName || 'DeepSeek')) : '服务：' + (data.providerName || 'DeepSeek');
     const actions=document.createElement('div'); actions.style.cssText='display:flex;flex-wrap:wrap;gap:7px';
+    if(data.pronunciation){actions.append(makeButton('朗读选词',()=>{try{speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(String(data.original||''));utterance.lang='zh-CN';utterance.rate=.82;speechSynthesis.speak(utterance)}catch{}}));actions.append(makeButton('复制拼音',async()=>{const value=String(data.pronunciation.display||'');try{await navigator.clipboard.writeText(value)}catch{const t=document.createElement('textarea');t.value=value;document.body.append(t);t.select();document.execCommand('copy');t.remove()}}))}
     if(!data.loading && !data.error && data.answer) actions.append(makeButton('复制结果',async()=>{ try{await navigator.clipboard.writeText(data.answer)}catch{const t=document.createElement('textarea');t.value=data.answer;document.body.append(t);t.select();document.execCommand('copy');t.remove()}}));
     if(!data.loading) actions.append(makeButton('重新查询',()=>window.open('qiye-action://selection-insight-retry','_blank')));
-    panel.append(header,query,answer,provider,actions);
+    const hint=document.createElement('small');hint.style.cssText='display:block;color:#89938e;margin-top:8px;font:11px/1.4 system-ui,sans-serif';hint.textContent='结果中的生字也可以继续划词，再次右键查询读音。';
+    panel.append(header,query);if(reading)panel.append(reading);panel.append(answer,provider,actions,hint);
     (document.body||document.documentElement).appendChild(panel);
     const width=panel.getBoundingClientRect().width || 420;
     const height=panel.getBoundingClientRect().height || 260;
@@ -219,7 +230,11 @@ class SelectionActionService {
       this.onNotice?.("选中文字超过 2000 字符，请缩短后重试", "error");
       return false;
     }
-    if (await this.confirmSensitive?.(input.pageUrl) === false) return false;
+    let preview = { configured: false, providerName: "DeepSeek", pronunciation: null, pronunciationOnly: false, queryKind: "explanation" };
+    if (typeof this.translationService.previewSelection === "function") {
+      preview = await this.translationService.previewSelection(text).catch(() => preview);
+    }
+    if (!preview.pronunciationOnly && await this.confirmSensitive?.(input.pageUrl) === false) return false;
     const capture = await contents.executeJavaScript(CAPTURE_SELECTION_SCRIPT, true).catch(() => null);
     const anchor = {
       x: Number(capture?.captured ? capture.left : input.x || 24),
@@ -234,7 +249,24 @@ class SelectionActionService {
     this.memory.set(contents.id, memory);
     try {
       const status = await this.translationService.status();
-      if (!status.configured) {
+      if (typeof this.translationService.previewSelection !== "function") {
+        preview = { ...preview, configured: status.configured, providerName: status.providerName };
+      }
+      if (preview.pronunciationOnly && preview.pronunciation) {
+        const completed = {
+          ...memory,
+          answer: "仅显示本地拼音；本次没有调用 DeepSeek。",
+          pronunciation: preview.pronunciation,
+          pronunciationOnly: true,
+          queryKind: "pronunciation",
+          providerName: "未调用 DeepSeek",
+          realtimeSearch: false,
+        };
+        this.memory.set(contents.id, completed);
+        await contents.executeJavaScript(insightPopoverScript({ ...completed, original: text }), true);
+        return true;
+      }
+      if (!status.configured && !preview.pronunciation) {
         await contents.executeJavaScript(insightPopoverScript({
           ...memory,
           original: text,
@@ -245,11 +277,26 @@ class SelectionActionService {
         this.onNotice?.("DeepSeek 尚未配置，请前往设置与数据", "error");
         return false;
       }
+      if (!status.configured && preview.pronunciation) {
+        const completed = {
+          ...memory,
+          answer: "拼音已由本地词典识别。配置 DeepSeek API Key 后可以继续查看词义和例句。",
+          pronunciation: preview.pronunciation,
+          pronunciationOnly: true,
+          queryKind: "pronunciation",
+          providerName: "DeepSeek 未配置",
+          realtimeSearch: false,
+        };
+        this.memory.set(contents.id, completed);
+        await contents.executeJavaScript(insightPopoverScript({ ...completed, original: text }), true);
+        return true;
+      }
       await contents.executeJavaScript(insightPopoverScript({
         ...memory,
         original: text,
         loading: true,
         providerName: status.providerName,
+        pronunciation: preview.pronunciation,
         realtimeSearch: false,
       }), true);
       const result = await this.translationService.querySelection(text, { signal: controller.signal });
@@ -257,6 +304,8 @@ class SelectionActionService {
       const completed = {
         ...memory,
         answer: result.answer,
+        pronunciation: result.pronunciation || preview.pronunciation,
+        queryKind: result.queryKind || preview.queryKind,
         providerName: result.providerName || status.providerName,
         realtimeSearch: result.realtimeSearch === true,
       };
@@ -271,6 +320,7 @@ class SelectionActionService {
             ...memory,
             original: text,
             error: failure?.message || "DeepSeek 查询失败",
+            pronunciation: preview.pronunciation,
             providerName: "DeepSeek",
             realtimeSearch: false,
           }), true).catch(() => false);

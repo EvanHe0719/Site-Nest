@@ -12,6 +12,8 @@ const {
   isSensitiveTranslationUrl,
   normalizeTranslationSettings,
   insightPopoverScript,
+  isShortChineseTerm,
+  pronunciationForSelection,
   siteRuleForUrl,
 } = require("../../electron/translation/index.cjs");
 const {
@@ -24,6 +26,8 @@ test("translation settings normalize public fields and identify sensitive sites"
     baseUrl: DEFAULT_TRANSLATION_BASE_URL,
     model: DEFAULT_TRANSLATION_MODEL,
   });
+  assert.equal(normalizeTranslationSettings().shortSelectionPronunciationMode, "pronunciation-with-explanation");
+  assert.equal(normalizeTranslationSettings().shortSelectionMaxCharacters, 8);
   const settings = normalizeTranslationSettings({
     publicConfig: { baseUrl: "https://user:pass@translator.example/v1?api_key=must-drop#secret", model: "m1", apiKey: "must-drop" },
     targetLanguage: "en",
@@ -40,6 +44,19 @@ test("translation settings normalize public fields and identify sensitive sites"
   assert.equal(siteRuleForUrl(settings, "https://desk.zoho.com/agent/tickets/1").privacyAllowed, true);
   assert.equal(isSensitiveTranslationUrl("https://accounts.sap.com/saml2/idp/sso"), true);
   assert.equal(isSensitiveTranslationUrl("https://example.com/article"), false);
+});
+
+test("short Chinese terms receive local tone-marked pinyin while long sentences do not", () => {
+  assert.equal(isShortChineseTerm("曲水流觞", 8), true);
+  assert.equal(isShortChineseTerm("这是一段明显超过配置长度的完整句子", 8), false);
+  assert.equal(isShortChineseTerm("DeepSeek", 8), false);
+  const result = pronunciationForSelection("曲水流觞", { maxCharacters: 8 });
+  assert.equal(result.display, "qū shuǐ liú shāng");
+  assert.deepEqual(result.items.map((item) => item.character), ["曲", "水", "流", "觞"]);
+  assert.equal(pronunciationForSelection("曲水流觞", { maxCharacters: 2 }), null);
+  const polyphonicResult = pronunciationForSelection("银行", { maxCharacters: 8 });
+  assert.equal(polyphonicResult.display, "yín háng");
+  assert.ok(polyphonicResult.alternatives.some((item) => item.character === "行" && item.readings.includes("xíng")));
 });
 
 test("OpenAI-compatible endpoint requires HTTPS except for a local provider", () => {
@@ -95,13 +112,43 @@ test("DeepSeek selection query uses the compatible chat endpoint and never claim
     apiKey: "deepseek-key",
     targetLanguage: "zh-CN",
   });
-  assert.deepEqual(result, { answer: "这是一个简洁解释。", realtimeSearch: false });
+  assert.deepEqual(result, {
+    answer: "这是一个简洁解释。",
+    pronunciation: null,
+    queryKind: "explanation",
+    realtimeSearch: false,
+  });
   assert.equal(request.url, "https://api.deepseek.com/chat/completions");
   assert.equal(request.options.headers.authorization, "Bearer deepseek-key");
   const body = JSON.parse(request.options.body);
   assert.equal(body.model, DEFAULT_TRANSLATION_MODEL);
   assert.match(body.messages[0].content, /do not have live web search/i);
   assert.equal(body.messages[1].content.includes("南望封市境内"), true);
+});
+
+test("DeepSeek short-term query preserves local pinyin and asks only for the meaning", async () => {
+  let request;
+  const provider = new OpenAICompatibleTranslationProvider({
+    fetchFn: async (_url, options) => {
+      request = options;
+      return {
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: "古代饮酒用的酒杯。" } }] }),
+      };
+    },
+  });
+  const pronunciation = pronunciationForSelection("觞");
+  const result = await provider.querySelection("觞", {
+    baseUrl: DEFAULT_TRANSLATION_BASE_URL,
+    model: DEFAULT_TRANSLATION_MODEL,
+    apiKey: "deepseek-key",
+    pronunciation,
+  });
+  const body = JSON.parse(request.body);
+  assert.equal(JSON.parse(body.messages[1].content).task, "short_chinese_term");
+  assert.equal(JSON.parse(body.messages[1].content).localDictionaryPinyin, "shāng");
+  assert.equal(result.pronunciation.display, "shāng");
+  assert.equal(result.queryKind, "pronunciation");
 });
 
 test("TranslationService stores only the API key in the encrypted secret store", async () => {
@@ -204,6 +251,66 @@ test("selection insight is positioned from the captured range and remains an in-
   assert.match(scripts[2], /AI 解读 · 非实时网页搜索/);
   assert.doesNotMatch(scripts[2], /innerHTML|location\.href/);
   assert.match(insightPopoverScript({ original: "x", answer: "y" }), /data-qiye-selection-insight-popover/);
+});
+
+test("a short Chinese selection shows local pinyin even before DeepSeek is configured", async () => {
+  const scripts = [];
+  const pronunciation = pronunciationForSelection("曲水流觞");
+  const contents = {
+    id: 29,
+    isDestroyed: () => false,
+    getURL: () => "https://example.com/article",
+    executeJavaScript: async (script) => {
+      scripts.push(script);
+      if (script.includes("window.__qiyeSelectionCapture")) {
+        return { captured: true, left: 20, top: 30, bottom: 50 };
+      }
+      return { shown: true };
+    },
+  };
+  const service = new SelectionActionService({
+    translationService: {
+      status: async () => ({ configured: false, providerName: "DeepSeek" }),
+      previewSelection: async () => ({ configured: false, providerName: "DeepSeek", pronunciation, pronunciationOnly: false, queryKind: "pronunciation" }),
+      querySelection: async () => { throw new Error("must not call DeepSeek"); },
+    },
+    confirmSensitive: async () => true,
+  });
+  assert.equal(await service.query({ webContents: contents, text: "曲水流觞", pageUrl: contents.getURL() }), true);
+  assert.equal(scripts.length, 2);
+  assert.match(scripts[1], /qū shuǐ liú shāng/);
+  assert.match(scripts[1], /拼音（本地词典）/);
+  assert.match(scripts[1], /配置 DeepSeek API Key 后可以继续查看词义/);
+});
+
+test("pronunciation-only mode neither confirms a sensitive upload nor calls DeepSeek", async () => {
+  const scripts = [];
+  let confirmations = 0;
+  let apiCalls = 0;
+  const pronunciation = pronunciationForSelection("觞");
+  const contents = {
+    id: 39,
+    isDestroyed: () => false,
+    getURL: () => "https://desk.zoho.com/agent/tickets/1",
+    executeJavaScript: async (script) => {
+      scripts.push(script);
+      if (script.includes("window.__qiyeSelectionCapture")) return { captured: true, left: 20, top: 30, bottom: 50 };
+      return { shown: true };
+    },
+  };
+  const service = new SelectionActionService({
+    translationService: {
+      status: async () => ({ configured: true, providerName: "DeepSeek" }),
+      previewSelection: async () => ({ configured: true, providerName: "DeepSeek", pronunciation, pronunciationOnly: true, queryKind: "pronunciation" }),
+      querySelection: async () => { apiCalls += 1; },
+    },
+    confirmSensitive: async () => { confirmations += 1; return true; },
+  });
+  assert.equal(await service.query({ webContents: contents, text: "觞", pageUrl: contents.getURL() }), true);
+  assert.equal(confirmations, 0);
+  assert.equal(apiCalls, 0);
+  assert.match(scripts[1], /shāng/);
+  assert.match(scripts[1], /未调用 DeepSeek/);
 });
 
 test("page controller batches extracted text, applies a reversible mode and disconnects on restore", async () => {

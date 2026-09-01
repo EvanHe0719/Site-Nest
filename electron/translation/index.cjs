@@ -6,6 +6,11 @@ const { PageTranslationRenderer } = require("./page-translation-renderer.cjs");
 const { PageTranslationController } = require("./page-translation-controller.cjs");
 const { SelectionActionService, insightPopoverScript } = require("./selection-action-service.cjs");
 const {
+  DEFAULT_SHORT_SELECTION_MAX_CHARACTERS,
+  isShortChineseTerm,
+  pronunciationForSelection,
+} = require("./pronunciation-service.cjs");
+const {
   DEFAULT_TRANSLATION_BASE_URL,
   DEFAULT_TRANSLATION_MODEL,
   normalizeTranslationSettings,
@@ -24,8 +29,11 @@ module.exports = {
   TranslationService,
   DEFAULT_TRANSLATION_BASE_URL,
   DEFAULT_TRANSLATION_MODEL,
+  DEFAULT_SHORT_SELECTION_MAX_CHARACTERS,
   insightPopoverScript,
   isSensitiveTranslationUrl,
+  isShortChineseTerm,
   normalizeTranslationSettings,
+  pronunciationForSelection,
   siteRuleForUrl,
 };
