@@ -81,6 +81,9 @@ test("shell rail is single-instance, keyboard accessible, reduced-motion aware a
   assert.equal((html.match(/id="companionPanel"/g) || []).length, 1);
   assert.match(html, /aria-controls="companionPanel"/);
   assert.match(html, /aria-expanded="false"/);
+  assert.match(html, /id="companionQuickAskForm"/);
+  assert.match(html, /id="companionWeatherPill"/);
+  assert.match(styles, /xiaoxu-orb-pulse/);
   assert.match(styles, /prefers-reduced-motion:\s*reduce/);
   assert.match(renderer, /if \(companionPanelOpen\)/);
   assert.match(renderer, /dom\.companionDock\.focus/);

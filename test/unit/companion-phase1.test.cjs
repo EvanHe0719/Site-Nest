@@ -26,12 +26,14 @@ test("right panel coordinator never leaves page actions and companion open toget
   assert.deepEqual(coordinator.close("companion"), { activePanel: null, closedPanel: "companion" });
 });
 
-test("companion is a shell rail that owns layout width rather than a remote-page injection", () => {
+test("companion breathing orb owns layout width rather than relying on a remote-page overlay", () => {
   const root = path.resolve(__dirname, "..", "..");
   const html = fs.readFileSync(path.join(root, "renderer", "index.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "renderer", "styles.css"), "utf8");
   const main = fs.readFileSync(path.join(root, "electron", "main.cjs"), "utf8");
   assert.match(html, /id="companionEdgeRail"/);
-  assert.match(css, /grid-template-columns:\s*minmax\(0, 1fr\) 44px/);
+  assert.match(html, /class="companion-dock xiaoxu-orb-btn"/);
+  assert.match(css, /grid-template-columns:\s*minmax\(0, 1fr\) 60px/);
+  assert.doesNotMatch(css, /\.xiaoxu-floating-widget\s*\{[^}]*position:\s*fixed/s);
   assert.doesNotMatch(main, /executeJavaScript\([^)]*companion/i);
 });

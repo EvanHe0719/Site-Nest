@@ -575,6 +575,11 @@ const dom = {
   companionWeatherButton: document.getElementById("companionWeatherButton"),
   companionAssistantButton: document.getElementById("companionAssistantButton"),
   companionPauseButton: document.getElementById("companionPauseButton"),
+  companionWeatherPill: document.getElementById("companionWeatherPill"),
+  companionWeatherText: document.getElementById("companionWeatherText"),
+  companionQuickAskForm: document.getElementById("companionQuickAskForm"),
+  companionQuickAskInput: document.getElementById("companionQuickAskInput"),
+  companionQuickAskSend: document.getElementById("companionQuickAskSend"),
   appContextMenu: document.getElementById("appContextMenu"),
   toastStack: document.getElementById("toastStack"),
 };
@@ -8369,6 +8374,8 @@ function renderCompanionShell() {
   dom.companionWeatherButton.disabled = !enabled;
   dom.companionAssistantButton.disabled = !enabled;
   dom.companionPauseButton.disabled = !enabled;
+  dom.companionQuickAskInput.disabled = !enabled;
+  dom.companionQuickAskSend.disabled = !enabled;
   requestAnimationFrame(() => requestAnimationFrame(syncBrowserBounds));
 }
 
@@ -8455,6 +8462,10 @@ function weatherValue(value, suffix = "") {
 
 function renderCompanionWeather(status = companionWeather) {
   companionWeather = { ...companionWeather, ...(status || {}) };
+  const pillSnapshot = companionWeather.snapshot;
+  dom.companionWeatherText.textContent = pillSnapshot
+    ? `${weatherValue(pillSnapshot.temperature, "℃")} ${pillSnapshot.condition || "天气"}`
+    : companionWeather.configured ? "天气待更新" : "天气未配置";
   if (dom.companionContent.dataset.panel !== "weather") return;
   dom.companionContent.replaceChildren();
   if (!companionWeather.configured) {
@@ -8538,7 +8549,7 @@ function companionAIRequestIdForNow() {
   return `companion-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function renderCompanionAssistant(status = {}) {
+function renderCompanionAssistant(status = {}, options = {}) {
   dom.companionContent.replaceChildren();
   const form = document.createElement("form");
   form.className = "companion-ai-form";
@@ -8548,6 +8559,7 @@ function renderCompanionAssistant(status = {}) {
   input.placeholder = status.configured === false ? "请先在翻译设置中配置 DeepSeek" : "问一个简短的问题…";
   input.disabled = status.configured === false;
   input.setAttribute("aria-label", "询问小序");
+  input.value = String(options.prompt || "").slice(0, 4_000);
   const actions = document.createElement("div");
   actions.className = "companion-ai-actions";
   const ask = document.createElement("button");
@@ -8645,11 +8657,25 @@ function renderCompanionAssistant(status = {}) {
   explain.addEventListener("click", () => void run("explain"));
   form.append(input, actions);
   dom.companionContent.append(form, result, resultActions);
+  if (options.autoSubmit && input.value.trim() && status.configured !== false) form.requestSubmit();
 }
 
 async function loadCompanionAssistant() {
   const status = await window.siteNest?.getCompanionAIStatus?.();
   renderCompanionAssistant(status || { configured: false });
+}
+
+async function askCompanionFromQuickBox() {
+  const prompt = dom.companionQuickAskInput.value.trim();
+  if (!prompt || !companionEnabled()) return;
+  setCompanionPanelOpen(true, "assistant");
+  const status = await window.siteNest?.getCompanionAIStatus?.() || { configured: false };
+  renderCompanionAssistant(status, { prompt, autoSubmit: status.configured !== false });
+  if (status.configured === false) {
+    showToast("DeepSeek 尚未配置", "公开设置可以同步，但 API Key 需要在本机安全配置", "error");
+    return;
+  }
+  dom.companionQuickAskInput.value = "";
 }
 
 async function summarizeCurrentPageWithCompanion() {
@@ -8846,6 +8872,14 @@ function bindEvents() {
   dom.companionWeatherButton.addEventListener("click", () => {
     setCompanionPanelOpen(true, "weather");
     void loadCompanionWeather();
+  });
+  dom.companionWeatherPill.addEventListener("click", () => {
+    setCompanionPanelOpen(true, "weather");
+    void loadCompanionWeather();
+  });
+  dom.companionQuickAskForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void askCompanionFromQuickBox();
   });
   dom.companionAssistantButton.addEventListener("click", () => {
     setCompanionPanelOpen(true, "assistant");
@@ -9504,6 +9538,7 @@ function bindEvents() {
       renderCompanionShell();
       renderCompanionRuntime(await window.siteNest.getCompanionRuntime());
       companionWeather = await window.siteNest.getCompanionWeather();
+      renderCompanionWeather(companionWeather);
       showToast("小序设置已保存", companion.enabled ? "小序已启用" : "小序已停用");
     } catch (error) {
       showToast("无法保存小序设置", error?.message || "请稍后重试", "error");
@@ -10306,6 +10341,8 @@ async function initialize() {
   try {
     appState = await window.siteNest.getState();
     renderCompanionRuntime(await window.siteNest?.getCompanionRuntime?.());
+    companionWeather = await window.siteNest?.getCompanionWeather?.() || companionWeather;
+    renderCompanionWeather(companionWeather);
     await loadShortcuts();
     timelineState = {
       ...timelineState,

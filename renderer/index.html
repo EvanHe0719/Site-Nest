@@ -1475,16 +1475,23 @@
                   尚未执行页面动作
                 </div>
               </aside>
-              <aside class="companion-panel" id="companionPanel" aria-label="小序伴随助手" aria-hidden="true" hidden>
+              <aside class="companion-panel xiaoxu-popover" id="companionPanel" aria-label="小序伴随助手" aria-hidden="true" hidden>
                 <header class="companion-panel-header">
                   <div class="companion-identity">
                     <span class="companion-orb companion-orb--small" aria-hidden="true"><i></i></span>
                     <div><span class="section-kicker">COMPANION</span><h2>小序</h2></div>
                   </div>
-                  <button class="icon-button" id="closeCompanionPanel" type="button" aria-label="收起小序" data-action-id="companion.collapse"><span data-icon="close"></span></button>
+                  <div class="xiaoxu-popover-header-actions">
+                    <button class="xiaoxu-weather-pill" id="companionWeatherPill" type="button" aria-label="查看小序天气"><span data-icon="cloud"></span><span id="companionWeatherText">天气未配置</span></button>
+                    <button class="icon-button icon-button--small" id="closeCompanionPanel" type="button" aria-label="收起小序" data-action-id="companion.collapse"><span data-icon="close"></span></button>
+                  </div>
                 </header>
                 <div class="companion-panel-body">
                   <p class="companion-greeting" id="companionGreeting">我会安静地陪在这里。</p>
+                  <form class="xiaoxu-ai-box" id="companionQuickAskForm">
+                    <input type="text" id="companionQuickAskInput" maxlength="4000" placeholder="向小序提问…" aria-label="向小序提问" />
+                    <button class="xiaoxu-ai-send" id="companionQuickAskSend" type="submit" title="发送" aria-label="发送给小序"><span data-icon="spark"></span></button>
+                  </form>
                   <div class="companion-status-card" id="companionStatusCard">
                     <span class="status-pill" id="companionStateLabel">待机</span>
                     <small>默认不读取网页正文，也不会记录鼠标位置或按键内容。</small>
@@ -1499,10 +1506,11 @@
                   </section>
                 </div>
               </aside>
-              <div class="companion-edge-rail" id="companionEdgeRail" hidden>
-                <button class="companion-dock" id="companionDock" type="button" aria-label="打开小序" aria-controls="companionPanel" aria-expanded="false" title="小序" data-action-id="companion.expand">
-                  <span class="companion-orb" aria-hidden="true"><i></i></span>
-                  <span class="companion-dock-label">小序</span>
+              <div class="companion-edge-rail xiaoxu-floating-widget" id="companionEdgeRail" hidden>
+                <button class="companion-dock xiaoxu-orb-btn" id="companionDock" type="button" aria-label="打开小序" aria-controls="companionPanel" aria-expanded="false" title="小序" data-action-id="companion.expand">
+                  <span class="orb-pulse-ring" aria-hidden="true"></span>
+                  <span class="orb-core" aria-hidden="true"><i class="orb-eye"></i><i class="orb-eye"></i></span>
+                  <span class="visually-hidden">小序</span>
                 </button>
                 <div class="companion-bubble" id="companionBubble" role="status" hidden></div>
               </div>
