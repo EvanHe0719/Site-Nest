@@ -280,7 +280,7 @@ test(
 );
 
 test(
-  "0.5.8 小序悬浮卡片保护命中区域并隔离网页的鼠标与键盘事件",
+  "0.5.9 小序悬浮卡片保护命中区域并隔离网页的鼠标与键盘事件",
   { timeout: 90000 },
   async (t) => {
     const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-companion-discoverability-"));

@@ -165,13 +165,13 @@ test("in-page widget is isolated, interactive, reduced-motion aware and excludes
   assert.match(main, /companion:page-widget-action/);
 });
 
-test("production lifecycle stops companion, weather and AI in the 0.5.8 release", () => {
+test("production lifecycle stops companion, weather and AI in the 0.5.9 release", () => {
   const main = fs.readFileSync(path.join(ROOT, "electron", "main.cjs"), "utf8");
   const packageJson = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
   assert.match(main, /companionRuntimeService\?\.stop\(\)/);
   assert.match(main, /weatherService\?\.stop\(\)/);
   assert.match(main, /companionAIService\?\.cancelAll\(\)/);
-  assert.equal(packageJson.version, "0.5.8");
+  assert.equal(packageJson.version, "0.5.9");
   assert.equal(packageJson.build.appId, "local.qiye.sitehub");
   assert.doesNotMatch(main, /new BrowserWindow\([^)]*companion/is);
 });

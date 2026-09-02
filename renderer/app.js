@@ -482,8 +482,11 @@ const dom = {
   zohoConfigTemplate: document.getElementById("zohoConfigTemplate"),
   toggleZohoConfig: document.getElementById("toggleZohoConfig"),
   automationHeaderStatus: document.getElementById("automationHeaderStatus"),
-  activeAutomationCount: document.getElementById("activeAutomationCount"),
-  automationSummaryText: document.getElementById("automationSummaryText"),
+  managedAutomationCount: document.getElementById("managedAutomationCount"),
+  automationTodayRate: document.getElementById("automationTodayRate"),
+  automationTodayRateText: document.getElementById("automationTodayRateText"),
+  automationTodayRunCount: document.getElementById("automationTodayRunCount"),
+  automationTodayRunSummary: document.getElementById("automationTodayRunSummary"),
   naixiAutomationBadge: document.getElementById("naixiAutomationBadge"),
   naixiAutomationMessage: document.getElementById("naixiAutomationMessage"),
   naixiScheduleTime: document.getElementById("naixiScheduleTime"),
@@ -3719,19 +3722,73 @@ function formatAutomationTime(value) {
   }).format(date);
 }
 
+function automationExecutionTimestamp(log) {
+  return log?.timestamp || log?.createdAt || log?.executedAt || log?.finishedAt || log?.startedAt || log?.time || "";
+}
+
+function renderAutomationMetrics(naixi = appState.automations?.naixi) {
+  if (!naixi || !dom.automationTodayRate) return;
+  const today = localDateKey(new Date());
+  const enabled = Boolean(naixi.enabled);
+  const completedToday = naixi.lastSuccessDate === today;
+  const managedCount = document.querySelectorAll('[data-managed-automation="true"]').length;
+  dom.managedAutomationCount.textContent = String(managedCount);
+  dom.automationTodayRate.textContent = enabled ? (completedToday ? "100%" : "0%") : "—";
+
+  if (!enabled) {
+    dom.automationTodayRateText.textContent = "没有启用自动任务";
+  } else if (completedToday) {
+    dom.automationTodayRateText.textContent = "1/1 已全部完成";
+  } else if (naixi.status === "running") {
+    dom.automationTodayRateText.textContent = "正在执行今日任务";
+  } else if (naixi.status === "needs-login") {
+    dom.automationTodayRateText.textContent = "需要重新登录";
+  } else if (naixi.status === "needs-action") {
+    dom.automationTodayRateText.textContent = "等待人工处理";
+  } else if (naixi.status === "error") {
+    dom.automationTodayRateText.textContent = "今日任务未完成";
+  } else {
+    dom.automationTodayRateText.textContent = `等待 ${naixi.time || "08:30"} 执行`;
+  }
+
+  const todayLogs = executionLogCache.filter((log) =>
+    localDateKey(automationExecutionTimestamp(log)) === today,
+  );
+  const hasNaixiLog = todayLogs.some((log) =>
+    log?.source === "checkin" || log?.automationId === "naixi-forum",
+  );
+  const naixiTimestamp = naixi.lastRunAt || naixi.lastSuccessAt;
+  if (!hasNaixiLog && localDateKey(naixiTimestamp) === today) {
+    todayLogs.push({
+      timestamp: naixiTimestamp,
+      status: completedToday ? "success" : naixi.status,
+      source: "checkin",
+    });
+  }
+
+  const successStatuses = new Set(["success", "completed"]);
+  const issueStatuses = new Set(["error", "failed", "failure", "denied", "not-configured", "blocked", "needs-login", "needs-action"]);
+  const successful = todayLogs.filter((log) => successStatuses.has(String(log?.status || "").toLowerCase())).length;
+  const issues = todayLogs.filter((log) => issueStatuses.has(String(log?.status || "").toLowerCase())).length;
+  const pending = Math.max(0, todayLogs.length - successful - issues);
+  dom.automationTodayRunCount.textContent = String(todayLogs.length);
+  const summary = [];
+  if (successful) summary.push(`${successful} 次成功`);
+  if (issues) summary.push(`${issues} 次未完成`);
+  if (pending) summary.push(`${pending} 次处理中`);
+  dom.automationTodayRunSummary.textContent = summary.join(" · ") || "今天暂无执行记录";
+}
+
 function renderNaixiAutomation(naixi) {
   if (!naixi) return;
   appState.automations = { ...(appState.automations || {}), naixi };
   dom.naixiAutoEnabled.checked = Boolean(naixi.enabled);
   dom.naixiScheduleTime.value = naixi.time || "08:30";
-  dom.activeAutomationCount.textContent = naixi.enabled ? "1" : "0";
-  dom.activeAutomationCount.classList.toggle("summary-number--muted", !naixi.enabled);
-  dom.automationSummaryText.textContent = naixi.enabled
-    ? `栖页运行时，每天 ${naixi.time || "08:30"} 自动检查`
-    : "奶昔自动签到当前已关闭";
+  renderAutomationMetrics(naixi);
 
   const headerDot = document.createElement("span");
   headerDot.className = "pulse-dot";
+  dom.automationHeaderStatus.classList.toggle("is-disabled", !naixi.enabled);
   dom.automationHeaderStatus.replaceChildren(
     headerDot,
     document.createTextNode(naixi.enabled ? "自动签到已开启" : "自动签到已关闭"),
@@ -3760,7 +3817,7 @@ function renderNaixiAutomation(naixi) {
   dom.naixiAutomationMessage.textContent =
     naixi.message || "使用栖页中已保存的登录会话自动完成每日签到。";
   dom.naixiLastRun.replaceChildren(
-    createIconElement("shield"),
+    createIconElement("clock", "automation-meta-icon"),
     document.createTextNode(`上次运行：${formatAutomationTime(naixi.lastRunAt)}`),
   );
   dom.runNaixiAutomation.disabled = naixi.status === "running";
@@ -3979,7 +4036,7 @@ function navigateTo(route, options = {}) {
     );
     if (currentAutomationTab === "assistants") void loadAssistants();
     if (currentAutomationTab === "scripts") void loadUserScripts();
-    if (currentAutomationTab === "logs") void loadExecutionLogs();
+    if (["checkins", "logs"].includes(currentAutomationTab)) void loadExecutionLogs();
   }
   updateActiveNavigation();
 }
@@ -8254,7 +8311,7 @@ function selectAutomationTab(tab, options = {}) {
   if (options.load === false) return;
   if (currentAutomationTab === "scripts") void loadUserScripts();
   if (currentAutomationTab === "assistants") void loadAssistants();
-  if (currentAutomationTab === "logs") void loadExecutionLogs();
+  if (["checkins", "logs"].includes(currentAutomationTab)) void loadExecutionLogs();
 }
 
 function formatAssistantMatchPattern(pattern) {
@@ -8421,6 +8478,7 @@ function executionStatusLabel(status) {
 
 function renderExecutionLogs(logs = executionLogCache) {
   executionLogCache = Array.isArray(logs) ? logs : [];
+  renderAutomationMetrics();
   dom.executionLogList.replaceChildren();
   if (!executionLogCache.length) {
     const empty = document.createElement("div");

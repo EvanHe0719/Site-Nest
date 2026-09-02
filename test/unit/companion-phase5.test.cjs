@@ -129,7 +129,7 @@ test("companion background actions and settings remain registered while the pane
   assert.doesNotMatch(html, /data-action-id="companion\.expand"/);
 });
 
-test("0.5.8 keeps the titlebar icon inert while the in-page orb is interactive", () => {
+test("0.5.9 keeps the titlebar icon inert while the in-page orb is interactive", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "..", "renderer", "index.html"), "utf8");
   const renderer = fs.readFileSync(path.join(__dirname, "..", "..", "renderer", "app.js"), "utf8");
   const widget = companionWidgetInstallScript({ settings: { enabled: true } });

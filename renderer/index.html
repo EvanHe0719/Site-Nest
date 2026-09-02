@@ -22,7 +22,7 @@
             </svg>
           </div>
           <span class="brand-name">栖页</span>
-          <span class="brand-version" id="brandVersion">0.5.8 DEV</span>
+          <span class="brand-version" id="brandVersion">0.5.9 DEV</span>
         </div>
         <div class="browser-tabbar" id="browserTabBar" aria-label="当前空间标签组">
           <div class="browser-tab-list" id="browserTabList" role="tablist" aria-label="网页标签"></div>
@@ -632,22 +632,39 @@
               </nav>
 
               <section class="automation-tab-panel is-active" id="automationCheckinsPanel" data-automation-panel="checkins">
-              <div class="automation-summary">
-                <div class="summary-number">1</div>
-                <div>
-                  <strong>已识别的签到入口</strong>
-                  <span>奶昔论坛 · 每日签到</span>
-                </div>
-                <div class="summary-divider"></div>
-                <div class="summary-number" id="activeAutomationCount">1</div>
-                <div>
-                  <strong>正在自动执行</strong>
-                  <span id="automationSummaryText">栖页运行时，每天 08:30 自动检查</span>
-                </div>
+              <div class="automation-stat-grid" aria-label="自动化运行概览">
+                <article class="automation-stat-card automation-stat-card--managed">
+                  <span class="automation-stat-label">已纳管签到入口</span>
+                  <div class="automation-stat-value-row">
+                    <strong class="automation-stat-value" id="managedAutomationCount">1</strong>
+                    <span class="automation-stat-unit">个站点</span>
+                  </div>
+                  <small>仅统计已适配且可执行的入口</small>
+                  <span class="automation-stat-icon" data-icon="calendar" aria-hidden="true"></span>
+                </article>
+
+                <article class="automation-stat-card automation-stat-card--completion">
+                  <span class="automation-stat-label">今日自动执行</span>
+                  <div class="automation-stat-value-row">
+                    <strong class="automation-stat-value" id="automationTodayRate">0%</strong>
+                  </div>
+                  <small id="automationTodayRateText">等待今日任务执行</small>
+                  <span class="automation-stat-icon" data-icon="check" aria-hidden="true"></span>
+                </article>
+
+                <article class="automation-stat-card automation-stat-card--runs">
+                  <span class="automation-stat-label">今日执行记录</span>
+                  <div class="automation-stat-value-row">
+                    <strong class="automation-stat-value" id="automationTodayRunCount">0</strong>
+                    <span class="automation-stat-unit">次</span>
+                  </div>
+                  <small id="automationTodayRunSummary">今天暂无执行记录</small>
+                  <span class="automation-stat-icon" data-icon="clock" aria-hidden="true"></span>
+                </article>
               </div>
 
               <div class="automation-list">
-                <article class="automation-card">
+                <article class="automation-card" data-managed-automation="true">
                   <div class="automation-site-logo" style="--site-color: #ec7a5c">奶</div>
                   <div class="automation-copy">
                     <div class="automation-title-row">
@@ -655,19 +672,6 @@
                       <span class="status-pill status-pill--ready" id="naixiAutomationBadge">等待检查</span>
                     </div>
                     <p id="naixiAutomationMessage">使用栖页中已保存的登录会话，自动判断并完成每日签到。</p>
-                    <div class="automation-meta">
-                      <label class="schedule-control">
-                        <i data-icon="clock"></i>
-                        每天
-                        <input id="naixiScheduleTime" type="time" value="08:30" aria-label="奶昔自动签到时间" />
-                      </label>
-                      <label class="toggle-control">
-                        <input id="naixiAutoEnabled" type="checkbox" checked />
-                        <span class="toggle-track"><span></span></span>
-                        自动执行
-                      </label>
-                      <span id="naixiLastRun"><i data-icon="shield"></i> 尚未运行</span>
-                    </div>
                   </div>
                   <div class="automation-actions">
                     <button class="primary-button compact-button" id="runNaixiAutomation" type="button" data-action-id="automation.naixi.run">
@@ -684,6 +688,19 @@
                       打开页面
                     </button>
                   </div>
+                  <div class="automation-meta">
+                    <label class="schedule-control">
+                      <span class="automation-meta-icon" data-icon="clock" aria-hidden="true"></span>
+                      每天
+                      <input id="naixiScheduleTime" type="time" value="08:30" aria-label="奶昔自动签到时间" />
+                    </label>
+                    <label class="toggle-control">
+                      <input id="naixiAutoEnabled" type="checkbox" checked />
+                      <span class="toggle-track"><span></span></span>
+                      自动执行
+                    </label>
+                    <span id="naixiLastRun"><span class="automation-meta-icon" data-icon="clock" aria-hidden="true"></span> 尚未运行</span>
+                  </div>
                 </article>
 
                 <article class="automation-card automation-card--muted">
@@ -695,6 +712,17 @@
                     </div>
                     <p>当前页面未显示固定签到入口，不会通过猜测接口执行账号操作。</p>
                   </div>
+                  <div class="automation-actions">
+                    <button
+                      class="secondary-button compact-button"
+                      type="button"
+                      data-open-url="https://www.nodeseek.com/categories/info"
+                      data-open-name="NodeSeek"
+                      data-open-color="#5b7cfa"
+                    >
+                      打开页面
+                    </button>
+                  </div>
                 </article>
 
                 <article class="automation-card automation-card--muted">
@@ -705,6 +733,17 @@
                       <span class="status-pill">未发现通用入口</span>
                     </div>
                     <p>当前页面未显示固定签到入口，后续如站点新增流程可单独适配。</p>
+                  </div>
+                  <div class="automation-actions">
+                    <button
+                      class="secondary-button compact-button"
+                      type="button"
+                      data-open-url="https://linux.do/"
+                      data-open-name="LINUX DO"
+                      data-open-color="#16a085"
+                    >
+                      打开页面
+                    </button>
                   </div>
                 </article>
               </div>
