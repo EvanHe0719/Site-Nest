@@ -88,6 +88,7 @@ const {
   hasSapLoginRejection,
   isSapSearchTarget,
   isSapSessionUrl,
+  isNodeSeekUrl,
   isAuthenticationUrl,
   durableBrowserUrl,
   isZohoDeskUrl,
@@ -95,6 +96,8 @@ const {
   refreshZohoDeskTicketList,
   zohoDeskAuthReturnUrl,
   sapRetryUrl,
+  NODESEEK_BROWSER_PROFILE_ID,
+  NODESEEK_SITE_PARTITION,
   tabCloseDecision,
 } = require("./browser/index.cjs");
 const {
@@ -454,11 +457,14 @@ function zohoOAuthConfigPath() {
 function browserPartitionForProfile(profileId = DEFAULT_BROWSER_PROFILE_ID) {
   if (profileId === DEFAULT_BROWSER_PROFILE_ID) return SITE_PARTITION;
   if (profileId === SAP_BROWSER_PROFILE_ID) return SAP_SITE_PARTITION;
+  if (profileId === NODESEEK_BROWSER_PROFILE_ID) return NODESEEK_SITE_PARTITION;
   throw new Error("当前版本尚未启用这个浏览身份");
 }
 
 function browserProfileIdForUrl(rawUrl, fallback = DEFAULT_BROWSER_PROFILE_ID) {
-  return isSapSessionUrl(rawUrl) ? SAP_BROWSER_PROFILE_ID : fallback;
+  if (isSapSessionUrl(rawUrl)) return SAP_BROWSER_PROFILE_ID;
+  if (isNodeSeekUrl(rawUrl)) return NODESEEK_BROWSER_PROFILE_ID;
+  return fallback;
 }
 
 function tabGroupsForWorkspace(workspaceId, options = {}) {
@@ -2565,7 +2571,12 @@ function getBrowserSession(profileId = DEFAULT_BROWSER_PROFILE_ID) {
         contents?.getURL?.(),
       ),
     ));
-  targetSession.setUserAgent(standardChromiumUserAgent(targetSession.getUserAgent()));
+  const browserUserAgent = standardChromiumUserAgent(targetSession.getUserAgent());
+  if (profileId === NODESEEK_BROWSER_PROFILE_ID) {
+    targetSession.setUserAgent(browserUserAgent, "zh-CN,zh;q=0.9,en;q=0.8");
+  } else {
+    targetSession.setUserAgent(browserUserAgent);
+  }
   getBrowserServices().downloads.attach(targetSession);
   targetSession.readyPromise = targetSession
     .setProxy({ mode: "system" })
@@ -2621,7 +2632,7 @@ async function inspectKnownSiteIssue(context = activeBrowserContext()) {
   if (hasCloudflareChallenge) {
     compactBrowserState({
       siteIssue: "nodeseek-challenge",
-      error: "NodeSeek 要求完成 Cloudflare 站点验证；栖页已保留当前会话，请在页面完成验证后重试",
+      error: "NodeSeek 返回 Cloudflare 防护页；可点击“重置 NodeSeek 防护状态”后在当前页面重试",
     }, context);
     return;
   }
@@ -2704,6 +2715,9 @@ async function resetNodeSeekSession(context = activeBrowserContext()) {
   }
   const siteSession = await waitForBrowserSession(context.browserProfileId);
   const origin = new URL(currentUrl).origin;
+  const retryUrl = isNodeSeekUrl(currentUrl)
+    ? currentUrl
+    : "https://www.nodeseek.com/categories/info";
   compactBrowserState({ loading: true, error: "", siteIssue: "" }, context);
   context.nodeSeekAutoRetryUsed = false;
   const cookies = await siteSession.cookies.get({ url: `${origin}/` });
@@ -2722,6 +2736,10 @@ async function resetNodeSeekSession(context = activeBrowserContext()) {
     }),
   );
   await siteSession.setProxy({ mode: "system" });
+  siteSession.setUserAgent(
+    standardChromiumUserAgent(siteSession.getUserAgent()),
+    "zh-CN,zh;q=0.9,en;q=0.8",
+  );
   await siteSession.closeAllConnections();
   await Promise.all([
     siteSession.clearHostResolverCache(),
@@ -2733,12 +2751,14 @@ async function resetNodeSeekSession(context = activeBrowserContext()) {
       ],
     }),
   ]);
-  context.currentHomeUrl = "https://www.nodeseek.com/signIn.html";
+  context.currentHomeUrl = retryUrl;
   syncActiveBrowserAliases(context);
   persistWorkspaceBrowserContext(context, {
     currentURL: context.currentHomeUrl,
   });
-  await loadUrlAllowingRedirectAbort(contents, context.currentHomeUrl);
+  await loadUrlAllowingRedirectAbort(contents, context.currentHomeUrl, {
+    httpReferrer: `${origin}/`,
+  });
   return context.browserState;
 }
 
@@ -7540,9 +7560,61 @@ function createMainWindow() {
             navigateTo('plan');
             const rangeTask = taskState.tasks.find((task) => task.title === '客户交付窗口') || taskState.tasks[0];
             if (${JSON.stringify(CAPTURE_ROUTE)} === 'task-modal') openTaskModal(null, now);
-            if (${JSON.stringify(CAPTURE_ROUTE)} === 'task-detail') openTaskDetail(rangeTask);
+            let detailPopover = null;
+            if (${JSON.stringify(CAPTURE_ROUTE)} === 'task-detail') {
+              const detailAnchor = document.querySelector('.task-agenda-item[data-task-id="' + CSS.escape(rangeTask.id) + '"]') || document.querySelector('.task-agenda-item');
+              openTaskDetail(rangeTask, detailAnchor);
+              await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+              const anchorRect = detailAnchor?.getBoundingClientRect();
+              const cardRect = document.getElementById('taskDetailCard').getBoundingClientRect();
+              const actionsRect = document.querySelector('.task-detail-actions').getBoundingClientRect();
+              const headingRect = document.querySelector('.task-detail-heading').getBoundingClientRect();
+              detailPopover = {
+                anchored: Boolean(anchorRect && anchorRect.width > 0 && anchorRect.height > 0),
+                width: Math.round(cardRect.width),
+                height: Math.round(cardRect.height),
+                viewportHeight: window.innerHeight,
+                insideViewport: cardRect.left >= 0 && cardRect.top >= 0 && cardRect.right <= window.innerWidth && cardRect.bottom <= window.innerHeight,
+                toolbarAboveTitle: actionsRect.bottom <= headingRect.top,
+                actionsVisible: actionsRect.width > 0 && actionsRect.height > 0
+              };
+            }
             let previewDateChange = null;
+            let previewBehavior = null;
             if (${JSON.stringify(CAPTURE_ROUTE)} === 'task-modal') {
+              await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+              const previewScroll = document.getElementById('taskPreviewScroll');
+              const startInput = document.getElementById('taskStartTime');
+              const endInput = document.getElementById('taskEndTime');
+              const originalStartTime = startInput.value;
+              const originalEndTime = endInput.value;
+              const initialCurrentLine = document.querySelector('.schedule-preview-now-line');
+              const initialScrollTop = previewScroll.scrollTop;
+              const initialCurrentLineTop = initialCurrentLine ? Number.parseFloat(initialCurrentLine.style.top) : -1;
+              startInput.value = '18:30';
+              endInput.value = '19:30';
+              startInput.dispatchEvent(new Event('input', { bubbles: true }));
+              endInput.dispatchEvent(new Event('input', { bubbles: true }));
+              await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+              const draft = document.querySelector('.schedule-preview-event.is-draft');
+              const draftStyle = draft ? getComputedStyle(draft) : null;
+              const draftTop = draft ? Number.parseFloat(draft.style.top) : -1;
+              const autoScrollTop = previewScroll.scrollTop;
+              const manualScrollTop = Math.min(previewScroll.scrollHeight - previewScroll.clientHeight, autoScrollTop + 46);
+              previewScroll.scrollTop = manualScrollTop;
+              previewBehavior = {
+                scrollable: previewScroll.scrollHeight > previewScroll.clientHeight,
+                overflowY: getComputedStyle(previewScroll).overflowY,
+                initialScrollTop,
+                autoScrollTop,
+                manualScrollApplied: Math.abs(previewScroll.scrollTop - manualScrollTop) < 2,
+                draftVisibleInViewport: draftTop >= autoScrollTop && draftTop <= autoScrollTop + previewScroll.clientHeight,
+                draftGhost: Boolean(draftStyle && draftStyle.borderTopStyle === 'dashed' && Number(draftStyle.opacity) < 1),
+                currentLineVisible: Boolean(initialCurrentLine),
+                currentLineInViewport: initialCurrentLineTop >= initialScrollTop && initialCurrentLineTop <= initialScrollTop + previewScroll.clientHeight,
+                currentLineLabel: initialCurrentLine?.getAttribute('aria-label') || '',
+                oldTagBlockExists: Boolean(document.getElementById('taskTags'))
+              };
               const originalStart = taskStartDate.value;
               const originalEnd = taskEndDate.value;
               const beforeTitle = taskPreviewDateTitle.textContent;
@@ -7553,8 +7625,11 @@ function createMainWindow() {
               previewDateChange = { beforeTitle, afterTitle, draftVisible: Boolean(document.querySelector('.schedule-preview-event.is-draft, #taskPreviewAllDay:not([hidden])')) };
               taskStartDate.value = originalStart;
               taskEndDate.value = originalEnd;
+              startInput.value = originalStartTime;
+              endInput.value = originalEndTime;
               taskStartDate.dispatchEvent(new Event('change', { bubbles: true }));
               taskEndDate.dispatchEvent(new Event('change', { bubbles: true }));
+              startInput.dispatchEvent(new Event('input', { bubbles: true }));
             }
             return {
               taskCount: taskState.tasks.length,
@@ -7565,7 +7640,9 @@ function createMainWindow() {
               modalOpen: document.getElementById('taskModal').classList.contains('is-open'),
               previewHours: document.querySelectorAll('.schedule-preview-hour').length,
               detailOpen: document.getElementById('taskDetailLayer').classList.contains('is-open'),
-              previewDateChange
+              previewDateChange,
+              previewBehavior,
+              detailPopover
             };
           })()`);
           console.log(JSON.stringify({ scheduleCapture: result }));
@@ -8709,7 +8786,9 @@ GM_addStyle('article { line-height: 1.7; }');`;
   mainWindow.loadFile(path.join(PROJECT_ROOT, "renderer", "index.html"));
 }
 
-const hasSingleInstanceLock = app.requestSingleInstanceLock();
+const allowTestConcurrentInstance = Boolean(TEST_USER_DATA)
+  && process.env.QIYE_ALLOW_TEST_CONCURRENT_INSTANCE === "true";
+const hasSingleInstanceLock = allowTestConcurrentInstance || app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {

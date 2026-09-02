@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
   CURRENT_SCHEMA_VERSION,
   DEFAULT_BROWSER_PROFILE,
+  NODESEEK_BROWSER_PROFILE,
   SAP_BROWSER_PROFILE,
   StateModelError,
   addSiteToState,
@@ -119,6 +120,10 @@ test("v2 migration creates each system workspace once and preserves old data", (
   assert.deepEqual(
     migration.state.browserProfiles.find((profile) => profile.id === "sap-support"),
     { ...SAP_BROWSER_PROFILE, createdAt: NOW, updatedAt: NOW },
+  );
+  assert.deepEqual(
+    migration.state.browserProfiles.find((profile) => profile.id === "nodeseek"),
+    { ...NODESEEK_BROWSER_PROFILE, createdAt: NOW, updatedAt: NOW },
   );
   assert.equal(
     migration.state.assistantSettings["zoho-desk-ticket"].enabled,

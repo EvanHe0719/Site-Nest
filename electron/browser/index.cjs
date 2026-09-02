@@ -47,6 +47,11 @@ const {
   isSapSessionUrl,
   sapRetryUrl,
 } = require("./sap-auth-recovery.cjs");
+const {
+  NODESEEK_BROWSER_PROFILE_ID,
+  NODESEEK_SITE_PARTITION,
+  isNodeSeekUrl,
+} = require("./nodeseek-session.cjs");
 
 module.exports = {
   ExternalProtocolService,
@@ -88,4 +93,7 @@ module.exports = {
   isSapSessionHost,
   isSapSessionUrl,
   sapRetryUrl,
+  NODESEEK_BROWSER_PROFILE_ID,
+  NODESEEK_SITE_PARTITION,
+  isNodeSeekUrl,
 };

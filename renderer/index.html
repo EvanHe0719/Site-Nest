@@ -22,7 +22,7 @@
             </svg>
           </div>
           <span class="brand-name">栖页</span>
-          <span class="brand-version" id="brandVersion">0.5.7 DEV</span>
+          <span class="brand-version" id="brandVersion">0.5.8 DEV</span>
         </div>
         <div class="browser-tabbar" id="browserTabBar" aria-label="当前空间标签组">
           <div class="browser-tab-list" id="browserTabList" role="tablist" aria-label="网页标签"></div>
@@ -1572,7 +1572,6 @@
               <fieldset class="schedule-color-picker"><legend>日程颜色</legend><input id="taskColor" type="color" value="#23a783" aria-label="自定义日程颜色" /><div class="schedule-color-presets" aria-label="常用颜色"><button type="button" data-task-color="#23a783" aria-label="薄荷绿"></button><button type="button" data-task-color="#3b82f6" aria-label="蓝色"></button><button type="button" data-task-color="#8b5cf6" aria-label="紫色"></button><button type="button" data-task-color="#f59e0b" aria-label="橙色"></button><button type="button" data-task-color="#ef6461" aria-label="珊瑚红"></button><button type="button" data-task-color="#64748b" aria-label="灰蓝"></button></div></fieldset>
               <label class="form-field"><span>执行任务与备注</span><textarea id="taskNotes" rows="3" maxlength="5000" placeholder="补充要做什么、会议链接或其他说明"></textarea></label>
               <fieldset class="content-tag-picker" data-content-tag-picker="task"><legend>内容标签 <small>统一用于跨模块整理</small></legend><input id="taskTagIds" type="hidden" /><div class="content-tag-picker-options"></div><small class="content-tag-picker-empty">尚未创建内容标签，可在“设置与数据 → 数据与备份 → 内容标签管理”中添加。</small></fieldset>
-              <label class="form-field"><span>旧标签 <small>兼容原有逗号标签</small></span><input id="taskTags" maxlength="500" placeholder="客户, SAP, 跟进" /></label>
             </div>
             <div class="modal-actions schedule-modal-actions"><button class="text-button text-button--quiet is-hidden" id="deleteTaskButton" type="button" data-action-id="task.delete">删除日程</button><span></span><button class="secondary-button" type="button" data-close-modal="taskModal">取消</button><button class="primary-button" type="submit">保存</button></div>
           </form>
@@ -1581,7 +1580,7 @@
             <header><div class="schedule-preview-nav"><button type="button" data-task-preview-move="0">今天</button><button type="button" data-task-preview-move="-1" aria-label="前一天">‹</button><button type="button" data-task-preview-move="1" aria-label="后一天">›</button></div><div><strong id="taskPreviewDateTitle">今天</strong><small id="taskPreviewDateSubtitle"></small></div></header>
             <div class="schedule-preview-timezone">GMT+8 · 本机时间</div>
             <div class="schedule-preview-all-day" id="taskPreviewAllDay" hidden></div>
-            <div class="schedule-preview-grid" id="taskPreviewGrid"></div>
+            <div class="schedule-preview-scroll" id="taskPreviewScroll" tabindex="0" aria-label="可滚动的 24 小时时间轴"><div class="schedule-preview-grid" id="taskPreviewGrid"></div></div>
           </aside>
         </div>
       </div>
@@ -1589,8 +1588,8 @@
 
     <div class="task-detail-layer" id="taskDetailLayer" aria-hidden="true">
       <button class="task-detail-scrim" id="taskDetailScrim" type="button" aria-label="关闭日程详情"></button>
-      <aside class="task-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="taskDetailTitle">
-        <header><div class="task-detail-heading"><span id="taskDetailColor"></span><div><small>日程详情</small><h2 id="taskDetailTitle"></h2></div></div><div class="task-detail-actions"><button id="taskDetailEdit" type="button" aria-label="修改日程"><span data-icon="edit"></span></button><button id="taskDetailDelete" type="button" aria-label="删除日程"><span data-icon="trash"></span></button><button id="taskDetailClose" type="button" aria-label="关闭"><span data-icon="close"></span></button></div></header>
+      <aside class="task-detail-card" id="taskDetailCard" role="dialog" aria-modal="false" aria-labelledby="taskDetailTitle">
+        <header><div class="task-detail-toolbar"><small>日程详情</small><div class="task-detail-actions"><button id="taskDetailEdit" type="button" aria-label="修改日程" title="修改日程"><span data-icon="edit"></span></button><button id="taskDetailDelete" type="button" aria-label="删除日程" title="删除日程"><span data-icon="trash"></span></button><button id="taskDetailClose" type="button" aria-label="关闭" title="关闭"><span data-icon="close"></span></button></div></div><div class="task-detail-heading"><span id="taskDetailColor"></span><div><h2 id="taskDetailTitle"></h2><p id="taskDetailWhen"></p></div></div></header>
         <div class="task-detail-content" id="taskDetailContent"></div>
         <footer><button class="secondary-button" id="taskDetailTimeline" type="button">记录到时间轴</button><button class="primary-button" id="taskDetailStatusAction" type="button">标记完成</button></footer>
       </aside>

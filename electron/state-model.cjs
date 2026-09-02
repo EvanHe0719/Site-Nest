@@ -2,6 +2,11 @@ const { createHash, randomUUID } = require("node:crypto");
 const { normalizeSitePopupPolicies } = require("./browser/window-open-policy-service.cjs");
 const { normalizeBrowserMemorySettings } = require("./browser/webview-lifecycle-manager.cjs");
 const { isSapSessionUrl } = require("./browser/sap-auth-recovery.cjs");
+const {
+  NODESEEK_BROWSER_PROFILE_ID,
+  NODESEEK_SITE_PARTITION,
+  isNodeSeekUrl,
+} = require("./browser/nodeseek-session.cjs");
 const { normalizeTranslationSettings } = require("./translation/settings.cjs");
 const {
   normalizeSearchHistory,
@@ -110,6 +115,21 @@ const SAP_BROWSER_PROFILE = Object.freeze({
   isSystem: true,
   isReal: true,
 });
+
+const NODESEEK_BROWSER_PROFILE = Object.freeze({
+  id: NODESEEK_BROWSER_PROFILE_ID,
+  name: "NodeSeek 独立身份",
+  type: "persistentPartition",
+  partition: NODESEEK_SITE_PARTITION,
+  isSystem: true,
+  isReal: true,
+});
+
+function systemBrowserProfileIdForUrls(...urls) {
+  if (urls.some((url) => isSapSessionUrl(url))) return SAP_BROWSER_PROFILE_ID;
+  if (urls.some((url) => isNodeSeekUrl(url))) return NODESEEK_BROWSER_PROFILE_ID;
+  return null;
+}
 
 const DEFAULT_ASSISTANT_SETTINGS = Object.freeze({
   "generic-page-actions": Object.freeze({
@@ -486,7 +506,11 @@ function ensureDefaultBrowserProfile(value, now) {
         typeof rawProfile.updatedAt === "string" ? rawProfile.updatedAt : now,
     });
   }
-  for (const definition of [DEFAULT_BROWSER_PROFILE, SAP_BROWSER_PROFILE]) {
+  for (const definition of [
+    DEFAULT_BROWSER_PROFILE,
+    SAP_BROWSER_PROFILE,
+    NODESEEK_BROWSER_PROFILE,
+  ]) {
     const existingIndex = profiles.findIndex((profile) => profile.id === definition.id);
     const existing = existingIndex >= 0 ? profiles[existingIndex] : null;
     const createdAt = existing?.createdAt || now;
@@ -504,6 +528,8 @@ function ensureDefaultBrowserProfile(value, now) {
     if (right.id === DEFAULT_BROWSER_PROFILE_ID) return 1;
     if (left.id === SAP_BROWSER_PROFILE_ID) return -1;
     if (right.id === SAP_BROWSER_PROFILE_ID) return 1;
+    if (left.id === NODESEEK_BROWSER_PROFILE_ID) return -1;
+    if (right.id === NODESEEK_BROWSER_PROFILE_ID) return 1;
     return 0;
   });
   return profiles;
@@ -591,8 +617,9 @@ function normalizeRecentlyClosedTabs(
       : null;
     const homeURL = safeOptionalHttpUrl(candidate.homeURL ?? candidate.homeUrl) || site?.url || url;
     const requestedBrowserProfileId = String(candidate.browserProfileId || "").trim();
-    const browserProfileId = isSapSessionUrl(url) || isSapSessionUrl(homeURL)
-      ? SAP_BROWSER_PROFILE_ID
+    const systemBrowserProfileId = systemBrowserProfileIdForUrls(url, homeURL);
+    const browserProfileId = systemBrowserProfileId
+      ? systemBrowserProfileId
       : browserProfileIds.has(requestedBrowserProfileId)
         ? requestedBrowserProfileId
         : site?.browserProfileId || DEFAULT_BROWSER_PROFILE_ID;
@@ -704,8 +731,9 @@ function normalizeWorkspaceBrowserStates(
         site?.url ||
         url;
       const requestedBrowserProfileId = String(candidate.browserProfileId || "").trim();
-      const browserProfileId = isSapSessionUrl(url) || isSapSessionUrl(homeURL)
-        ? SAP_BROWSER_PROFILE_ID
+      const systemBrowserProfileId = systemBrowserProfileIdForUrls(url, homeURL);
+      const browserProfileId = systemBrowserProfileId
+        ? systemBrowserProfileId
         : browserProfileIds.has(requestedBrowserProfileId)
           ? requestedBrowserProfileId
           : site?.browserProfileId || DEFAULT_BROWSER_PROFILE_ID;
@@ -860,11 +888,12 @@ function normalizeStoredSite(site, index, workspaceIds, browserProfileIds, now) 
     workspaceId,
     siteKind,
     openMode,
-    browserProfileId: isSapSessionUrl(url)
-      ? SAP_BROWSER_PROFILE_ID
-      : browserProfileIds.has(String(site.browserProfileId || ""))
-        ? String(site.browserProfileId)
-        : DEFAULT_BROWSER_PROFILE_ID,
+    browserProfileId: systemBrowserProfileIdForUrls(url)
+      || (
+        browserProfileIds.has(String(site.browserProfileId || ""))
+          ? String(site.browserProfileId)
+          : DEFAULT_BROWSER_PROFILE_ID
+      ),
     tagIds: normalizeTagIdList(site.tagIds, { limit: 100 }),
     assistantIds: normalizeAssistantIds(site.assistantIds),
     pinned: site.pinned !== false,
@@ -1321,8 +1350,9 @@ function normalizeBrowserTabsForMutation(state, workspaceId, tabs, now) {
       site?.url ||
       url;
     const requestedBrowserProfileId = String(candidate.browserProfileId || "").trim();
-    const browserProfileId = isSapSessionUrl(url) || isSapSessionUrl(homeURL)
-      ? SAP_BROWSER_PROFILE_ID
+    const systemBrowserProfileId = systemBrowserProfileIdForUrls(url, homeURL);
+    const browserProfileId = systemBrowserProfileId
+      ? systemBrowserProfileId
       : state.browserProfiles.some(
           (profile) => profile.id === requestedBrowserProfileId,
         )
@@ -1600,10 +1630,11 @@ function addSiteToState(state, input, options = {}) {
     workspaceId === "work" ? "workApp" : "normal",
   );
   const openMode = validateOpenMode(input?.openMode, "internal");
-  const browserProfileId = isSapSessionUrl(url)
-    ? SAP_BROWSER_PROFILE_ID
-    : String(input?.browserProfileId || DEFAULT_BROWSER_PROFILE_ID).trim() ||
-      DEFAULT_BROWSER_PROFILE_ID;
+  const browserProfileId = systemBrowserProfileIdForUrls(url)
+    || (
+      String(input?.browserProfileId || DEFAULT_BROWSER_PROFILE_ID).trim()
+      || DEFAULT_BROWSER_PROFILE_ID
+    );
   requireBrowserProfile(next, browserProfileId);
   const idFactory = typeof options.idFactory === "function"
     ? options.idFactory
@@ -1668,12 +1699,11 @@ function updateSiteInState(state, input, options = {}) {
     : String(input.name).trim().slice(0, 80);
   if (!name) throw new StateModelError("INVALID_SITE_NAME", "请输入站点名称");
   const movedWorkspace = workspaceId !== previousWorkspaceId;
-  const browserProfileId = isSapSessionUrl(url)
-    ? SAP_BROWSER_PROFILE_ID
-    : input?.browserProfileId === undefined
+  const browserProfileId = systemBrowserProfileIdForUrls(url)
+    || (input?.browserProfileId === undefined
       ? current.browserProfileId
-      : String(input.browserProfileId || DEFAULT_BROWSER_PROFILE_ID).trim() ||
-        DEFAULT_BROWSER_PROFILE_ID;
+      : String(input.browserProfileId || DEFAULT_BROWSER_PROFILE_ID).trim()
+        || DEFAULT_BROWSER_PROFILE_ID);
   requireBrowserProfile(next, browserProfileId);
   const targetOrder = movedWorkspace
     ? next.sites.filter(
@@ -1887,6 +1917,8 @@ module.exports = {
   DEFAULT_BROWSER_PROFILE_ID,
   SAP_BROWSER_PROFILE,
   SAP_BROWSER_PROFILE_ID,
+  NODESEEK_BROWSER_PROFILE,
+  NODESEEK_BROWSER_PROFILE_ID,
   DEFAULT_NAIXI_AUTOMATION,
   DEFAULT_WORKSPACE_ID,
   SYSTEM_WORKSPACES,

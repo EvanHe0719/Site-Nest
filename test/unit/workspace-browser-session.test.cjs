@@ -7,12 +7,13 @@ const {
   addSiteToState,
   createInitialState,
   getWorkspaceBrowserState,
+  migrateState,
   setWorkspaceBrowserStateInState,
 } = require("../../electron/state-model.cjs");
 
 const projectRoot = path.resolve(__dirname, "..", "..");
 
-test("workspace snapshots stay independent while SAP alone receives a persistent isolated identity", () => {
+test("workspace snapshots stay independent while SAP and NodeSeek receive persistent isolated identities", () => {
   let state = createInitialState({ now: "2026-08-29T01:00:00.000Z" });
   const personalSite = addSiteToState(
     state,
@@ -44,6 +45,16 @@ test("workspace snapshots stay independent while SAP alone receives a persistent
     { now: "2026-08-29T01:02:30.000Z", idFactory: () => "sap-site" },
   );
   state = sapSite.state;
+  const nodeSeekSite = addSiteToState(
+    state,
+    {
+      name: "NodeSeek 情报",
+      url: "https://www.nodeseek.com/categories/info",
+      workspaceId: "research",
+    },
+    { now: "2026-08-29T01:02:45.000Z", idFactory: () => "nodeseek-site" },
+  );
+  state = nodeSeekSite.state;
 
   state = setWorkspaceBrowserStateInState(
     state,
@@ -77,21 +88,61 @@ test("workspace snapshots stay independent while SAP alone receives a persistent
     "https://personal.example.test/inside?page=2",
   );
 
-  assert.equal(state.browserProfiles.length, 2);
+  assert.equal(state.browserProfiles.length, 3);
   assert.deepEqual(
     new Set(state.sites.map((site) => site.browserProfileId)),
-    new Set(["default", "sap-support"]),
+    new Set(["default", "sap-support", "nodeseek"]),
   );
   assert.equal(state.browserProfiles[0].partition, "persist:qiye-sites");
   assert.equal(state.browserProfiles[0].isReal, true);
   assert.equal(state.browserProfiles[1].partition, "persist:qiye-sap-support");
+  assert.equal(state.browserProfiles[2].partition, "persist:qiye-nodeseek");
   assert.equal(sapSite.site.browserProfileId, "sap-support");
+  assert.equal(nodeSeekSite.site.browserProfileId, "nodeseek");
+});
+
+test("an existing schema-v18 NodeSeek site and tab migrate from the shared profile without deleting it", () => {
+  let state = createInitialState({ now: "2026-09-02T23:00:00.000Z" });
+  const added = addSiteToState(
+    state,
+    {
+      name: "NodeSeek 情报",
+      url: "https://www.nodeseek.com/categories/info",
+      workspaceId: "research",
+    },
+    { now: "2026-09-02T23:01:00.000Z", idFactory: () => "existing-nodeseek" },
+  );
+  state = setWorkspaceBrowserStateInState(
+    added.state,
+    "research",
+    {
+      activeSiteId: added.site.id,
+      currentURL: "https://www.nodeseek.com/post-11214-1",
+      homeURL: added.site.url,
+    },
+    { now: "2026-09-02T23:02:00.000Z" },
+  ).state;
+
+  const legacyV18 = structuredClone(state);
+  legacyV18.browserProfiles = legacyV18.browserProfiles.filter((profile) => profile.id !== "nodeseek");
+  legacyV18.sites.find((site) => site.id === added.site.id).browserProfileId = "default";
+  legacyV18.workspaceBrowserStates.research.tabs[0].browserProfileId = "default";
+
+  const migrated = migrateState(legacyV18, { now: "2026-09-03T00:00:00.000Z" });
+  assert.equal(migrated.migrated, false);
+  assert.equal(migrated.changed, true);
+  assert.equal(migrated.state.browserProfiles.some((profile) => profile.id === "default"), true);
+  assert.equal(migrated.state.browserProfiles.some((profile) => profile.id === "nodeseek"), true);
+  assert.equal(migrated.state.sites.find((site) => site.id === added.site.id).browserProfileId, "nodeseek");
+  assert.equal(migrated.state.workspaceBrowserStates.research.tabs[0].browserProfileId, "nodeseek");
 });
 
 test("Electron browser views use persistent profile partitions rather than workspace-specific sessions", () => {
   const source = fs.readFileSync(path.join(projectRoot, "electron", "main.cjs"), "utf8");
+  const nodeSeekSource = fs.readFileSync(path.join(projectRoot, "electron", "browser", "nodeseek-session.cjs"), "utf8");
   assert.match(source, /const SITE_PARTITION = ["']persist:qiye-sites["']/);
   assert.match(source, /const SAP_SITE_PARTITION = ["']persist:qiye-sap-support["']/);
+  assert.match(nodeSeekSource, /NODESEEK_SITE_PARTITION\s*=\s*["']persist:qiye-nodeseek["']/);
   assert.match(
     source,
     /partition:\s*browserPartitionForProfile\(context\.browserProfileId\)/,

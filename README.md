@@ -41,7 +41,7 @@
 
 应用状态保存在 Electron 的 Windows `userData` 目录中的 `site-nest-data.json`。
 
-0.5.7 当前继续使用 schema v18；新增小序设置与本机提醒运行态，不删除书签、站点、固定数据，也不清理浏览分区中的 Cookie。v2 至 v17 升级时：
+0.5.8 继续使用 schema v18；新增 NodeSeek 系统浏览身份与日程界面行为，不删除书签、站点、固定数据，也不清理旧浏览分区中的 Cookie。v2 至 v17 升级时：
 
 - 旧站点和固定项进入个人空间；原 ID、URL、书签、最近访问和奶昔状态保留。
 - 旧站点补齐 `workspaceId: personal`、`siteKind: normal`、`openMode: internal`、`browserProfileId: default` 和空助手绑定。
@@ -84,7 +84,7 @@ Google 同步是可选功能。新电脑首次打开时可在 Google 同步卡�
 
 Google Drive API 不能访问 Chrome Sync 的书签树。栖页中的收藏书签是导入副本；要真正回写 Chrome 账号书签，仍需要 Manifest V3 扩展通过 `chrome.bookmarks` 修改当前 Chrome 配置，再由 Chrome 按账号设置同步。
 
-本轮只对 SAP 登录链启用系统管理的独立身份；个人/工作空间仍不按空间隔离 Cookie，避免让既有站点集体退出登录。NodeSeek 在站内 `target=_blank` 打开详情时会保留同一持久分区与安全的同源来源页，避免栖页转换为内部页签时自行丢失必要上下文；NodeSeek 会话重置和 SAP 身份清理仍只有用户点击并确认后才执行。若站点返回 Cloudflare 验证，栖页只保留会话并提示用户完成站点验证，不绕过网站安全机制。
+SAP 登录链与 NodeSeek 分别使用系统管理的独立持久身份；个人/工作空间中的其他网站仍不按空间隔离 Cookie，避免让既有站点集体退出登录。升级到 0.5.8 后，已有 NodeSeek 站点和页签会自动改用 `persist:qiye-nodeseek`，旧默认身份数据不会删除，但新身份首次使用可能需要重新登录 NodeSeek。NodeSeek 会话重置和 SAP 身份清理仍只有用户点击并确认后才执行；若站点返回 Cloudflare 验证，栖页只保留会话并提示用户完成站点验证，不绕过网站安全机制。
 
 ## 助手安全边界
 

@@ -19,6 +19,7 @@ function runElectron({ userData, route, width = 1060, height = 700, baseUrl = ""
         ...process.env,
         ELECTRON_DISABLE_SECURITY_WARNINGS: "true",
         QIYE_TEST_USER_DATA: userData,
+        QIYE_ALLOW_TEST_CONCURRENT_INSTANCE: "true",
         QIYE_CAPTURE_PATH: capturePath,
         QIYE_CAPTURE_ROUTE: route,
         QIYE_CAPTURE_WIDTH: String(width),
@@ -190,8 +191,31 @@ test(
     assert.match(scheduleResult.previewDateChange.beforeTitle, /月/);
     assert.equal(scheduleResult.previewDateChange.afterTitle, "9月10日");
     assert.equal(scheduleResult.previewDateChange.draftVisible, true);
+    assert.equal(scheduleResult.previewBehavior.scrollable, true);
+    assert.equal(scheduleResult.previewBehavior.overflowY, "auto");
+    assert.ok(scheduleResult.previewBehavior.autoScrollTop > scheduleResult.previewBehavior.initialScrollTop);
+    assert.equal(scheduleResult.previewBehavior.manualScrollApplied, true);
+    assert.equal(scheduleResult.previewBehavior.draftVisibleInViewport, true);
+    assert.equal(scheduleResult.previewBehavior.draftGhost, true);
+    assert.equal(scheduleResult.previewBehavior.currentLineVisible, true);
+    assert.equal(scheduleResult.previewBehavior.currentLineInViewport, true);
+    assert.match(scheduleResult.previewBehavior.currentLineLabel, /^当前时间 \d{2}:\d{2}$/);
+    assert.equal(scheduleResult.previewBehavior.oldTagBlockExists, false);
     assert.equal(scheduleResult.selectedDaySidebarExists, false);
     assert.ok((await fsp.stat(scheduleUi.capturePath)).size > 1000);
+
+    const detailUi = await runElectron({ userData, route: "task-detail", width: 1440, height: 900 });
+    const detailLine = detailUi.stdout.split(/\r?\n/).find((item) => item.includes('"scheduleCapture"'));
+    assert.ok(detailLine, detailUi.stdout);
+    const detailResult = JSON.parse(detailLine).scheduleCapture;
+    assert.equal(detailResult.detailOpen, true);
+    assert.equal(detailResult.detailPopover.anchored, true);
+    assert.equal(detailResult.detailPopover.insideViewport, true);
+    assert.equal(detailResult.detailPopover.toolbarAboveTitle, true);
+    assert.equal(detailResult.detailPopover.actionsVisible, true);
+    assert.ok(detailResult.detailPopover.width <= 400);
+    assert.ok(detailResult.detailPopover.height < detailResult.detailPopover.viewportHeight - 100);
+    assert.ok((await fsp.stat(detailUi.capturePath)).size > 1000);
   },
 );
 
@@ -256,7 +280,7 @@ test(
 );
 
 test(
-  "0.5.7 小序悬浮卡片保护命中区域并隔离网页的鼠标与键盘事件",
+  "0.5.8 小序悬浮卡片保护命中区域并隔离网页的鼠标与键盘事件",
   { timeout: 90000 },
   async (t) => {
     const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-companion-discoverability-"));

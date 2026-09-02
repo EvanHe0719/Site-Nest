@@ -369,17 +369,19 @@ const dom = {
   taskRecurrenceUnit: document.getElementById("taskRecurrenceUnit"),
   taskColor: document.getElementById("taskColor"),
   taskCustomReminder: document.getElementById("taskCustomReminder"),
-  taskTags: document.getElementById("taskTags"),
   taskTagIds: document.getElementById("taskTagIds"),
   deleteTaskButton: document.getElementById("deleteTaskButton"),
   taskPreviewDateTitle: document.getElementById("taskPreviewDateTitle"),
   taskPreviewDateSubtitle: document.getElementById("taskPreviewDateSubtitle"),
   taskPreviewAllDay: document.getElementById("taskPreviewAllDay"),
+  taskPreviewScroll: document.getElementById("taskPreviewScroll"),
   taskPreviewGrid: document.getElementById("taskPreviewGrid"),
   taskDetailLayer: document.getElementById("taskDetailLayer"),
   taskDetailScrim: document.getElementById("taskDetailScrim"),
+  taskDetailCard: document.getElementById("taskDetailCard"),
   taskDetailColor: document.getElementById("taskDetailColor"),
   taskDetailTitle: document.getElementById("taskDetailTitle"),
+  taskDetailWhen: document.getElementById("taskDetailWhen"),
   taskDetailContent: document.getElementById("taskDetailContent"),
   taskDetailEdit: document.getElementById("taskDetailEdit"),
   taskDetailDelete: document.getElementById("taskDetailDelete"),
@@ -708,6 +710,7 @@ let taskWeekAnchor = new Date();
 let taskMonthAnchor = new Date();
 let taskPreviewDate = new Date();
 let activeTaskDetailId = null;
+let activeTaskDetailAnchor = null;
 let selectedChromeProfile = "";
 let selectedChromeProfileBookmarkCount = 0;
 let editingSiteId = null;
@@ -5511,7 +5514,7 @@ function createTaskCard(task, options = {}) {
     card.appendChild(timeline);
   }
   card.style.setProperty("--schedule-color", TASK_CALENDAR.normalizeColor(task.color));
-  card.addEventListener("click", () => openTaskDetail(task));
+  card.addEventListener("click", (event) => openTaskDetail(task, event.currentTarget));
   return card;
 }
 
@@ -5543,11 +5546,15 @@ function localDateTimeFromParts(dateValue, timeValue, options = {}) {
 
 function setTaskDateFields(task, day) {
   const anchor = day ? new Date(day) : new Date();
-  if (!task && !day) {
-    anchor.setMinutes(Math.ceil(anchor.getMinutes() / 30) * 30, 0, 0);
-    if (anchor.getHours() >= 23) anchor.setHours(9, 0, 0, 0);
-  } else if (!task && day) {
-    anchor.setHours(9, 0, 0, 0);
+  if (!task) {
+    const now = new Date();
+    if (!day || localDateKey(anchor) === localDateKey(now)) {
+      const roundedMinutes = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 30) * 30;
+      if (roundedMinutes >= 24 * 60) anchor.setHours(23, 59, 0, 0);
+      else anchor.setHours(Math.floor(roundedMinutes / 60), roundedMinutes % 60, 0, 0);
+    } else {
+      anchor.setHours(9, 0, 0, 0);
+    }
   }
   const defaultEnd = new Date(anchor.valueOf() + 60 * 60_000);
   const start = task?.startAt ? new Date(task.startAt) : anchor;
@@ -5630,7 +5637,6 @@ function openTaskModal(task = null, day = null) {
   });
   const custom = task?.reminderOffsets?.find((offset) => !standard.has(offset));
   dom.taskCustomReminder.value = Number.isFinite(custom) ? String(custom) : "";
-  dom.taskTags.value = (task?.tags || []).join(", ");
   renderContentTagPicker("task", task?.tagIds || []);
   dom.deleteTaskButton.classList.toggle("is-hidden", !task);
   taskPreviewDate = localDateTimeFromParts(dom.taskStartDate.value, "00:00") || new Date();
@@ -5681,7 +5687,6 @@ function taskFormPayload() {
       until: until?.toISOString() || null,
     },
     reminderOffsets,
-    tags: dom.taskTags.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean),
     tagIds: tagIdsForPicker("task"),
   };
 }
@@ -5736,8 +5741,38 @@ function taskReminderLabel(task) {
 function closeTaskDetail() {
   if (!dom.taskDetailLayer) return;
   activeTaskDetailId = null;
+  activeTaskDetailAnchor = null;
   dom.taskDetailLayer.classList.remove("is-open");
   dom.taskDetailLayer.setAttribute("aria-hidden", "true");
+  dom.taskDetailCard?.style.removeProperty("--task-detail-left");
+  dom.taskDetailCard?.style.removeProperty("--task-detail-top");
+}
+
+function positionTaskDetail(anchor = activeTaskDetailAnchor) {
+  if (!dom.taskDetailCard || !dom.taskDetailLayer?.classList.contains("is-open")) return;
+  const margin = 14;
+  const gap = 10;
+  const width = dom.taskDetailCard.offsetWidth || 380;
+  const height = dom.taskDetailCard.offsetHeight || 460;
+  const viewportWidth = document.documentElement.clientWidth;
+  const viewportHeight = document.documentElement.clientHeight;
+  const anchorRect = anchor?.isConnected && typeof anchor.getBoundingClientRect === "function"
+    ? anchor.getBoundingClientRect()
+    : null;
+  let left = (viewportWidth - width) / 2;
+  let top = (viewportHeight - height) / 2;
+  if (anchorRect) {
+    if (anchorRect.right + gap + width <= viewportWidth - margin) left = anchorRect.right + gap;
+    else if (anchorRect.left - gap - width >= margin) left = anchorRect.left - gap - width;
+    else left = anchorRect.left + anchorRect.width / 2 - width / 2;
+    if (anchorRect.bottom + gap + height <= viewportHeight - margin) top = anchorRect.bottom + gap;
+    else if (anchorRect.top - gap - height >= margin) top = anchorRect.top - gap - height;
+    else top = anchorRect.top - 42;
+  }
+  left = Math.max(margin, Math.min(left, viewportWidth - width - margin));
+  top = Math.max(margin, Math.min(top, viewportHeight - height - margin));
+  dom.taskDetailCard.style.setProperty("--task-detail-left", `${Math.round(left)}px`);
+  dom.taskDetailCard.style.setProperty("--task-detail-top", `${Math.round(top)}px`);
 }
 
 function addTaskDetailRow(label, value) {
@@ -5760,8 +5795,8 @@ function renderTaskDetail() {
   const color = TASK_CALENDAR.normalizeColor(task.color);
   dom.taskDetailColor.style.setProperty("--schedule-color", color);
   dom.taskDetailTitle.textContent = task.title;
+  dom.taskDetailWhen.textContent = taskDateRangeLabel(task);
   dom.taskDetailContent.replaceChildren();
-  addTaskDetailRow("时间", taskDateRangeLabel(task));
   addTaskDetailRow("重复", taskRecurrenceLabel(task));
   addTaskDetailRow("执行任务", task.notes || "未填写执行说明");
   addTaskDetailRow("提前提醒", taskReminderLabel(task));
@@ -5777,13 +5812,17 @@ function renderTaskDetail() {
   dom.taskDetailTimeline.title = task.status === "done" ? "将完成结果整理为时间轴记录" : "完成日程后可记录到时间轴";
 }
 
-function openTaskDetail(task) {
+function openTaskDetail(task, anchor = null) {
   if (!task || !dom.taskDetailLayer) return;
   activeTaskDetailId = task.id;
+  activeTaskDetailAnchor = anchor;
   renderTaskDetail();
   dom.taskDetailLayer.classList.add("is-open");
   dom.taskDetailLayer.setAttribute("aria-hidden", "false");
-  requestAnimationFrame(() => dom.taskDetailClose.focus());
+  requestAnimationFrame(() => {
+    positionTaskDetail();
+    dom.taskDetailClose.focus();
+  });
 }
 
 async function deleteTaskWithConfirmation(task, options = {}) {
@@ -5829,7 +5868,7 @@ function createTaskAgendaItem(entry) {
   title.textContent = task.title;
   button.title = `${taskAgendaTime(entry)} · ${task.title}`;
   button.append(dot, time, title);
-  button.addEventListener("click", () => openTaskDetail(task));
+  button.addEventListener("click", (event) => openTaskDetail(task, event.currentTarget));
   return button;
 }
 
@@ -5866,6 +5905,19 @@ function appendTaskPreviewEvent(occurrence, dayKey, options = {}) {
   return element;
 }
 
+function appendTaskPreviewNowLine(now = new Date()) {
+  const line = document.createElement("div");
+  line.className = "schedule-preview-now-line";
+  line.setAttribute("role", "separator");
+  line.setAttribute("aria-label", `当前时间 ${formatTaskClock(now)}`);
+  line.style.top = `${previewMinutes(now) / 60 * 46}px`;
+  const label = document.createElement("span");
+  label.textContent = formatTaskClock(now);
+  line.appendChild(label);
+  dom.taskPreviewGrid.appendChild(line);
+  return line;
+}
+
 function renderTaskDayPreview(options = {}) {
   if (!dom.taskPreviewGrid || !dom.taskStartDate.value) return;
   const previewDay = TASK_CALENDAR.startOfDay(taskPreviewDate);
@@ -5896,10 +5948,13 @@ function renderTaskDayPreview(options = {}) {
   for (const occurrence of existing.filter((item) => !item.task.allDay)) appendTaskPreviewEvent(occurrence, dayKey);
   let draftElement = null;
   for (const occurrence of draftOccurrences.filter((item) => !item.task.allDay)) draftElement = appendTaskPreviewEvent(occurrence, dayKey, { draft: true });
+  if (today) appendTaskPreviewNowLine();
   if (options.scrollToDraft) {
     requestAnimationFrame(() => {
       const target = draftElement ? Number.parseFloat(draftElement.style.top) : today ? previewMinutes(new Date()) / 60 * 46 : 9 * 46;
-      dom.taskPreviewGrid.scrollTop = Math.max(0, target - 2 * 46);
+      const viewport = dom.taskPreviewScroll || dom.taskPreviewGrid;
+      const lead = Math.min(2 * 46, Math.max(46, viewport.clientHeight * .22));
+      viewport.scrollTop = Math.max(0, target - lead);
     });
   }
 }
@@ -6011,7 +6066,7 @@ function renderTaskMonth() {
       event.title = `${taskDateRangeLabel(segment.occurrence.task)} · ${segment.occurrence.task.title}`;
       event.addEventListener("click", (clickEvent) => {
         clickEvent.stopPropagation();
-        openTaskDetail(segment.occurrence.task);
+        openTaskDetail(segment.occurrence.task, clickEvent.currentTarget);
       });
       week.appendChild(event);
     }
@@ -9170,7 +9225,7 @@ function handleBrowserState(next = {}) {
   );
   dom.resetNodeSeekSession.classList.toggle(
     "is-hidden",
-    browserSnapshot.siteIssue !== "nodeseek-network",
+    !["nodeseek-network", "nodeseek-challenge"].includes(browserSnapshot.siteIssue),
   );
   dom.repairSapSession.classList.toggle(
     "is-hidden",
@@ -9797,10 +9852,12 @@ function bindEvents() {
     syncTaskRecurrenceLabels();
     renderTaskDayPreview({ scrollToDraft: true });
   });
-  for (const field of [dom.taskStartTime, dom.taskEndTime, dom.taskEndDate, dom.taskRecurrenceUntil, dom.taskRecurrenceInterval, dom.taskRecurrenceUnit, dom.taskColor, dom.taskTitle]) {
+  for (const field of [dom.taskEndTime, dom.taskEndDate, dom.taskRecurrenceUntil, dom.taskRecurrenceInterval, dom.taskRecurrenceUnit, dom.taskColor, dom.taskTitle]) {
     field.addEventListener("input", () => renderTaskDayPreview());
     field.addEventListener("change", () => renderTaskDayPreview());
   }
+  dom.taskStartTime.addEventListener("input", () => renderTaskDayPreview({ scrollToDraft: true }));
+  dom.taskStartTime.addEventListener("change", () => renderTaskDayPreview({ scrollToDraft: true }));
   dom.taskForm.querySelectorAll('input[name="taskRecurrenceWeekday"]').forEach((input) => input.addEventListener("change", () => renderTaskDayPreview()));
   dom.taskForm.querySelectorAll("[data-task-color]").forEach((button) => button.addEventListener("click", () => {
     dom.taskColor.value = TASK_CALENDAR.normalizeColor(button.dataset.taskColor);
@@ -9824,6 +9881,7 @@ function bindEvents() {
       openTaskAsTimelineDraft(task);
     }
   });
+  window.addEventListener("resize", () => positionTaskDetail());
   dom.taskForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     let payload;
@@ -10433,13 +10491,13 @@ function bindEvents() {
   });
   dom.resetNodeSeekSession.addEventListener("click", async () => {
     const confirmed = window.confirm(
-      "确定重置 NodeSeek 防护状态吗？\n\n这只会清理栖页内 NodeSeek 的 Cloudflare 防护状态与站点缓存，会保留 NodeSeek 账号登录，不影响 Chrome 或其他网站。",
+      "确定重置 NodeSeek 防护状态吗？\n\n这只会清理 NodeSeek 专用浏览身份中的 Cloudflare 防护 Cookie、Service Worker 与缓存，然后重新打开当前页面；不会删除旧默认身份数据，也不影响 Chrome、SAP 或其他网站。",
     );
     if (!confirmed) return;
     dom.resetNodeSeekSession.disabled = true;
     try {
       await window.siteNest.browserAction("reset-site-session");
-      showToast("NodeSeek 防护状态已重置", "账号登录已保留，正在重新加载页面");
+      showToast("NodeSeek 防护状态已重置", "正在用专用浏览身份重新加载当前页面");
     } catch (error) {
       showToast("无法重置防护状态", error?.message || "请稍后重试", "error");
     } finally {
