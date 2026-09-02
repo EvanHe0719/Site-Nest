@@ -1,7 +1,7 @@
 function summaryExtractionScript(maxCharacters = 15_000) {
   const limit = Math.max(1_000, Math.min(20_000, Number(maxCharacters) || 15_000));
   return `(() => {
-    const excluded='script,style,noscript,code,pre,input,textarea,select,option,button,[contenteditable],[aria-hidden="true"],[hidden],[data-qiye-translation-ui],[data-qiye-selection-insight-popover]';
+    const excluded='script,style,noscript,code,pre,input,textarea,select,option,button,[contenteditable],[aria-hidden="true"],[hidden],[data-qiye-translation-ui],[data-qiye-selection-insight-popover],[data-qiye-companion-host]';
     const visible=(node)=>{const element=node.parentElement;if(!element||element.closest(excluded))return false;const style=getComputedStyle(element);return style.display!=='none'&&style.visibility!=='hidden'&&Number(style.opacity)!==0&&element.getClientRects().length>0};
     const headings=Array.from(document.querySelectorAll('h1,h2,h3')).filter((element)=>!element.closest(excluded)&&element.getClientRects().length>0).map((element)=>String(element.textContent||'').trim()).filter(Boolean).slice(0,30);
     const parts=[];let length=0;const walker=document.createTreeWalker(document.body||document.documentElement,NodeFilter.SHOW_TEXT);

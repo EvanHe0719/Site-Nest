@@ -5,10 +5,14 @@ const test = require("node:test");
 
 const {
   COMPANION_STATES,
+  COMPANION_WIDGET_HOST_ID,
+  COMPANION_WIDGET_WORLD_ID,
   CompanionRuntimeService,
   OpenMeteoWeatherProvider,
   WeatherProviderError,
   classifyPageForAI,
+  companionWidgetInstallScript,
+  normalizeCompanionWidgetSnapshot,
   summaryExtractionScript,
 } = require("../../electron/companion/index.cjs");
 
@@ -73,25 +77,44 @@ test("weather provider uses bounded timeout and public WEATHER error codes", asy
   await assert.rejects(invalid.resolveCity("上海"), (error) => error.code === "WEATHER_INVALID_RESPONSE");
 });
 
-test("shell status orb is single-instance, inert, reduced-motion aware and never injected into remote pages", () => {
+test("in-page widget is isolated, interactive, reduced-motion aware and excludes private page data", () => {
   const html = fs.readFileSync(path.join(ROOT, "renderer", "index.html"), "utf8");
   const styles = fs.readFileSync(path.join(ROOT, "renderer", "styles.css"), "utf8");
   const renderer = fs.readFileSync(path.join(ROOT, "renderer", "app.js"), "utf8");
-  assert.equal((html.match(/id="companionDock"/g) || []).length, 1);
+  const preload = fs.readFileSync(path.join(ROOT, "electron", "user-script-preload.cjs"), "utf8");
+  const main = fs.readFileSync(path.join(ROOT, "electron", "main.cjs"), "utf8");
+  const widget = companionWidgetInstallScript({
+    settings: { enabled: true, apiKey: "must-not-leak" },
+    runtime: { state: "idle", secret: "runtime-secret" },
+  });
+  const normalized = normalizeCompanionWidgetSnapshot({
+    settings: { enabled: true, apiKey: "must-not-leak" },
+    runtime: { state: "idle", secret: "runtime-secret" },
+    weather: { snapshot: { city: "上海", temperature: 26, token: "weather-secret" } },
+  });
+  assert.equal(COMPANION_WIDGET_WORLD_ID, 1002);
+  assert.equal(COMPANION_WIDGET_HOST_ID, "qiye-xiaoxu-widget-host");
+  assert.equal((html.match(/id="companionDock"/g) || []).length, 0);
   assert.equal((html.match(/id="companionPanel"/g) || []).length, 0);
-  assert.match(html, /id="companionDock"[^>]*aria-disabled="true"/);
-  assert.match(html, /aria-expanded="false"/);
+  assert.equal((html.match(/id="companionEdgeRail"/g) || []).length, 0);
   assert.doesNotMatch(html, /id="companionQuickAskForm"/);
   assert.doesNotMatch(html, /id="companionWeatherPill"/);
-  assert.match(styles, /xiaoxu-orb-bright-pulse/);
-  assert.match(html, /orb-pulse-ring--outer/);
-  assert.match(html, /class="orb-zzz"/);
-  assert.match(styles, /data-visual-state="nap"/);
-  assert.match(styles, /data-visual-state="happy"/);
-  assert.match(styles, /data-visual-state="breathing"/);
-  assert.match(styles, /prefers-reduced-motion:\s*reduce/);
+  assert.doesNotMatch(styles, /is-companion-enabled|companion-edge-rail|\.companion-dock/);
   assert.doesNotMatch(renderer, /dom\.companionDock\.focus/);
-  assert.doesNotMatch(summaryExtractionScript(15_000), /companion-dock|companion-panel/);
+  assert.match(widget, /attachShadow\(\{ mode: 'closed' \}\)/);
+  assert.match(widget, /data-visual-state="nap"/);
+  assert.match(widget, /data-visual-state="happy"/);
+  assert.match(widget, /data-visual-state="breathing"/);
+  assert.match(widget, /prefers-reduced-motion:reduce/);
+  assert.match(widget, /event\.isTrusted/);
+  assert.match(widget, /输入问题，不会自动读取网页/);
+  assert.doesNotMatch(widget, /document\.cookie|localStorage|sessionStorage|innerText/);
+  assert.doesNotMatch(widget, /must-not-leak|runtime-secret|weather-secret/);
+  assert.doesNotMatch(JSON.stringify(normalized), /must-not-leak|runtime-secret|weather-secret/);
+  assert.match(summaryExtractionScript(15_000), /\[data-qiye-companion-host\]/);
+  assert.match(preload, /exposeInIsolatedWorld\(COMPANION_WIDGET_WORLD_ID, "qiyeCompanionHost"/);
+  assert.match(main, /runtimeTabForWebContentsId\(event\.sender\.id\)/);
+  assert.match(main, /companion:page-widget-action/);
 });
 
 test("production lifecycle stops companion, weather and AI in the 0.5.7 release", () => {

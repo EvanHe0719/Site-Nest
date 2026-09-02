@@ -241,7 +241,7 @@ test(
 );
 
 test(
-  "0.5.7 小序只保留状态图标，点击不展开侧栏且专注和全屏时变淡",
+  "0.5.7 小序悬浮在网页右下角，真实点击打开小卡片且不占独立侧栏",
   { timeout: 90000 },
   async (t) => {
     const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-companion-discoverability-"));
@@ -261,23 +261,31 @@ test(
     const line = probe.stdout.split(/\r?\n/).find((item) => item.includes('"companionDiscoverabilityProbe"'));
     assert.ok(line, probe.stdout);
     const result = JSON.parse(line).companionDiscoverabilityProbe;
-    assert.equal(result.before.enabled, false);
-    assert.equal(result.before.railVisible, true, JSON.stringify(result));
-    assert.equal(result.before.panelExists, false);
-    assert.match(result.before.dockTitle, /尚未启用/);
-    assert.equal(result.before.dockDisabled, "true");
-    assert.equal(result.before.titlebarDisabled, "true");
-    assert.equal(result.opened.panelExists, false);
-    assert.equal(result.opened.panelClassApplied, false);
-    assert.deepEqual(result.idle, { visualState: "idle", bubbleVisible: false });
-    assert.deepEqual(result.breathing, { visualState: "breathing" });
-    assert.deepEqual(result.focused, { visible: true, muted: true, state: "focusedDocked", visualState: "nap" });
-    assert.deepEqual(result.happy, { visualState: "happy", bubbleVisible: true, reminderLayout: true });
-    assert.equal(result.fullscreen.visible, true);
-    assert.equal(result.fullscreen.muted, true);
+    assert.equal(result.shell.enabled, false);
+    assert.equal(result.shell.shellRailExists, false, JSON.stringify(result));
+    assert.equal(result.shell.shellDockExists, false);
+    assert.equal(result.shell.shellPanelExists, false);
+    assert.equal(result.shell.titlebarDisabled, "true");
+    assert.ok(Math.abs(result.shell.browserWidth - result.shell.frameWidth) < 1);
+    assert.equal(result.before.hostConnected, true);
+    assert.equal(result.before.hostPosition, "fixed");
+    assert.equal(result.before.panelOpen, false);
+    assert.equal(Math.round(result.before.viewport.width - result.before.orbRect.x - result.before.orbRect.width), 18);
+    assert.equal(Math.round(result.before.viewport.height - result.before.orbRect.y - result.before.orbRect.height), 18);
+    assert.equal(result.opened.panelOpen, true);
+    assert.equal(Math.round(result.opened.panelRect.width), 286);
+    assert.equal(result.idle.visualState, "idle");
+    assert.equal(result.breathing.visualState, "breathing");
+    assert.equal(result.focused.visualState, "nap");
+    assert.equal(result.focused.panelOpen, false);
     assert.equal(result.fullscreen.visualState, "nap");
-    assert.match(result.fullscreen.title, /全屏/);
+    assert.equal(result.fullscreen.panelOpen, false);
+    assert.equal(result.happy.visualState, "happy");
+    assert.equal(result.finalOpen.panelOpen, true);
     assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
+    const parsed = path.parse(probe.capturePath);
+    const siteCapturePath = path.join(parsed.dir, `${parsed.name}-site${parsed.ext}`);
+    assert.ok((await fsp.stat(siteCapturePath)).size > 1000);
   },
 );
 

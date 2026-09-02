@@ -564,9 +564,6 @@ const dom = {
   copyZohoTicketLink: document.getElementById("copyZohoTicketLink"),
   openZohoTicketExternal: document.getElementById("openZohoTicketExternal"),
   giteeAssociationState: document.getElementById("giteeAssociationState"),
-  companionEdgeRail: document.getElementById("companionEdgeRail"),
-  companionDock: document.getElementById("companionDock"),
-  companionBubble: document.getElementById("companionBubble"),
   appContextMenu: document.getElementById("appContextMenu"),
   toastStack: document.getElementById("toastStack"),
 };
@@ -636,7 +633,6 @@ let companionRuntime = { state: "silentHidden", reminder: null, quietReason: nul
 let companionWeather = { configured: false, status: "not-configured", snapshot: null, error: null };
 let companionAIRequestId = null;
 let companionAIResult = "";
-let companionTransientReminderTimer = 0;
 let pageActionRequestId = 0;
 let pageActionRefreshTimer = 0;
 let translationStatusCache = null;
@@ -1147,7 +1143,6 @@ function openGlobalSearchPalette(prefill = "") {
   globalSearchOpen = true;
   globalSearchPreviousFocus = document.activeElement;
   window.siteNest?.hideBrowser();
-  dom.companionBubble.hidden = true;
   dom.globalSearchPalette.hidden = false;
   dom.globalSearchInput.value = String(prefill || "");
   dom.globalSearchEngine.value = searchState.settings.defaultSearchEngineId;
@@ -7065,7 +7060,6 @@ function renderAll() {
 
 function openModal(modal) {
   window.siteNest?.hideBrowser();
-  dom.companionBubble.hidden = true;
   modal.classList.add("is-open");
   const firstInput = modal.querySelector("input:not([type=radio]):not([type=hidden]), button:not([disabled])");
   window.setTimeout(() => firstInput?.focus(), 50);
@@ -8340,60 +8334,16 @@ function companionEnabled() {
   return appState.uiSettings?.companion?.enabled === true;
 }
 
-function companionHardHidden() {
-  return companionRuntime.temporarilyHidden === true
-    || ["screen-sharing", "system-away"].includes(companionRuntime.quietReason);
-}
-
-function companionVisualState(snapshot = companionRuntime) {
-  if (snapshot.reminder && snapshot.state === "bubbleTip") return "happy";
-  if (snapshot.quietReason === "fullscreen" || snapshot.state === "focusedDocked") return "nap";
-  if (snapshot.state === "resting") return "breathing";
-  return "idle";
-}
-
-function setCompanionReminderPresentation(message = "") {
-  const visible = Boolean(message && companionEnabled() && !companionHardHidden());
-  dom.companionBubble.textContent = message;
-  dom.companionBubble.hidden = !visible;
-  dom.companionEdgeRail.classList.toggle("is-notifying", visible);
-  dom.browserContent.classList.toggle("is-companion-reminding", visible);
-  if (visible) dom.companionDock.dataset.visualState = "happy";
-  return visible;
-}
-
 function renderCompanionShell() {
-  const enabled = companionEnabled();
-  const browserVisible = dom.browserPage.classList.contains("is-visible");
-  const visible = browserVisible
-    && !companionHardHidden()
-    && (!enabled || companionRuntime.state !== "silentHidden" || companionRuntime.quietReason === "fullscreen");
-  dom.companionEdgeRail.hidden = !visible;
-  dom.companionEdgeRail.classList.toggle("is-companion-disabled", !enabled);
-  dom.companionEdgeRail.classList.toggle(
-    "is-companion-muted",
-    companionRuntime.quietReason === "fullscreen" || companionRuntime.state === "focusedDocked",
+  dom.browserContent.classList.remove(
+    "is-companion-enabled",
+    "is-companion-reminding",
+    "is-companion-panel-open",
   );
-  dom.browserContent.classList.toggle("is-companion-enabled", visible);
-  dom.companionDock.setAttribute("aria-expanded", "false");
-  dom.companionDock.title = companionRuntime.quietReason === "fullscreen"
-    ? "视频全屏中，小序已变淡"
-    : companionRuntime.reminder?.message || (enabled ? "小序状态" : "小序尚未启用");
-  requestAnimationFrame(() => requestAnimationFrame(syncBrowserBounds));
 }
 
 function renderCompanionRuntime(snapshot = companionRuntime) {
   companionRuntime = { ...companionRuntime, ...(snapshot || {}) };
-  dom.companionDock.dataset.state = companionRuntime.state;
-  dom.companionDock.dataset.visualState = companionVisualState(companionRuntime);
-  const reminder = companionRuntime.reminder;
-  setCompanionReminderPresentation(
-    reminder && companionRuntime.state === "bubbleTip" ? reminder.message : "",
-  );
-  dom.companionDock.setAttribute(
-    "aria-label",
-    reminder?.message ? `小序提醒：${reminder.message}` : "小序状态图标，当前不可操作",
-  );
   renderCompanionShell();
 }
 
@@ -8689,7 +8639,6 @@ async function summarizeCurrentPageWithCompanion() {
 
 function setCompanionPanelOpen() {
   activeRightPanel = activeRightPanel === "companion" ? null : activeRightPanel;
-  dom.companionDock.setAttribute("aria-expanded", "false");
   dom.browserContent.classList.remove("is-companion-panel-open");
   requestAnimationFrame(() => requestAnimationFrame(syncBrowserBounds));
 }
@@ -10200,13 +10149,6 @@ function bindEvents() {
   window.siteNest?.onCompanionWeather?.(renderCompanionWeather);
   window.siteNest?.onCompanionWeatherAlert?.((event) => {
     const message = event?.message || "天气发生变化";
-    window.clearTimeout(companionTransientReminderTimer);
-    setCompanionReminderPresentation(message);
-    dom.companionDock.title = message;
-    companionTransientReminderTimer = window.setTimeout(() => {
-      companionTransientReminderTimer = 0;
-      renderCompanionRuntime(companionRuntime);
-    }, 12_000);
     showToast("天气提醒", message);
   });
   window.siteNest?.onDataStatusUpdated?.((snapshot) => {

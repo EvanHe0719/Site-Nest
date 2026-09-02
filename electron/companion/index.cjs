@@ -9,5 +9,6 @@ const contentGuard = require("./content-guard.cjs");
 const pageSummary = require("./page-summary-extractor.cjs");
 const ai = require("./ai-service.cjs");
 const settings = require("./settings.cjs");
+const pageWidget = require("./page-widget.cjs");
 
-module.exports = { ...stateMachine, ...rightPanel, ...quietPolicy, ...wellness, ...runtime, ...weatherProvider, ...weather, ...contentGuard, ...pageSummary, ...ai, ...settings };
+module.exports = { ...stateMachine, ...rightPanel, ...quietPolicy, ...wellness, ...runtime, ...weatherProvider, ...weather, ...contentGuard, ...pageSummary, ...ai, ...settings, ...pageWidget };

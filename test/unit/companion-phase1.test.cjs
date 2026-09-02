@@ -4,8 +4,10 @@ const path = require("node:path");
 const test = require("node:test");
 const {
   COMPANION_STATES,
+  COMPANION_WIDGET_WORLD_ID,
   CompanionStateMachine,
   RightPanelCoordinator,
+  companionWidgetInstallScript,
 } = require("../../electron/companion/index.cjs");
 
 test("companion state machine exposes exactly the six approved states and central guards", () => {
@@ -26,14 +28,18 @@ test("right panel coordinator never leaves page actions and companion open toget
   assert.deepEqual(coordinator.close("companion"), { activePanel: null, closedPanel: "companion" });
 });
 
-test("companion breathing orb owns layout width rather than relying on a remote-page overlay", () => {
+test("companion orb floats inside the isolated webpage without taking Shell layout width", () => {
   const root = path.resolve(__dirname, "..", "..");
   const html = fs.readFileSync(path.join(root, "renderer", "index.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "renderer", "styles.css"), "utf8");
   const main = fs.readFileSync(path.join(root, "electron", "main.cjs"), "utf8");
-  assert.match(html, /id="companionEdgeRail"/);
-  assert.match(html, /class="companion-dock xiaoxu-orb-btn"/);
-  assert.match(css, /grid-template-columns:\s*minmax\(0, 1fr\) 60px/);
-  assert.doesNotMatch(css, /\.xiaoxu-floating-widget\s*\{[^}]*position:\s*fixed/s);
-  assert.doesNotMatch(main, /executeJavaScript\([^)]*companion/i);
+  const widget = companionWidgetInstallScript({ settings: { enabled: true } });
+  assert.equal(COMPANION_WIDGET_WORLD_ID, 1002);
+  assert.doesNotMatch(html, /id="companionEdgeRail"|id="companionDock"/);
+  assert.doesNotMatch(css, /grid-template-columns:\s*minmax\(0, 1fr\) 60px/);
+  assert.match(widget, /position: 'fixed'/);
+  assert.match(widget, /right: '18px'/);
+  assert.match(widget, /bottom: '18px'/);
+  assert.match(widget, /attachShadow\(\{ mode: 'closed' \}\)/);
+  assert.match(main, /executeJavaScriptInIsolatedWorld\(\s*COMPANION_WIDGET_WORLD_ID/);
 });

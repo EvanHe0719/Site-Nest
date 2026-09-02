@@ -6,9 +6,11 @@ const test = require("node:test");
 
 const {
   CompanionRuntimeService,
+  companionWidgetInstallScript,
   normalizeCompanionRuntimeState,
   normalizeCompanionSettings,
   syncableCompanionSettings,
+  visualState,
 } = require("../../electron/companion/index.cjs");
 const { createSafeSnapshot } = require("../../electron/google-drive-sync-data.cjs");
 const { DEFAULT_SHORTCUTS } = require("../../electron/shortcuts/shortcut-registry.cjs");
@@ -127,19 +129,21 @@ test("companion background actions and settings remain registered while the pane
   assert.doesNotMatch(html, /data-action-id="companion\.expand"/);
 });
 
-test("0.5.7 keeps inert companion icons without reopening the removed sidebar", () => {
+test("0.5.7 keeps the titlebar icon inert while the in-page orb is interactive", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "..", "renderer", "index.html"), "utf8");
   const renderer = fs.readFileSync(path.join(__dirname, "..", "..", "renderer", "app.js"), "utf8");
+  const widget = companionWidgetInstallScript({ settings: { enabled: true } });
   assert.match(html, /id="globalCompanionTrigger"[^>]*aria-disabled="true"/);
-  assert.match(html, /id="companionDock"[^>]*aria-disabled="true"/);
-  assert.doesNotMatch(html, /id="companionPanel"/);
+  assert.doesNotMatch(html, /id="companionDock"|id="companionPanel"|id="companionEdgeRail"/);
   assert.doesNotMatch(renderer, /globalCompanionTrigger\.addEventListener\("click"/);
-  assert.doesNotMatch(renderer, /companionDock\.addEventListener\("click"/);
-  assert.match(renderer, /quietReason === "fullscreen" \|\| companionRuntime\.state === "focusedDocked"/);
-  assert.match(renderer, /function companionVisualState\(snapshot = companionRuntime\)/);
-  assert.match(renderer, /return "happy"/);
-  assert.match(renderer, /return "nap"/);
-  assert.match(renderer, /return "breathing"/);
+  assert.doesNotMatch(renderer, /dom\.companionDock|dom\.companionEdgeRail/);
+  assert.match(widget, /orb\.addEventListener\('click'/);
+  assert.match(widget, /if \(!event\.isTrusted\) return/);
+  assert.match(widget, /qiyeCompanionHost\?\.invoke\('status'/);
+  assert.equal(visualState({ state: "idle" }), "idle");
+  assert.equal(visualState({ state: "resting" }), "breathing");
+  assert.equal(visualState({ state: "focusedDocked" }), "nap");
+  assert.equal(visualState({ state: "bubbleTip", reminder: { message: "喝水" } }), "happy");
 });
 
 test("desktop companion notification exposes open, acknowledge, snooze and dismiss actions", () => {

@@ -207,10 +207,14 @@ const {
   CompanionAIService,
   CompanionPageSummaryExtractor,
   CompanionRuntimeService,
+  COMPANION_WIDGET_WORLD_ID,
   WeatherService,
   classifyPageForAI,
+  companionWidgetInstallScript,
+  companionWidgetUpdateScript,
   normalizeCompanionRuntimeState,
   normalizeCompanionSettings,
+  normalizeCompanionWidgetSnapshot,
 } = require("./companion/index.cjs");
 
 const APP_ID = "local.qiye.sitehub";
@@ -352,6 +356,8 @@ const companionSensitiveSiteApprovals = new Set();
 let companionSystemLocked = false;
 let companionSystemSleeping = false;
 let lastCompanionNotificationKey = "";
+let companionWidgetAlertTimer;
+let companionWidgetAlertMessage = "";
 let selectionActionService;
 let pageTranslationController;
 const translationSessionAllowedHosts = new Set();
@@ -2375,6 +2381,7 @@ function attachSiteView(context = activeBrowserContext()) {
   }
   if (context.workspaceId === activeBrowserWorkspaceId) syncActiveBrowserAliases(context);
   applySiteViewBounds(siteViewBounds, context);
+  void installCompanionPageWidget(context);
 }
 
 function completeNavigationPerformanceTrace(context) {
@@ -2900,6 +2907,7 @@ function ensureSiteView(context = activeBrowserContext()) {
     } catch {
       // A navigation may be replaced while dom-ready is being delivered.
     }
+    void installCompanionPageWidget(context);
     if (context.navigationTraceId) {
       navigationPerformanceTracer.mark(context.navigationTraceId, "domReadyAt");
       navigationPerformanceTracer.update(context.navigationTraceId, {
@@ -4389,6 +4397,7 @@ function attachSiteViewToDetached(tab) {
   tab.detached = true;
   tab.runtimeState?.transition("active", "detached-window");
   applyDetachedViewBounds(tab);
+  void installCompanionPageWidget(tab);
 }
 
 function closeDetachedWindow(tab, mode = "close") {
@@ -5280,9 +5289,57 @@ function companionRuntimeContext() {
   };
 }
 
+function companionPageWidgetSnapshot(runtime = companionRuntimeService?.snapshot(), options = {}) {
+  return normalizeCompanionWidgetSnapshot({
+    runtime: runtime || {},
+    settings: cachedState?.uiSettings?.companion || {},
+    weather: options.weather || weatherService?.status?.() || {},
+    ai: options.ai || {},
+    alertMessage: options.alertMessage || companionWidgetAlertMessage,
+  });
+}
+
+async function installCompanionPageWidget(context, options = {}) {
+  const contents = context?.view?.webContents;
+  if (!contents || contents.isDestroyed() || !isSafeWebUrl(contents.getURL())) return false;
+  try {
+    return await contents.executeJavaScriptInIsolatedWorld(
+      COMPANION_WIDGET_WORLD_ID,
+      [{ code: companionWidgetInstallScript(companionPageWidgetSnapshot(options.runtime, options)), url: "qiye-companion://page-widget" }],
+      true,
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function updateCompanionPageWidget(context, runtime, options = {}) {
+  const contents = context?.view?.webContents;
+  if (!contents || contents.isDestroyed() || !isSafeWebUrl(contents.getURL())) return false;
+  const snapshot = companionPageWidgetSnapshot(runtime, options);
+  try {
+    const updated = await contents.executeJavaScriptInIsolatedWorld(
+      COMPANION_WIDGET_WORLD_ID,
+      [{ code: companionWidgetUpdateScript(snapshot), url: "qiye-companion://page-widget-update" }],
+      true,
+    );
+    return updated || installCompanionPageWidget(context, { ...options, runtime });
+  } catch {
+    return false;
+  }
+}
+
+function broadcastCompanionPageWidget(runtime = companionRuntimeService?.snapshot(), options = {}) {
+  for (const tab of allRuntimeTabs()) {
+    if (tab.viewOwner === "none") continue;
+    void updateCompanionPageWidget(tab, runtime, options);
+  }
+}
+
 function emitCompanionRuntime(snapshot = companionRuntimeService?.snapshot()) {
   if (!snapshot || !mainWindow || mainWindow.isDestroyed()) return snapshot;
   mainWindow.webContents.send("companion:runtime", snapshot);
+  broadcastCompanionPageWidget(snapshot);
   const reminderKey = snapshot.reminder ? `${snapshot.reminder.kind}:${snapshot.reminder.dueAt}` : "";
   if (reminderKey && reminderKey !== lastCompanionNotificationKey && desktopNotificationService) {
     lastCompanionNotificationKey = reminderKey;
@@ -5353,6 +5410,7 @@ async function performCompanionRuntimeAction(action, input = {}) {
 
 function emitWeatherStatus(status = weatherService?.status()) {
   if (status && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("companion:weather", status);
+  if (status) broadcastCompanionPageWidget(companionRuntimeService?.snapshot(), { weather: status });
   return status;
 }
 
@@ -5366,6 +5424,15 @@ async function initializeWeatherService() {
     onAlert: (event) => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
       mainWindow.webContents.send("companion:weather-alert", event);
+      clearTimeout(companionWidgetAlertTimer);
+      companionWidgetAlertMessage = event?.message || "天气发生变化";
+      broadcastCompanionPageWidget(companionRuntimeService?.snapshot(), { alertMessage: companionWidgetAlertMessage });
+      companionWidgetAlertTimer = setTimeout(() => {
+        companionWidgetAlertTimer = null;
+        companionWidgetAlertMessage = "";
+        broadcastCompanionPageWidget(companionRuntimeService?.snapshot());
+      }, 12_000);
+      companionWidgetAlertTimer.unref?.();
     },
   });
   weatherService.schedule();
@@ -6142,6 +6209,44 @@ function registerIpc() {
   });
   ipcMain.handle("companion:cancel-weather", async () => { weatherService?.cancel(); return { ok: true }; });
   ipcMain.handle("companion:ai-status", async () => getCompanionAIServices().ai.status());
+  ipcMain.handle("companion:page-widget-action", async (event, request) => {
+    const context = runtimeTabForWebContentsId(event.sender.id);
+    if (
+      !context
+      || context.view?.webContents !== event.sender
+      || !isSafeWebUrl(event.sender.getURL())
+      || (event.senderFrame && event.senderFrame !== event.sender.mainFrame)
+    ) {
+      return { ok: false, error: { code: "WIDGET_CONTEXT_INVALID", message: "小序悬浮组件上下文无效" } };
+    }
+    const action = String(request?.action || "");
+    try {
+      const runtime = (await initializeCompanionRuntime()).snapshot();
+      if (action === "status") {
+        const ai = await getCompanionAIServices().ai.status();
+        return { ok: true, value: companionPageWidgetSnapshot(runtime, { ai }) };
+      }
+      if (action === "weather.refresh") {
+        const service = await initializeWeatherService();
+        await service.refresh({ force: true });
+        const ai = await getCompanionAIServices().ai.status();
+        return { ok: true, value: companionPageWidgetSnapshot(runtime, { weather: service.status(), ai }) };
+      }
+      if (action === "ask") {
+        const question = String(request?.payload?.question || "").trim().slice(0, 4_000);
+        if (!question) return { ok: false, error: { code: "INVALID_INPUT", message: "请输入想问小序的问题" } };
+        const requestId = `page-widget-${event.sender.id}-${Date.now()}`;
+        const value = await getCompanionAIServices().ai.run(requestId, "ask", { question });
+        return { ok: true, value };
+      }
+      return { ok: false, error: { code: "WIDGET_ACTION_UNSUPPORTED", message: "当前小序操作尚未开放" } };
+    } catch (error) {
+      if (action === "weather.refresh") {
+        return { ok: false, error: { code: String(error?.code || "WEATHER_ERROR"), message: String(error?.message || "天气刷新失败").slice(0, 300) } };
+      }
+      return { ok: false, error: publicCompanionAIError(error) };
+    }
+  });
   ipcMain.handle("companion:ask", async (_event, payload) => {
     try {
       return { ok: true, value: await getCompanionAIServices().ai.run(payload?.requestId, "ask", { question: payload?.question }) };
@@ -6194,6 +6299,7 @@ function registerIpc() {
       const settings = normalizeCompanionSettings(result.uiSettings.companion);
       companionRuntimeService?.updateSettings(settings);
       weatherService?.updateSettings(settings.weather);
+      broadcastCompanionPageWidget(companionRuntimeService?.snapshot());
     }
     return { state: cachedState, uiSettings: result.uiSettings };
   });
@@ -7424,56 +7530,59 @@ function createMainWindow() {
           await new Promise((resolve) => setTimeout(resolve, 900));
           await mainWindow.webContents.executeJavaScript(`showSite(appState.sites.find((site) => site.name === '小序可发现性验证'))`);
           await new Promise((resolve) => setTimeout(resolve, 500));
-          const companionResult = await mainWindow.webContents.executeJavaScript(`(async () => {
-            const rail = document.getElementById('companionEdgeRail');
-            const panel = document.getElementById('companionPanel');
-            const dock = document.getElementById('companionDock');
-            const titlebarIcon = document.getElementById('globalCompanionTrigger');
-            const before = {
-              enabled: appState.uiSettings.companion.enabled,
-              railVisible: !rail.hidden,
-              panelExists: Boolean(panel),
-              dockTitle: dock.title,
-              dockDisabled: dock.getAttribute('aria-disabled'),
-              titlebarDisabled: titlebarIcon.getAttribute('aria-disabled'),
-              currentRoute,
-              browserPageClass: document.getElementById('browserPage')?.className || '',
-              hasOpenPage: browserSnapshot.hasOpenPage,
-            };
-            dock.click();
-            titlebarIcon.click();
-            await new Promise((resolve) => setTimeout(resolve, 50));
-            const opened = {
-              panelExists: Boolean(panel),
-              panelClassApplied: document.getElementById('browserContent')?.classList.contains('is-companion-panel-open'),
-            };
-            appState.uiSettings.companion.enabled = true;
-            renderCompanionRuntime({ ...companionRuntime, state: 'idle', quietReason: null, reminder: null });
-            const idle = { visualState: dock.dataset.visualState, bubbleVisible: !document.getElementById('companionBubble').hidden };
-            renderCompanionRuntime({ ...companionRuntime, state: 'resting', quietReason: null, reminder: null });
-            const breathing = { visualState: dock.dataset.visualState };
-            renderCompanionRuntime({ ...companionRuntime, state: 'focusedDocked', quietReason: null });
-            const focused = { visible: !rail.hidden, muted: rail.classList.contains('is-companion-muted'), state: dock.dataset.state, visualState: dock.dataset.visualState };
-            const reminder = { kind: 'water', message: '休息一下，记得喝水' };
-            renderCompanionRuntime({ ...companionRuntime, state: 'bubbleTip', quietReason: null, reminder });
-            const happy = {
-              visualState: dock.dataset.visualState,
-              bubbleVisible: !document.getElementById('companionBubble').hidden,
-              reminderLayout: document.getElementById('browserContent').classList.contains('is-companion-reminding'),
-            };
-            renderCompanionRuntime({ ...companionRuntime, state: 'silentHidden', quietReason: 'fullscreen' });
-            const fullscreen = { visible: !rail.hidden, muted: rail.classList.contains('is-companion-muted'), visualState: dock.dataset.visualState, title: dock.title };
-            renderCompanionRuntime({ ...companionRuntime, state: 'bubbleTip', quietReason: null, reminder });
+          const context = activeBrowserContext();
+          await installCompanionPageWidget(context);
+          const inspectWidget = () => context.view.webContents.executeJavaScriptInIsolatedWorld(
+            COMPANION_WIDGET_WORLD_ID,
+            [{ code: "globalThis.__qiyeXiaoxuWidget?.inspect?.() || null", url: "qiye-companion://probe" }],
+            true,
+          );
+          const shell = await mainWindow.webContents.executeJavaScript(`(() => {
+            const browserContent = document.getElementById('browserContent');
             return {
-              before,
-              opened,
-              idle,
-              breathing,
-              focused,
-              happy,
-              fullscreen,
+              enabled: appState.uiSettings.companion.enabled,
+              shellRailExists: Boolean(document.getElementById('companionEdgeRail')),
+              shellDockExists: Boolean(document.getElementById('companionDock')),
+              shellPanelExists: Boolean(document.getElementById('companionPanel')),
+              titlebarDisabled: document.getElementById('globalCompanionTrigger')?.getAttribute('aria-disabled'),
+              browserColumns: getComputedStyle(browserContent).gridTemplateColumns,
+              browserWidth: browserContent.getBoundingClientRect().width,
+              frameWidth: document.getElementById('webviewFrame').getBoundingClientRect().width,
             };
           })()`);
+          const before = await inspectWidget();
+          const clickPoint = {
+            x: Math.round(before.orbRect.x + before.orbRect.width / 2),
+            y: Math.round(before.orbRect.y + before.orbRect.height / 2),
+          };
+          const clickWidget = async (point) => {
+            context.view.webContents.sendInputEvent({ type: "mouseMove", ...point });
+            context.view.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point });
+            context.view.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point });
+            await new Promise((resolve) => setTimeout(resolve, 250));
+          };
+          await clickWidget(clickPoint);
+          const opened = await inspectWidget();
+          const settings = { enabled: true, wellness: { enabled: true, kinds: { "eye-rest": true, water: true, movement: true } } };
+          const readState = async (runtime, options = {}) => {
+            await context.view.webContents.executeJavaScriptInIsolatedWorld(
+              COMPANION_WIDGET_WORLD_ID,
+              [{ code: companionWidgetUpdateScript({ runtime, settings, ...options }), url: "qiye-companion://probe-update" }],
+              true,
+            );
+            return inspectWidget();
+          };
+          const idle = await readState({ state: "idle" });
+          const breathing = await readState({ state: "resting" });
+          const focused = await readState({ state: "focusedDocked" });
+          const fullscreen = await readState({ state: "silentHidden", quietReason: "fullscreen" });
+          const happy = await readState({ state: "bubbleTip", reminder: { kind: "water", message: "休息一下，记得喝水" } });
+          await clickWidget({
+            x: Math.round(happy.orbRect.x + happy.orbRect.width / 2),
+            y: Math.round(happy.orbRect.y + happy.orbRect.height / 2),
+          });
+          const finalOpen = await readState({ state: "bubbleTip", reminder: { kind: "water", message: "休息一下，记得喝水" } });
+          const companionResult = { shell, before, opened, idle, breathing, focused, fullscreen, happy, finalOpen };
           console.log(JSON.stringify({ companionDiscoverabilityProbe: companionResult }));
           await new Promise((resolve) => setTimeout(resolve, 350));
         } else if (CAPTURE_ROUTE === "browser-toolbar") {
@@ -8457,7 +8566,7 @@ GM_addStyle('article { line-height: 1.7; }');`;
         await fsp.mkdir(path.dirname(path.resolve(CAPTURE_PATH)), { recursive: true });
         await fsp.writeFile(path.resolve(CAPTURE_PATH), image.toPNG());
         if (
-          ["site", "nodeseek-login", "nodeseek-reset"].includes(
+          ["site", "nodeseek-login", "nodeseek-reset", "companion-discoverability"].includes(
             CAPTURE_ROUTE,
           ) &&
           siteView
@@ -8620,6 +8729,9 @@ app.on("before-quit", (event) => {
   companionRuntimeService?.stop();
   weatherService?.stop();
   companionAIService?.cancelAll();
+  if (companionWidgetAlertTimer) clearTimeout(companionWidgetAlertTimer);
+  companionWidgetAlertTimer = undefined;
+  companionWidgetAlertMessage = "";
   trayService?.destroy();
   webViewLifecycleManager?.stop();
   pageResourceService?.stopNetworkDetection("app-quit");
