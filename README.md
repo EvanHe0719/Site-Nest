@@ -72,7 +72,9 @@
 
 ## Google 数据同步边界
 
-Google 同步是可选功能。OAuth 客户端文件位于 Electron `userData` 目录的 `google-oauth-client.json`，不会打包进 EXE。访问与刷新令牌保存在 `google-oauth-token.json`，内容由 Windows 可用的 Electron `safeStorage` 加密；导入后的 Client Secret 也会加密并从默认导入 JSON 中清除。系统安全存储不可用时会拒绝保存凭据。
+Google 同步是可选功能。新电脑首次打开时可在 Google 同步卡片中选择从 Google Cloud 下载的原始 Desktop OAuth JSON；应用会把脱敏后的客户端配置保存到 Electron `userData`，并用 Windows 可用的 Electron `safeStorage` 加密 Client Secret、Access Token 与 Refresh Token。不要复制另一台电脑中已经脱敏或加密的配置，因为 Windows 安全存储绑定当前用户环境。正式发行若要开箱即用，必须由发布方提供单独注册并审核的生产 Desktop OAuth Client；仓库和通用构建不会伪造或硬编码生产凭据。
+
+勾选“设置”同步时，DeepSeek 的 Base URL、模型、语言、划词与拼音偏好会进入 Google Drive；DeepSeek API Key 始终仅保存在本机安全存储中，新电脑需要单独填写一次。
 
 授权使用系统默认浏览器、`127.0.0.1` 随机回调端口、PKCE S256 和 state 校验，只申请 `openid`、`email`、`profile` 与 `drive.appdata`。已有基础登录 Token 不会被假定拥有 Drive 权限；缺少 Scope 时继续保留账号身份，并提示使用同一个账号重新授权。Drive 中的固定文件名为 `qiye-sync-v1.json`，位于应用专属隐藏空间，不会出现在普通“我的云端硬盘”列表中。
 

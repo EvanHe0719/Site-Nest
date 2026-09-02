@@ -55,7 +55,11 @@ https://www.googleapis.com/auth/drive.appdata
 
 有效文件必须以 `installed` 为根节点。栖页拒绝 `web` 客户端，避免错误使用 Web Client 的固定回调配置。
 
-## 6. 放置配置 JSON
+## 6. 在新电脑导入配置 JSON
+
+打开 Google 同步卡片，点击“选择 OAuth 配置并登录”，选择从 Google Cloud 下载的原始 Desktop OAuth JSON。栖页会把 Client Secret 加密保存到当前 Windows 用户的 `safeStorage`，并只在本机留下脱敏配置；随后自动打开系统浏览器授权。
+
+不要复制另一台电脑的 `google-oauth-client.secure.json` 或 `google-oauth-token.json`。这些密文绑定原 Windows 用户环境，复制后无法解密。也不要选择另一台电脑已经去掉 `client_secret` 的脱敏 JSON；跨电脑导入必须使用 Google Cloud 下载的原始文件。
 
 默认位置：
 
@@ -70,7 +74,7 @@ $env:QIYE_GOOGLE_OAUTH_CONFIG = 'C:\path\to\desktop-client.json'
 npm.cmd run dev
 ```
 
-首次成功读取后，栖页会把 Client Secret 写入 `safeStorage` 加密文件，并从默认导入 JSON 中删除明文 Secret。不要将原始 JSON、加密凭据、Token 或 `userData` 文件复制进 Git 仓库。
+首次成功导入后，栖页会把 Client Secret 写入 `safeStorage` 加密文件，并从应用保存的 JSON 中删除明文 Secret。用户选择的原始源文件不会被修改。不要将原始 JSON、加密凭据、Token 或 `userData` 文件复制进 Git 仓库。
 
 仓库 `.gitignore` 已覆盖：
 
@@ -120,3 +124,5 @@ git grep -n -I -E 'GOCSPX-|refresh_token|access_token' -- . ':!test/**'
 - 便携版只能通过 `package:portable` 显式生成；安装包只能通过 `package:win` 显式生成。
 - 普通 push/PR 的 CI 只运行 `check` 与 `build:code`。
 - 测试项目与正式项目应使用不同 OAuth Client；不要把测试 Client Secret 提交到仓库或发布产物。
+- 正式发行要做到无需用户选择 JSON，发布方必须准备生产 Desktop OAuth Client，并在受控发布流程中注入；普通仓库构建仍保留显式导入流程，不会自动携带开发者本机配置。
+- “设置”同步包含 DeepSeek Base URL、模型、语言、划词、拼音及小序公开偏好；DeepSeek API Key、Google Token 和 Client Secret 不进入 Drive，新电脑需分别授权或重新填写。

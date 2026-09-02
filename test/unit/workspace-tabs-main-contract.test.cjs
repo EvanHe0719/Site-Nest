@@ -12,6 +12,10 @@ const preloadSource = fs.readFileSync(
   path.join(projectRoot, "electron", "preload.cjs"),
   "utf8",
 );
+const rendererSource = fs.readFileSync(
+  path.join(projectRoot, "renderer", "app.js"),
+  "utf8",
+);
 const managedPopupSource = fs.readFileSync(
   path.join(projectRoot, "electron", "browser", "managed-popup-service.cjs"),
   "utf8",
@@ -452,6 +456,7 @@ test("Google OAuth and Drive requests use Electron networking so Windows proxy s
 test("Google Drive renderer bridge exposes stateful operations but never tokens or arbitrary API calls", () => {
   const contracts = [
     ["googleSyncStatus", "google:sync-status"],
+    ["googleImportOAuthClient", "google:import-oauth-client"],
     ["googleSignIn", "google:sign-in"],
     ["googleSyncNow", "google:sync-now"],
     ["googleRestoreFromCloud", "google:restore"],
@@ -465,4 +470,12 @@ test("Google Drive renderer bridge exposes stateful operations but never tokens 
   }
   assert.doesNotMatch(preloadSource, /google(?:Get)?(?:Access|Refresh)?Token|driveRequest|authorizationHeader/i);
   assert.match(mainSource, /grantedScopes:\s*publicGrantedScopes/);
+});
+
+test("an unconfigured portable build offers OAuth import instead of a disabled sign-in button", () => {
+  assert.match(rendererSource, /!configured\s*\?\s*["']选择 OAuth 配置并登录["']/);
+  assert.match(rendererSource, /googleImportOAuthClient/);
+  assert.doesNotMatch(rendererSource, /googleSignInButton\.disabled\s*=\s*busy\s*\|\|\s*!configured/);
+  assert.match(mainSource, /showOpenDialog\(mainWindow,[\s\S]*?Google Desktop OAuth 客户端 JSON/);
+  assert.match(mainSource, /stats\.size\s*>\s*1024\s*\*\s*1024/);
 });

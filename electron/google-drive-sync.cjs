@@ -273,6 +273,52 @@ class GoogleDriveSyncService {
     this.cachedToken = undefined;
   }
 
+  async importClientConfig(value) {
+    const validated = validateInstalledClientConfig(value);
+    if (!validated.clientSecret) {
+      throw serviceError(
+        "GOOGLE_CONFIG_SECRET_MISSING",
+        "请选择从 Google Cloud 下载的原始桌面应用 JSON；从其他电脑复制的已脱敏配置不能在本机使用",
+      );
+    }
+    if (!this.configPath || !this.configSecretPath) {
+      throw serviceError(
+        "GOOGLE_CLIENT_CONFIG_MISSING",
+        "尚未配置 Google OAuth 桌面应用客户端保存位置",
+      );
+    }
+
+    const storage = this._requireSafeStorage();
+    const encrypted = storage.encryptString(JSON.stringify({
+      clientSecret: validated.clientSecret,
+    }));
+    const secureWrapper = {
+      version: 1,
+      format: "electron-safe-storage",
+      ciphertext: Buffer.from(encrypted).toString("base64"),
+    };
+    const redacted = JSON.parse(JSON.stringify(value));
+    delete redacted.installed.client_secret;
+    redacted.installed.client_secret_reference = path.basename(this.configSecretPath);
+
+    await atomicWriteText(
+      this.configSecretPath,
+      `${JSON.stringify(secureWrapper, null, 2)}\n`,
+    );
+    await atomicWriteText(
+      this.configPath,
+      `${JSON.stringify(redacted, null, 2)}\n`,
+    );
+    if (this.tokenPath) {
+      await fsp.unlink(this.tokenPath).catch((error) => {
+        if (error?.code !== "ENOENT") throw error;
+      });
+    }
+    this.cachedConfig = validated;
+    this.cachedToken = null;
+    return this.status();
+  }
+
   async status() {
     let config;
     try {

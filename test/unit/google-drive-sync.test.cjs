@@ -139,6 +139,68 @@ test("only a Desktop installed OAuth client is accepted", async (t) => {
   );
 });
 
+test("portable install imports an original Desktop OAuth JSON into local safeStorage", async (t) => {
+  const directory = await temporaryDirectory(t);
+  const configPath = path.join(directory, "google-oauth-client.json");
+  const configSecretPath = path.join(directory, "google-oauth-client.secure.json");
+  const tokenPath = path.join(directory, "google-oauth-token.json");
+  const safeStorage = safeStorageFixture();
+  await seedEncryptedToken(tokenPath, safeStorage, {
+    refreshToken: "stale-machine-token",
+    scope: GOOGLE_SCOPES.join(" "),
+  });
+  const original = desktopClient();
+  const service = new GoogleDriveSyncService({
+    configPath,
+    configSecretPath,
+    tokenPath,
+    redactConfigAfterImport: true,
+    safeStorage,
+    openExternal: async () => undefined,
+    fetchFn: async () => jsonResponse({}),
+  });
+
+  const status = await service.importClientConfig(original);
+  assert.equal(status.configured, true);
+  assert.equal(status.signedIn, false);
+  assert.equal(original.installed.client_secret, "desktop-client-secret");
+  const savedConfig = JSON.parse(await fsp.readFile(configPath, "utf8"));
+  assert.equal(Object.hasOwn(savedConfig.installed, "client_secret"), false);
+  assert.equal(savedConfig.installed.client_secret_reference, path.basename(configSecretPath));
+  const secureFile = await fsp.readFile(configSecretPath, "utf8");
+  assert.equal(secureFile.includes("desktop-client-secret"), false);
+  await assert.rejects(fsp.access(tokenPath), (error) => error.code === "ENOENT");
+
+  const restarted = new GoogleDriveSyncService({
+    configPath,
+    configSecretPath,
+    tokenPath,
+    redactConfigAfterImport: true,
+    safeStorage,
+    openExternal: async () => undefined,
+    fetchFn: async () => jsonResponse({}),
+  });
+  assert.equal((await restarted.status()).configured, true);
+});
+
+test("portable install rejects a redacted OAuth config copied from another machine", async (t) => {
+  const directory = await temporaryDirectory(t);
+  const service = new GoogleDriveSyncService({
+    configPath: path.join(directory, "google-oauth-client.json"),
+    configSecretPath: path.join(directory, "google-oauth-client.secure.json"),
+    tokenPath: path.join(directory, "google-oauth-token.json"),
+    redactConfigAfterImport: true,
+    safeStorage: safeStorageFixture(),
+  });
+  const redacted = desktopClient({ client_secret: undefined });
+  redacted.installed.client_secret_reference = "google-oauth-client.secure.json";
+  await assert.rejects(
+    service.importClientConfig(redacted),
+    (error) => error.code === "GOOGLE_CONFIG_SECRET_MISSING" && /原始桌面应用 JSON/.test(error.message),
+  );
+  await assert.rejects(fsp.access(service.configPath), (error) => error.code === "ENOENT");
+});
+
 test("OAuth loopback uses PKCE S256 and rejects a mismatched state before token exchange", async (t) => {
   const directory = await temporaryDirectory(t);
   const configPath = await writeConfig(directory);

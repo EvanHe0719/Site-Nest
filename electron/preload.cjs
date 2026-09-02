@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld("siteNest", {
   clearChromeBookmarks: () => ipcRenderer.invoke("chrome:clear-import"),
   googleSyncStatus: () => ipcRenderer.invoke("google:sync-status"),
   showDataStatusMenu: () => ipcRenderer.invoke("data-status:show-menu"),
+  googleImportOAuthClient: () => ipcRenderer.invoke("google:import-oauth-client"),
   googleSignIn: () => ipcRenderer.invoke("google:sign-in"),
   googleSignOut: () => ipcRenderer.invoke("google:sign-out"),
   googleSyncNow: () => ipcRenderer.invoke("google:sync-now"),

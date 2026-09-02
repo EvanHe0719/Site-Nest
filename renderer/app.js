@@ -3318,6 +3318,7 @@ function googleSyncErrorMessage(error, fallback = "Google 同步操作失败") {
 
 function googleSyncBusyCopy() {
   return {
+    import: "正在安全导入 OAuth 配置…",
     "sign-in": "正在连接 Google…",
     sync: "正在同步栖页数据…",
     restore: "正在从云端恢复…",
@@ -3383,6 +3384,11 @@ function renderGoogleSync() {
     GOOGLE_TOKEN_REFRESH_FAILED: "Google Drive 授权已失效",
     GOOGLE_CONFIG_NOT_FOUND: "未找到 Google 桌面 OAuth 配置",
     GOOGLE_CLIENT_CONFIG_MISSING: "未找到 Google 桌面 OAuth 配置",
+    GOOGLE_CLIENT_SECRET_UNAVAILABLE: "本机无法读取 OAuth 客户端凭据",
+    GOOGLE_CONFIG_SECRET_MISSING: "请选择原始 Google 桌面 OAuth 配置",
+    GOOGLE_CONFIG_INVALID_JSON: "Google OAuth 配置不是有效 JSON",
+    GOOGLE_CONFIG_CLIENT_TYPE: "OAuth 客户端类型不正确",
+    GOOGLE_CONFIG_TOO_LARGE: "Google OAuth 配置文件过大",
     GOOGLE_NETWORK_FAILED: "暂时无法连接 Google Drive",
     GOOGLE_NETWORK_ERROR: "暂时无法连接 Google Drive",
     GOOGLE_REQUEST_TIMEOUT: "Google Drive 请求超时",
@@ -3401,11 +3407,11 @@ function renderGoogleSync() {
   dom.googleRestoreButton.classList.toggle("is-hidden", !driveReady);
   dom.googleTestConnectionButton.classList.toggle("is-hidden", !driveReady);
   dom.googleSignOutButton.classList.toggle("is-hidden", !signedIn);
-  dom.googleSignInButtonLabel.textContent = !configured ? "当前未配置" : signedIn ? "重新授权 Drive" : "授权云同步";
+  dom.googleSignInButtonLabel.textContent = !configured ? "选择 OAuth 配置并登录" : signedIn ? "重新授权 Drive" : "授权云同步";
   dom.googleSyncConflict.classList.toggle("is-hidden", driveStatus !== "conflict");
 
   const busy = Boolean(googleSyncBusyAction);
-  dom.googleSignInButton.disabled = busy || !configured;
+  dom.googleSignInButton.disabled = busy;
   dom.googleSyncNowButton.disabled = busy || !driveReady;
   dom.googleRestoreButton.disabled = busy || !driveReady;
   dom.googleTestConnectionButton.disabled = busy || !driveReady;
@@ -3454,6 +3460,42 @@ async function loadGoogleSyncStatus() {
   }
   renderGoogleSync();
   return googleSyncState;
+}
+
+async function importGoogleOAuthAndSignIn() {
+  if (googleSyncBusyAction) return;
+  if (typeof window.siteNest?.googleImportOAuthClient !== "function") {
+    showToast("无法导入 OAuth 配置", "当前桌面端尚未提供配置导入功能", "error");
+    return;
+  }
+  googleSyncBusyAction = "import";
+  mergeGoogleSyncState({ error: "" });
+  renderGoogleSync();
+  let imported = false;
+  try {
+    const result = await window.siteNest.googleImportOAuthClient();
+    mergeGoogleSyncState(result);
+    renderGoogleSync();
+    if (result?.cancelled) return;
+    if (googleSyncState.errorCode && googleSyncState.error) {
+      throw new Error(googleSyncState.error);
+    }
+    imported = Boolean(googleSyncState.configured);
+    if (!imported) throw new Error("OAuth 配置导入后仍不可用");
+    showToast("OAuth 配置已安全保存", "正在打开系统浏览器完成 Google 授权", "success", {
+      key: "google-sync",
+      durationMs: 2400,
+    });
+  } catch (error) {
+    showToast("无法导入 OAuth 配置", googleSyncErrorMessage(error), "error", {
+      key: "google-sync",
+      durationMs: 3600,
+    });
+  } finally {
+    googleSyncBusyAction = "";
+    renderGoogleSync();
+  }
+  if (imported) await runGoogleSyncAction("sign-in");
 }
 
 async function runGoogleSyncAction(action) {
@@ -9549,7 +9591,10 @@ function bindEvents() {
   dom.closeGoogleSyncPopover.addEventListener("click", () => {
     setGoogleSyncPopoverOpen(false, { focusCard: true });
   });
-  dom.googleSignInButton.addEventListener("click", () => void runGoogleSyncAction("sign-in"));
+  dom.googleSignInButton.addEventListener("click", () => {
+    if (googleSyncState.configured) void runGoogleSyncAction("sign-in");
+    else void importGoogleOAuthAndSignIn();
+  });
   dom.googleSyncNowButton.addEventListener("click", () => void runGoogleSyncAction("sync"));
   dom.googleRestoreButton.addEventListener("click", () => void runGoogleSyncAction("restore"));
   dom.googleTestConnectionButton.addEventListener("click", () => void runGoogleSyncAction("test"));

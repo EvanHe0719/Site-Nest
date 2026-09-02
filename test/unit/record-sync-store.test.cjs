@@ -133,6 +133,32 @@ test("sync entity allowlist excludes browser identity, cookies, tokens, and user
   assert.equal(entities.has("userScriptMetadata:script-1"), true);
 });
 
+test("settings sync carries DeepSeek public preferences but never its API key", () => {
+  const state = stateFixture();
+  state.uiSettings.translation = {
+    providerId: "openai-compatible",
+    publicConfig: {
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-chat",
+      apiKey: "must-not-sync",
+    },
+    sourceLanguage: "auto",
+    targetLanguage: "zh-CN",
+    defaultMode: "bilingual",
+    selectionButtonEnabled: true,
+    shortSelectionPronunciationMode: "pronunciation-with-explanation",
+    shortSelectionMaxCharacters: 8,
+    siteRules: [],
+    apiKey: "must-not-sync-either",
+  };
+  const entity = buildSyncEntities(state).get("applicationSetting:shared");
+  assert.equal(entity.payload.translation.publicConfig.baseUrl, "https://api.deepseek.com/");
+  assert.equal(entity.payload.translation.publicConfig.model, "deepseek-chat");
+  const serialized = JSON.stringify(entity.payload.translation);
+  assert.equal(serialized.includes("must-not-sync"), false);
+  assert.equal(/apiKey|api_key/i.test(serialized), false);
+});
+
 test("shortcut profiles and bindings persist in SQLite and sync as individual platform records", () => {
   const temp = tempDatabase("shortcut-store");
   const store = new RecordSyncStore(temp.filePath, { deviceName: "A", schemaVersion: 17 });

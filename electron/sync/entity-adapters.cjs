@@ -99,7 +99,7 @@ function sanitizeValue(value, key = "", options = {}) {
   if (typeof value !== "object") return undefined;
   const output = {};
   for (const [childKey, childValue] of Object.entries(value)) {
-    if (/token|secret|password|authorization|cookie/i.test(childKey)) continue;
+    if (/token|secret|password|authorization|cookie|api[_-]?key/i.test(childKey)) continue;
     if (options.userScriptMetadata && EXCLUDED_USER_SCRIPT_KEYS.has(childKey)) continue;
     const sanitized = sanitizeValue(childValue, childKey, options);
     if (sanitized !== undefined) output[childKey] = sanitized;

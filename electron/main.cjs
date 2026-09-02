@@ -1720,6 +1720,47 @@ async function signInGoogle() {
   });
 }
 
+async function importGoogleOAuthClient() {
+  const selected = await dialog.showOpenDialog(mainWindow, {
+    title: "选择 Google Desktop OAuth 客户端 JSON",
+    buttonLabel: "安全导入",
+    properties: ["openFile"],
+    filters: [
+      { name: "Google OAuth JSON", extensions: ["json"] },
+    ],
+  });
+  if (selected.canceled || !selected.filePaths?.[0]) {
+    return { ...(await googleSyncStatus()), cancelled: true };
+  }
+
+  return runGoogleSyncOperation(async () => {
+    try {
+      const sourcePath = selected.filePaths[0];
+      const stats = await fsp.stat(sourcePath);
+      if (!stats.isFile() || stats.size > 1024 * 1024) {
+        throw Object.assign(new Error("OAuth 配置必须是小于 1 MB 的 JSON 文件"), {
+          code: "GOOGLE_CONFIG_TOO_LARGE",
+        });
+      }
+      let value;
+      try {
+        value = JSON.parse(await fsp.readFile(sourcePath, "utf8"));
+      } catch (error) {
+        throw Object.assign(new Error("所选 Google OAuth 配置不是有效 JSON"), {
+          code: "GOOGLE_CONFIG_INVALID_JSON",
+          cause: error,
+        });
+      }
+      const serviceStatus = await getGoogleDriveSyncService().importClientConfig(value);
+      const meta = await clearGoogleFailure({ conflict: null });
+      getRecordSyncStore().setRuntimeState({ status: "notConfigured", accountId: null });
+      return { ...googleSyncUiStatus(serviceStatus, meta), cancelled: false };
+    } catch (error) {
+      return { ...(await rememberGoogleFailure(error)), cancelled: false };
+    }
+  });
+}
+
 async function signOutGoogle() {
   return runGoogleSyncOperation(async () => {
     try {
@@ -6302,6 +6343,7 @@ function registerIpc() {
   ipcMain.handle("chrome:clear-import", () => clearImportedChromeBookmarks());
   ipcMain.handle("google:sync-status", () => googleSyncStatus());
   ipcMain.handle("data-status:show-menu", () => showDataStatusMenu());
+  ipcMain.handle("google:import-oauth-client", () => importGoogleOAuthClient());
   ipcMain.handle("google:sign-in", () => signInGoogle());
   ipcMain.handle("google:sign-out", () => signOutGoogle());
   ipcMain.handle("google:sync-now", () => syncGoogleNow());
