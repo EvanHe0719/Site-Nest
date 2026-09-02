@@ -267,7 +267,7 @@ test(
           document.addEventListener('keydown', (event) => {
             globalThis.__qiyeLeakProbe.documentKeys += 1;
             if (event.key?.length === 1) document.getElementById('pageSearch').value += event.key;
-          });
+          }, true);
           document.addEventListener('input', () => { globalThis.__qiyeLeakProbe.documentInputs += 1; });
           document.getElementById('firstResult').addEventListener('click', () => { globalThis.__qiyeLeakProbe.firstResultActivations += 1; });
         </script>`);
@@ -293,7 +293,9 @@ test(
     assert.equal(Math.round(result.before.viewport.width - result.before.orbRect.x - result.before.orbRect.width), 18);
     assert.equal(Math.round(result.before.viewport.height - result.before.orbRect.y - result.before.orbRect.height), 18);
     assert.equal(result.opened.panelOpen, true);
-    assert.equal(result.opened.panelLayoutWidth, 286);
+    assert.equal(result.opened.panelLayoutWidth, 360);
+    assert.equal(result.opened.tabCount, 0);
+    assert.equal(result.opened.inputBoundary, "iframe");
     assert.equal(result.opened.rippling, true);
     assert.equal(result.idle.visualState, "idle");
     assert.equal(result.breathing.visualState, "breathing");
@@ -305,6 +307,7 @@ test(
     assert.equal(result.finalOpen.panelOpen, true);
     assert.equal(result.askPane.askFocused, true);
     assert.match(result.typed.askValue, /x/i);
+    assert.match(result.typed.askValue, /9/);
     assert.equal(result.typed.askFocused, true);
     assert.equal(result.pageEvents.documentClicks, 0);
     assert.equal(result.pageEvents.documentKeys, 0);

@@ -102,6 +102,9 @@ test("in-page widget is isolated, interactive, reduced-motion aware and excludes
     runtime: { state: "focusedDocked", activeSince: "2026-09-02T08:00:00.000Z" },
     now: Date.parse("2026-09-02T08:26:00.000Z"),
   });
+  const wellnessOnly = normalizeCompanionWidgetSnapshot({
+    settings: { enabled: false, wellness: { enabled: true } },
+  });
   assert.equal(COMPANION_WIDGET_WORLD_ID, 1002);
   assert.equal(COMPANION_WIDGET_HOST_ID, "qiye-xiaoxu-widget-host");
   assert.equal((html.match(/id="companionDock"/g) || []).length, 0);
@@ -122,10 +125,16 @@ test("in-page widget is isolated, interactive, reduced-motion aware and excludes
   assert.match(widget, /water-wave/);
   assert.match(widget, /active-ripple/);
   assert.equal((widget.match(/class="halo h[1-4]"/g) || []).length, 4);
+  assert.match(widget, /brightness\(1\.1\)/);
+  assert.match(widget, /backdrop-filter:blur\(28px\) saturate\(150%\)/);
+  assert.match(widget, /<iframe class="composer-frame"/);
+  assert.doesNotMatch(widget, /role="tablist"|data-pane=/);
   assert.match(widget, /event\.stopPropagation\(\)/);
   assert.match(widget, /ResizeObserver\(syncHostBox\)/);
-  assert.match(widget, /panelOpen \? '286px' : '52px'/);
-  assert.match(widget, /输入问题，不会自动读取网页/);
+  assert.match(widget, /Math\.min\(360, innerWidth - 24\)/);
+  assert.match(widget, /问小序天气、健康或其他问题/);
+  assert.match(widget, /inputBoundary: 'iframe'/);
+  assert.doesNotMatch(widget, /尚未启用/);
   assert.doesNotMatch(widget, /document\.cookie|localStorage|sessionStorage|innerText/);
   assert.doesNotMatch(widget, /must-not-leak|runtime-secret|weather-secret/);
   assert.doesNotMatch(JSON.stringify(normalized), /must-not-leak|runtime-secret|weather-secret/);
@@ -133,6 +142,7 @@ test("in-page widget is isolated, interactive, reduced-motion aware and excludes
   assert.equal(recentlyFocused.muted, false);
   assert.equal(longFocused.visualState, "nap");
   assert.equal(longFocused.muted, true);
+  assert.equal(wellnessOnly.available, true);
   assert.match(summaryExtractionScript(15_000), /\[data-qiye-companion-host\]/);
   assert.match(preload, /exposeInIsolatedWorld\(COMPANION_WIDGET_WORLD_ID, "qiyeCompanionHost"/);
   assert.match(main, /runtimeTabForWebContentsId\(event\.sender\.id\)/);

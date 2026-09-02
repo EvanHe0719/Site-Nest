@@ -25,9 +25,12 @@ function normalizeCompanionWidgetSnapshot(input = {}) {
   const now = Number.isFinite(Number(input.now)) ? Number(input.now) : Date.now();
   const longFocus = runtime.longFocus === true
     || (runtime.state === "focusedDocked" && Number.isFinite(activeSince) && now - activeSince >= LONG_FOCUS_MS);
+  const enabled = settings.enabled === true;
+  const wellnessEnabled = settings.wellness?.enabled !== false;
   return {
     visible: !hardHidden,
-    enabled: settings.enabled === true,
+    enabled,
+    available: enabled || wellnessEnabled || weather.configured === true || input.ai?.configured === true,
     state: text(runtime.state || "silentHidden", 40),
     visualState: visualState({ ...runtime, longFocus, alertMessage: input.alertMessage }),
     muted: runtime.quietReason === "fullscreen" || longFocus,
@@ -45,7 +48,7 @@ function normalizeCompanionWidgetSnapshot(input = {}) {
       stale: forecast?.stale === true,
     },
     wellness: {
-      enabled: settings.wellness?.enabled !== false,
+      enabled: wellnessEnabled,
       eyeRest: settings.wellness?.kinds?.["eye-rest"] !== false,
       water: settings.wellness?.kinds?.water !== false,
       movement: settings.wellness?.kinds?.movement !== false,
@@ -84,7 +87,7 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
       button, input { font: inherit; }
       button { -webkit-tap-highlight-color: transparent; }
       .orb { position:absolute; right:0; bottom:0; display:grid; width:48px; height:48px; padding:0; place-items:center; border:0; border-radius:50%; background:transparent; cursor:pointer; pointer-events:auto; isolation:isolate; transition:opacity .45s ease, transform .45s cubic-bezier(.16,1,.3,1); }
-      .core { position:relative; z-index:3; display:flex; width:40px; height:40px; align-items:center; justify-content:center; gap:7px; border-radius:50%; background:linear-gradient(135deg,#b7f7dc 0%,#3b9d80 42%,#176451 72%,#0d433d 100%); box-shadow:0 5px 18px rgba(21,103,81,.34),0 0 18px rgba(110,231,183,.25),inset 0 1px 1px rgba(255,255,255,.48); animation:float 3s ease-in-out infinite; }
+      .core { position:relative; z-index:3; display:flex; width:42px; height:42px; align-items:center; justify-content:center; gap:7px; border:1px solid rgba(255,255,255,.74); border-radius:50%; background:linear-gradient(145deg,#bcffe2 0%,#68ddb2 32%,#22a781 62%,#08705c 100%); box-shadow:0 8px 22px rgba(8,112,92,.3),0 0 24px rgba(74,222,171,.36),inset 0 2px 3px rgba(255,255,255,.64); animation:float 3s ease-in-out infinite; filter:saturate(1.12) brightness(1.1); }
       .eye { width:4px; height:5px; border-radius:2px; background:#0f3d32; animation:blink 4.5s infinite; }
       .halo { position:absolute; inset:4px; z-index:1; border:1.5px solid rgba(52,211,153,.52); border-radius:50%; opacity:0; pointer-events:none; filter:drop-shadow(0 0 7px rgba(52,211,153,.46)); }
       .halo.h2 { border-color:rgba(110,231,183,.43); }
@@ -105,32 +108,31 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
       .orb[data-visual-state="nap"] .eye { width:7px; height:4px; border:0; border-top:2px solid #0a2b22; border-radius:50% 50% 0 0; background:transparent; animation:none; }
       .orb[data-visual-state="nap"] .zzz { display:block; }
       .orb[data-visual-state="happy"] .eye { width:7px; height:7px; border:0; border-top:2px solid #0a2b22; border-left:2px solid #0a2b22; border-radius:1px; background:transparent; animation:happy .8s ease-in-out infinite alternate; }
-      .orb.is-disabled .core { filter:saturate(.35); opacity:.72; }
-      .panel { position:absolute; right:0; bottom:60px; width:286px; max-height:calc(100vh - 96px); overflow:hidden auto; pointer-events:auto; border:1px solid rgba(38,125,103,.2); border-radius:18px; background:rgba(255,255,255,.97); box-shadow:0 18px 46px rgba(24,55,45,.2); color:#18211f; backdrop-filter:blur(16px); animation:open .2s cubic-bezier(.16,1,.3,1); }
+      .orb.is-disabled .core { opacity:1; filter:saturate(1.12) brightness(1.1); }
+      .panel { position:absolute; right:0; bottom:60px; width:360px; max-height:calc(100vh - 96px); overflow:hidden auto; pointer-events:auto; border:1px solid rgba(255,255,255,.78); border-radius:24px; background:linear-gradient(145deg,rgba(255,255,255,.84),rgba(242,249,246,.7)); box-shadow:0 24px 64px rgba(36,62,55,.23),inset 0 1px 0 rgba(255,255,255,.96); color:#18211f; backdrop-filter:blur(28px) saturate(150%); -webkit-backdrop-filter:blur(28px) saturate(150%); animation:open .24s cubic-bezier(.16,1,.3,1); }
       .panel[hidden] { display:none; }
-      .head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 13px 8px; }
+      .head { display:flex; min-height:58px; align-items:center; gap:9px; padding:12px 13px 9px; border-bottom:1px solid rgba(86,110,101,.11); }
       .identity { display:flex; align-items:center; gap:8px; min-width:0; }
-      .mini { width:24px; height:24px; flex:0 0 24px; border-radius:50%; background:linear-gradient(135deg,#a7f3d0,#267d67 58%,#134e4a); box-shadow:0 3px 10px rgba(38,125,103,.25); }
-      .identity strong { display:block; font-size:14px; }
-      .identity small { display:block; max-width:180px; overflow:hidden; color:#77857f; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
-      .close { width:28px; height:28px; border:0; border-radius:9px; background:#f3f6f4; color:#60716b; cursor:pointer; }
-      .notice { margin:0 12px 8px; padding:8px 10px; border:1px solid rgba(38,125,103,.18); border-radius:11px; background:#edf6f2; color:#31594d; font-size:11px; line-height:1.45; }
+      .mini { width:28px; height:28px; flex:0 0 28px; border:1px solid rgba(255,255,255,.82); border-radius:50%; background:linear-gradient(145deg,#adf7d8,#43c397 55%,#08705c); box-shadow:0 4px 12px rgba(8,112,92,.24),inset 0 1px 2px rgba(255,255,255,.55); }
+      .identity strong { display:inline; font-size:13px; }
+      .identity small { display:inline; margin-left:7px; padding:3px 7px; border-radius:6px; background:rgba(46,164,127,.1); color:#447267; font-size:10px; white-space:nowrap; }
+      .weather-pill { display:flex; min-width:0; height:28px; margin-left:auto; padding:0 9px; align-items:center; overflow:hidden; border:1px solid rgba(91,127,114,.16); border-radius:999px; background:rgba(255,255,255,.58); color:#2d4f45; box-shadow:0 2px 8px rgba(60,85,76,.08); cursor:pointer; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+      .weather-pill.is-empty { color:#78857f; }
+      .close { width:28px; height:28px; flex:0 0 28px; border:0; border-radius:50%; background:rgba(255,255,255,.62); color:#60716b; cursor:pointer; font-size:17px; }
+      .notice { margin:9px 13px 0; padding:9px 11px; border:1px solid rgba(38,125,103,.18); border-radius:13px; background:rgba(235,250,244,.76); color:#31594d; font-size:11px; line-height:1.5; }
       .notice[hidden] { display:none; }
-      .tabs { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; padding:0 12px 9px; }
-      .tab { min-height:34px; border:1px solid #dbe5e0; border-radius:10px; background:#fff; color:#48675d; cursor:pointer; font-size:11px; }
-      .tab[aria-selected="true"] { border-color:#6aa58f; background:#e8f3ef; color:#1c6654; font-weight:700; }
-      .body { padding:0 12px 12px; }
-      .pane { display:grid; min-height:84px; gap:8px; padding:11px; border-radius:12px; background:#f6f8f6; color:#52635d; font-size:11px; line-height:1.55; }
-      .pane[hidden] { display:none; }
-      .pane strong { color:#294c41; font-size:12px; }
-      .row { display:flex; gap:7px; }
-      .ask { display:flex; gap:6px; }
-      .ask input { min-width:0; height:34px; flex:1; padding:0 9px; border:1px solid #d5e1db; border-radius:9px; outline:0; color:#203c34; background:#fff; }
-      .ask input:focus { border-color:#6aa58f; box-shadow:0 0 0 3px rgba(38,125,103,.1); }
-      .action { min-height:32px; padding:0 10px; border:0; border-radius:9px; background:#267d67; color:#fff; cursor:pointer; font-size:11px; }
-      .action.secondary { border:1px solid #d5e1db; background:#fff; color:#31594d; }
-      .action:disabled { opacity:.5; cursor:not-allowed; }
-      .result { max-height:132px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
+      .body { display:flex; flex-direction:column; gap:9px; padding:12px 13px 9px; }
+      .message-row { display:flex; align-items:flex-start; gap:8px; }
+      .message-avatar { display:grid; width:20px; height:20px; flex:0 0 20px; margin-top:2px; place-items:center; border-radius:50%; background:#258b70; color:#fff; font-size:10px; font-weight:800; }
+      .message { min-width:0; flex:1; padding:10px 12px; border:1px solid rgba(95,120,111,.14); border-radius:14px 14px 14px 5px; background:rgba(255,255,255,.68); box-shadow:0 5px 14px rgba(54,76,69,.08); color:#344740; font-size:12px; line-height:1.58; white-space:pre-wrap; overflow-wrap:anywhere; }
+      .feature-line { display:block; margin-top:5px; color:#678078; font-size:10px; }
+      .result-row { justify-content:flex-end; }
+      .result { max-height:148px; overflow:auto; border-radius:14px 14px 5px 14px; background:rgba(222,245,236,.72); color:#204f40; white-space:pre-wrap; overflow-wrap:anywhere; }
+      .result[hidden] { display:none; }
+      .composer-frame { display:block; width:100%; height:42px; border:0; border-radius:15px; background:transparent; }
+      .foot { display:flex; min-height:23px; align-items:center; justify-content:space-between; gap:8px; padding:0 14px 8px; color:#8a9792; font-size:9px; }
+      .privacy { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .health { flex:0 0 auto; color:#638078; }
       @keyframes open { from { transform:translateY(6px) scale(.97); opacity:0; } to { transform:none; opacity:1; } }
       @keyframes float { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-4px); } }
       @keyframes blink { 0%,96%,100% { transform:scaleY(1); } 98% { transform:scaleY(.1); } }
@@ -150,14 +152,14 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
     const wrap = document.createElement('div');
     wrap.innerHTML = \`
       <section class="panel" aria-label="小序悬浮助手" hidden>
-        <div class="head"><div class="identity"><span class="mini"></span><span><strong>小序</strong><small class="state">正在读取状态</small></span></div><button class="close" type="button" aria-label="关闭">×</button></div>
+        <div class="head"><div class="identity"><span class="mini"></span><span><strong>小序</strong><small class="state">陪伴中</small></span></div><button class="weather-pill is-empty" type="button" aria-label="刷新天气">☁ 天气待更新</button><button class="close" type="button" aria-label="关闭">×</button></div>
         <div class="notice" hidden></div>
-        <div class="tabs" role="tablist"><button class="tab" type="button" data-pane="weather" aria-selected="true">天气</button><button class="tab" type="button" data-pane="health" aria-selected="false">健康</button><button class="tab" type="button" data-pane="ask" aria-selected="false">问小序</button></div>
         <div class="body">
-          <div class="pane" data-content="weather"><strong>天气状态</strong><span class="weather">尚未配置天气</span><div><button class="action secondary refresh" type="button">刷新天气</button></div></div>
-          <div class="pane" data-content="health" hidden><strong>健康提醒</strong><span class="health">正在读取设置</span></div>
-          <div class="pane" data-content="ask" hidden><strong>问小序</strong><form class="ask"><input maxlength="4000" placeholder="输入问题，不会自动读取网页" aria-label="向小序提问"><button class="action send" type="submit">发送</button></form><span class="result">仅发送你手动输入的文字。</span></div>
+          <div class="message-row"><span class="message-avatar">序</span><div class="message"><span class="welcome">我在这里，可以直接问我问题。</span><small class="feature-line">天气、健康和提问都在同一处完成。</small></div></div>
+          <div class="message-row result-row"><div class="message result" hidden></div></div>
+          <iframe class="composer-frame" title="小序输入框" aria-label="小序输入框"></iframe>
         </div>
+        <div class="foot"><span class="privacy">DeepSeek AI 驱动 · 本地隐私保护</span><span class="health">提醒待设置</span></div>
       </section>
       <button class="orb" type="button" aria-label="打开小序" aria-expanded="false"><span class="halo h1"></span><span class="halo h2"></span><span class="halo h3"></span><span class="halo h4"></span><span class="core"><i class="eye"></i><i class="eye"></i><span class="zzz">zZ</span></span></button>
     \`;
@@ -166,18 +168,40 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
     const orb = shadow.querySelector('.orb');
     const notice = shadow.querySelector('.notice');
     const stateText = shadow.querySelector('.state');
-    const weatherText = shadow.querySelector('.weather');
+    const weatherPill = shadow.querySelector('.weather-pill');
+    const welcome = shadow.querySelector('.welcome');
     const healthText = shadow.querySelector('.health');
+    const privacyText = shadow.querySelector('.privacy');
     const result = shadow.querySelector('.result');
-    const askInput = shadow.querySelector('.ask input');
-    const askSend = shadow.querySelector('.send');
+    const composerFrame = shadow.querySelector('.composer-frame');
+    let composerDoc = null;
+    let askInput = null;
+    let askSend = null;
+    const composerCss = \`
+      :root { color-scheme:light; font-family:Inter,"Microsoft YaHei UI","Microsoft YaHei",sans-serif; }
+      * { box-sizing:border-box; }
+      .ask { display:flex; width:100%; height:40px; margin:0; padding:4px 4px 4px 11px; align-items:center; gap:7px; border:1px solid rgba(104,132,121,.2); border-radius:15px; background:rgba(255,255,255,.72); box-shadow:inset 0 1px 0 rgba(255,255,255,.86); }
+      .ask:focus-within { border-color:rgba(35,139,108,.48); box-shadow:0 0 0 3px rgba(48,174,134,.11),inset 0 1px 0 rgba(255,255,255,.9); }
+      input { min-width:0; height:100%; flex:1; padding:0; border:0; outline:0; background:transparent; color:#203c34; font:12px Inter,"Microsoft YaHei UI","Microsoft YaHei",sans-serif; }
+      input::placeholder { color:#91a09b; }
+      .send { display:grid; width:32px; height:32px; flex:0 0 32px; padding:0; place-items:center; border:0; border-radius:11px; background:linear-gradient(145deg,#2aa27f,#08715c); box-shadow:0 5px 12px rgba(8,113,92,.22); color:#fff; cursor:pointer; font:21px/1 Inter,"Microsoft YaHei UI","Microsoft YaHei",sans-serif; }
+      .send:disabled { opacity:.48; cursor:wait; }
+    \`;
     let snapshot = initial;
     let rippleTimer = null;
-    const stateLabels = { idle:'待机', breathing:'休息中', nap:'专注免打扰', happy:'有新提醒' };
+    const greeting = () => {
+      const hour = new Date().getHours();
+      if (hour < 6) return '夜深了';
+      if (hour < 12) return '上午好';
+      if (hour < 18) return '下午好';
+      return '晚上好';
+    };
     const syncHostBox = () => {
       const panelOpen = !panel.hidden;
       const panelHeight = panelOpen ? Math.ceil(Math.min(panel.scrollHeight, Math.max(120, innerHeight - 96))) : 0;
-      host.style.setProperty('width', panelOpen ? '286px' : '52px', 'important');
+      const panelWidth = Math.max(292, Math.min(360, innerWidth - 24));
+      panel.style.width = panelWidth + 'px';
+      host.style.setProperty('width', panelOpen ? panelWidth + 'px' : '52px', 'important');
       host.style.setProperty('height', panelOpen ? \`\${panelHeight + 60}px\` : '52px', 'important');
     };
     const setPanelOpen = (open) => {
@@ -204,29 +228,69 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
       if (snapshot.visible === false || (snapshot.muted === true && !wasMuted)) setPanelOpen(false);
       orb.dataset.visualState = snapshot.visualState || 'idle';
       orb.classList.toggle('is-disabled', snapshot.enabled !== true);
-      stateText.textContent = snapshot.enabled
-        ? (snapshot.state === 'focusedDocked' && !snapshot.longFocus ? '安静陪伴' : (stateLabels[snapshot.visualState] || '待机'))
-        : '尚未启用';
+      stateText.textContent = snapshot.enabled ? '陪伴中' : snapshot.available ? '已就绪' : '待机';
       const message = snapshot.alertMessage || snapshot.reminder?.message || '';
       notice.hidden = !message; notice.textContent = message;
       const weather = snapshot.weather || {};
-      weatherText.textContent = weather.configured
-        ? weather.temperature === null ? '已配置，尚无天气数据' : \`\${weather.city || '当前城市'} · \${weather.condition || '天气'} · \${weather.temperature}℃\${weather.stale ? '（缓存）' : ''}\`
-        : '尚未配置天气，请在栖页设置中开启并填写城市。';
+      weatherPill.classList.toggle('is-empty', !weather.configured);
+      weatherPill.textContent = weather.configured
+        ? weather.temperature === null ? '☁ 天气已开启' : \`☁ \${weather.temperature}℃ \${weather.condition || weather.city || '天气'}\`
+        : '☁ 天气待设置';
       const wellness = snapshot.wellness || {};
       const enabledKinds = [wellness.eyeRest && '护眼', wellness.water && '喝水', wellness.movement && '活动'].filter(Boolean);
-      healthText.textContent = wellness.enabled && enabledKinds.length ? \`已启用：\${enabledKinds.join('、')}。\` : '健康提醒尚未启用。';
+      healthText.textContent = wellness.enabled && enabledKinds.length ? \`已设置 \${enabledKinds.join(' · ')}\` : '健康提醒待设置';
+      const weatherSentence = weather.configured
+        ? weather.temperature === null
+          ? '天气功能已经开启，正在等待最新数据。'
+          : \`\${weather.city || '当前城市'}现在\${weather.condition || '天气平稳'}，约 \${weather.temperature}℃。\`
+        : '';
+      const healthSentence = wellness.enabled && enabledKinds.length ? \`我会留意\${enabledKinds.join('、')}提醒。\` : '';
+      welcome.textContent = [\`\${greeting()}！我在这里。\`, weatherSentence, healthSentence, '天气、健康和提问都可以直接在这里完成。'].filter(Boolean).join(' ');
+      privacyText.textContent = snapshot.ai?.configured
+        ? \`\${snapshot.ai.providerName || 'DeepSeek'} AI 驱动 · 本地隐私保护\`
+        : 'DeepSeek 待配置 · 天气与健康仍可使用';
       syncHostBox();
-    };
-    const selectPane = (name) => {
-      shadow.querySelectorAll('.tab').forEach((button) => button.setAttribute('aria-selected', String(button.dataset.pane === name)));
-      shadow.querySelectorAll('.pane').forEach((pane) => { pane.hidden = pane.dataset.content !== name; });
-      if (name === 'ask') askInput.focus();
     };
     const refreshStatus = async () => {
       const response = await globalThis.qiyeCompanionHost?.invoke('status', {});
       if (response?.ok && response.value) render(response.value);
     };
+    async function submitQuestion(event) {
+      event.preventDefault(); if (!event.isTrusted || !askInput || !askSend) return;
+      const question = String(askInput.value || '').trim(); if (!question) return;
+      triggerRipple();
+      askSend.disabled = true; result.hidden = false; result.textContent = '小序正在思考…'; syncHostBox();
+      const response = await globalThis.qiyeCompanionHost?.invoke('ask', { question });
+      askSend.disabled = false;
+      result.textContent = response?.ok ? (response.value?.answer || '已完成') : (response?.error?.message || '请求未完成');
+      triggerRipple(); syncHostBox();
+    }
+    function initializeComposer() {
+      const nextDoc = composerFrame.contentDocument;
+      if (!nextDoc?.documentElement || !nextDoc.body) return false;
+      composerDoc = nextDoc;
+      if (composerDoc.documentElement.dataset.qiyeComposerReady === 'true') {
+        askInput = composerDoc.querySelector('.ask input');
+        askSend = composerDoc.querySelector('.send');
+        return Boolean(askInput && askSend);
+      }
+      composerDoc.documentElement.dataset.qiyeComposerReady = 'true';
+      composerDoc.documentElement.lang = 'zh-CN';
+      composerDoc.documentElement.style.background = 'transparent';
+      composerDoc.body.style.margin = '0';
+      composerDoc.body.style.background = 'transparent';
+      composerDoc.body.innerHTML = '<form class="ask"><input maxlength="4000" autocomplete="off" spellcheck="false" placeholder="问小序天气、健康或其他问题…" aria-label="向小序提问"><button class="send" type="submit" aria-label="发送">→</button></form>';
+      try {
+        const ComposerSheet = composerFrame.contentWindow.CSSStyleSheet;
+        const sheet = new ComposerSheet(); sheet.replaceSync(composerCss); composerDoc.adoptedStyleSheets = [sheet];
+      } catch {
+        const style = composerDoc.createElement('style'); style.textContent = composerCss; composerDoc.head.append(style);
+      }
+      askInput = composerDoc.querySelector('.ask input');
+      askSend = composerDoc.querySelector('.send');
+      composerDoc.querySelector('.ask')?.addEventListener('submit', submitQuestion);
+      return Boolean(askInput && askSend);
+    }
     orb.addEventListener('click', (event) => {
       if (!event.isTrusted) return;
       triggerRipple();
@@ -234,24 +298,14 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
       if (!panel.hidden) void refreshStatus();
     });
     shadow.querySelector('.close').addEventListener('click', (event) => { if (event.isTrusted) setPanelOpen(false); });
-    shadow.querySelectorAll('.tab').forEach((button) => button.addEventListener('click', (event) => { if (event.isTrusted) { triggerRipple(); selectPane(button.dataset.pane); } }));
-    shadow.querySelector('.refresh').addEventListener('click', async (event) => {
+    weatherPill.addEventListener('click', async (event) => {
       if (!event.isTrusted) return;
       triggerRipple();
-      event.currentTarget.disabled = true; weatherText.textContent = '正在刷新天气…';
+      event.currentTarget.disabled = true; weatherPill.textContent = '☁ 正在更新…';
       const response = await globalThis.qiyeCompanionHost?.invoke('weather.refresh', {});
       event.currentTarget.disabled = false;
-      if (response?.ok && response.value) render(response.value); else weatherText.textContent = response?.error?.message || '天气刷新失败';
-    });
-    shadow.querySelector('.ask').addEventListener('submit', async (event) => {
-      event.preventDefault(); if (!event.isTrusted) return;
-      const question = String(askInput.value || '').trim(); if (!question) return;
-      triggerRipple();
-      askSend.disabled = true; result.textContent = '小序正在思考…';
-      const response = await globalThis.qiyeCompanionHost?.invoke('ask', { question });
-      askSend.disabled = false;
-      result.textContent = response?.ok ? (response.value?.answer || '已完成') : (response?.error?.message || '请求未完成');
-      triggerRipple();
+      if (response?.ok && response.value) render(response.value);
+      else { result.hidden = false; result.textContent = response?.error?.message || '天气刷新失败'; syncHostBox(); }
     });
     for (const type of ['pointerdown','pointerup','mousedown','mouseup','click','dblclick','contextmenu','keydown','keypress','keyup','beforeinput','input','change','submit','wheel','focusin','focusout']) {
       shadow.addEventListener(type, (event) => event.stopPropagation());
@@ -259,21 +313,26 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
     const resizeObserver = new ResizeObserver(syncHostBox);
     resizeObserver.observe(panel);
     document.addEventListener('fullscreenchange', mount, true);
-    setPanelOpen(false); mount(); render(initial);
+    composerFrame.addEventListener('load', initializeComposer);
+    composerFrame.src = 'about:blank';
+    setTimeout(initializeComposer, 0);
+    setPanelOpen(false); mount(); render(initial); setTimeout(() => void refreshStatus(), 0);
     globalThis.__qiyeXiaoxuWidget = {
       update: render,
       probe: (action, payload = {}) => {
         if (action === 'open') { triggerRipple(); setPanelOpen(true); return true; }
-        if (action === 'select-ask') { triggerRipple(); selectPane('ask'); return true; }
+        if (action === 'close') { setPanelOpen(false); return true; }
+        if (action === 'select-ask' || action === 'focus-ask') { if (!askInput && !initializeComposer()) return false; askInput.focus(); return true; }
         if (action === 'type') {
+          if (!askInput && !initializeComposer()) return false;
           askInput.focus();
           askInput.value = String(payload.value || '');
-          askInput.dispatchEvent(new KeyboardEvent('keydown', { key:'x', code:'KeyX', bubbles:true, composed:true }));
           askInput.dispatchEvent(new InputEvent('input', { data:askInput.value, inputType:'insertText', bubbles:true, composed:true }));
           return true;
         }
         if (action === 'click-isolation') {
-          shadow.querySelector('[data-pane="ask"]').dispatchEvent(new MouseEvent('click', { bubbles:true, composed:true }));
+          if (!composerDoc && !initializeComposer()) return false;
+          composerDoc.body.dispatchEvent(new MouseEvent('click', { bubbles:true, composed:true }));
           return true;
         }
         return false;
@@ -281,6 +340,8 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
       inspect: () => {
         const rect = orb.getBoundingClientRect();
         const panelRect = panel.getBoundingClientRect();
+        const composerRect = composerFrame.getBoundingClientRect();
+        const inputRect = askInput?.getBoundingClientRect?.() || { x:0, y:0, width:0, height:0 };
         const hostStyle = getComputedStyle(host);
         return {
           hostConnected: host.isConnected,
@@ -288,16 +349,19 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
           hostPosition: hostStyle.position,
           hostRight: hostStyle.right,
           hostBottom: hostStyle.bottom,
+          inputBoundary: 'iframe',
+          tabCount: shadow.querySelectorAll('[role="tab"],.tab').length,
           panelOpen: !panel.hidden,
           panelLayoutWidth: panel.offsetWidth,
           visualState: orb.dataset.visualState || '',
           rippling: orb.classList.contains('is-rippling'),
           orbRect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
           panelRect: { x: panelRect.x, y: panelRect.y, width: panelRect.width, height: panelRect.height },
-          askTabRect: (() => { const value = shadow.querySelector('[data-pane="ask"]').getBoundingClientRect(); return { x:value.x, y:value.y, width:value.width, height:value.height }; })(),
-          askInputRect: (() => { const value = askInput.getBoundingClientRect(); return { x:value.x, y:value.y, width:value.width, height:value.height }; })(),
-          askValue: askInput.value,
-          askFocused: shadow.activeElement === askInput,
+          statusText: stateText.textContent || '',
+          orbBrightness: getComputedStyle(shadow.querySelector('.core')).filter,
+          askInputRect: { x: composerRect.x + inputRect.x, y: composerRect.y + inputRect.y, width: inputRect.width, height: inputRect.height },
+          askValue: askInput?.value || '',
+          askFocused: Boolean(askInput && composerDoc?.activeElement === askInput),
           viewport: { width: innerWidth, height: innerHeight },
         };
       },

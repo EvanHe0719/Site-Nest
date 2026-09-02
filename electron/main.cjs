@@ -2877,17 +2877,6 @@ function ensureSiteView(context = activeBrowserContext()) {
     event.preventDefault();
     void browserServices.externalProtocol.open(url, browserOwnerWindow(context));
   });
-  view.webContents.on("did-start-loading", () => {
-    pageCapabilityOrchestrator.cancel(context.tabId);
-    userScriptEngine?.cleanup(view.webContents);
-    pageResourceService?.clear(view.webContents);
-    if (pageTranslationController) pageTranslationController.clear(context);
-    if (selectionActionService) selectionActionService.clear(view.webContents);
-    compactBrowserState(
-      { loading: true, error: "", siteIssue: "" },
-      context,
-    );
-  });
   const contents = view.webContents;
   const emitAudioState = () => compactBrowserState(
     readWebContentsAudioState(contents),
@@ -2991,10 +2980,18 @@ function ensureSiteView(context = activeBrowserContext()) {
     persistWorkspaceBrowserContext(context, { currentURL: url });
     void maybeOfferUserScriptInstall(context, url);
   });
-  view.webContents.on("did-start-navigation", (_event, _url, _isInPlace, isMainFrame) => {
-    if (isMainFrame && context.navigationTraceId) {
-      navigationPerformanceTracer.mark(context.navigationTraceId, "didStartNavigationAt");
-    }
+  view.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
+    if (!isMainFrame || isInPlace) return;
+    pageCapabilityOrchestrator.cancel(context.tabId);
+    userScriptEngine?.cleanup(view.webContents);
+    pageResourceService?.clear(view.webContents);
+    if (pageTranslationController) pageTranslationController.clear(context);
+    if (selectionActionService) selectionActionService.clear(view.webContents);
+    compactBrowserState(
+      { loading: true, error: "", siteIssue: "" },
+      context,
+    );
+    if (context.navigationTraceId) navigationPerformanceTracer.mark(context.navigationTraceId, "didStartNavigationAt");
   });
   view.webContents.on("did-redirect-navigation", (_event, url, isInPlace, isMainFrame) => {
     if (isMainFrame && !isInPlace) {
@@ -7586,14 +7583,19 @@ function createMainWindow() {
           const happy = await readState({ state: "bubbleTip", reminder: { kind: "water", message: "休息一下，记得喝水" } });
           await probeWidget("open");
           const finalOpen = await readState({ state: "bubbleTip", reminder: { kind: "water", message: "休息一下，记得喝水" } });
-          await probeWidget("select-ask");
+          await probeWidget("focus-ask");
           const askPane = await inspectWidget();
-          await probeWidget("type", { value: "x" });
+          for (const keyCode of ["x", "9"]) {
+            context.view.webContents.sendInputEvent({ type: "keyDown", keyCode });
+            context.view.webContents.sendInputEvent({ type: "char", keyCode });
+            context.view.webContents.sendInputEvent({ type: "keyUp", keyCode });
+          }
+          await new Promise((resolve) => setTimeout(resolve, 160));
           await probeWidget("click-isolation");
           const typed = await inspectWidget();
           const hitPoints = {
             orb: { x: before.orbRect.x + before.orbRect.width / 2, y: before.orbRect.y + before.orbRect.height / 2 },
-            ask: { x: askPane.askTabRect.x + askPane.askTabRect.width / 2, y: askPane.askTabRect.y + askPane.askTabRect.height / 2 },
+            ask: { x: askPane.askInputRect.x + askPane.askInputRect.width / 2, y: askPane.askInputRect.y + askPane.askInputRect.height / 2 },
           };
           const hitTargets = await context.view.webContents.executeJavaScript(`(() => {
             const points = ${JSON.stringify(hitPoints)};
