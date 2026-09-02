@@ -92,6 +92,16 @@ test("in-page widget is isolated, interactive, reduced-motion aware and excludes
     runtime: { state: "idle", secret: "runtime-secret" },
     weather: { snapshot: { city: "上海", temperature: 26, token: "weather-secret" } },
   });
+  const recentlyFocused = normalizeCompanionWidgetSnapshot({
+    settings: { enabled: true },
+    runtime: { state: "focusedDocked", activeSince: "2026-09-02T08:00:00.000Z" },
+    now: Date.parse("2026-09-02T08:00:30.000Z"),
+  });
+  const longFocused = normalizeCompanionWidgetSnapshot({
+    settings: { enabled: true },
+    runtime: { state: "focusedDocked", activeSince: "2026-09-02T08:00:00.000Z" },
+    now: Date.parse("2026-09-02T08:26:00.000Z"),
+  });
   assert.equal(COMPANION_WIDGET_WORLD_ID, 1002);
   assert.equal(COMPANION_WIDGET_HOST_ID, "qiye-xiaoxu-widget-host");
   assert.equal((html.match(/id="companionDock"/g) || []).length, 0);
@@ -101,16 +111,28 @@ test("in-page widget is isolated, interactive, reduced-motion aware and excludes
   assert.doesNotMatch(html, /id="companionWeatherPill"/);
   assert.doesNotMatch(styles, /is-companion-enabled|companion-edge-rail|\.companion-dock/);
   assert.doesNotMatch(renderer, /dom\.companionDock\.focus/);
+  assert.match(renderer, /liveToastsByKey/);
+  assert.match(renderer, /options\.key \|\| `\$\{type\}:\$\{title\}`/);
   assert.match(widget, /attachShadow\(\{ mode: 'closed' \}\)/);
   assert.match(widget, /data-visual-state="nap"/);
   assert.match(widget, /data-visual-state="happy"/);
   assert.match(widget, /data-visual-state="breathing"/);
   assert.match(widget, /prefers-reduced-motion:reduce/);
   assert.match(widget, /event\.isTrusted/);
+  assert.match(widget, /water-wave/);
+  assert.match(widget, /active-ripple/);
+  assert.equal((widget.match(/class="halo h[1-4]"/g) || []).length, 4);
+  assert.match(widget, /event\.stopPropagation\(\)/);
+  assert.match(widget, /ResizeObserver\(syncHostBox\)/);
+  assert.match(widget, /panelOpen \? '286px' : '52px'/);
   assert.match(widget, /输入问题，不会自动读取网页/);
   assert.doesNotMatch(widget, /document\.cookie|localStorage|sessionStorage|innerText/);
   assert.doesNotMatch(widget, /must-not-leak|runtime-secret|weather-secret/);
   assert.doesNotMatch(JSON.stringify(normalized), /must-not-leak|runtime-secret|weather-secret/);
+  assert.equal(recentlyFocused.visualState, "idle");
+  assert.equal(recentlyFocused.muted, false);
+  assert.equal(longFocused.visualState, "nap");
+  assert.equal(longFocused.muted, true);
   assert.match(summaryExtractionScript(15_000), /\[data-qiye-companion-host\]/);
   assert.match(preload, /exposeInIsolatedWorld\(COMPANION_WIDGET_WORLD_ID, "qiyeCompanionHost"/);
   assert.match(main, /runtimeTabForWebContentsId\(event\.sender\.id\)/);

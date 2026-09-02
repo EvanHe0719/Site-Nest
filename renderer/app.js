@@ -1605,10 +1605,17 @@ async function executeShortcutAction(actionId) {
 }
 
 function invokeConfiguredShortcut(actionId, accelerator) {
+  const binding = (shortcutSnapshot.bindings || []).find((item) =>
+    item.actionId === actionId && item.enabled && item.accelerator && item.accelerator === accelerator);
+  if (!binding) return false;
   void window.siteNest.dispatchShortcut({ actionId, accelerator, platform: shortcutSnapshot.platform, context: { route: currentRoute, hasBrowser: Boolean(currentSite) } }).then(async (result) => {
-    if (!result?.ok) throw new Error(result?.message || "快捷键当前不可用");
+    if (!result?.ok) {
+      if (["SHORTCUT_DISABLED", "SHORTCUT_BINDING_MISMATCH"].includes(result?.errorCode)) return;
+      throw new Error(result?.message || "快捷键当前不可用");
+    }
     await executeShortcutAction(result.actionId);
   }).catch((error) => showToast("快捷键执行失败", googleSyncErrorMessage(error, "当前无法执行该动作"), "error"));
+  return true;
 }
 
 function dispatchConfiguredShortcut(event) {
@@ -1616,6 +1623,10 @@ function dispatchConfiguredShortcut(event) {
   const accelerator = eventAccelerator(event);
   const binding = (shortcutSnapshot.bindings || []).find((item) => item.enabled && item.accelerator === accelerator);
   if (!binding) return false;
+  if (event.repeat) {
+    event.preventDefault();
+    return true;
+  }
   const editable = event.target.closest?.("input, textarea, select, [contenteditable='true']");
   if (editable && !["search.open", "browser.focus-address"].includes(binding.actionId)) return false;
   if (document.querySelector(".modal-backdrop.is-open") && binding.scope !== "modal") return false;
@@ -3194,14 +3205,31 @@ function createIconElement(name, className = "") {
   return span;
 }
 
+const liveToastsByKey = new Map();
+const toastRemovalTimers = new WeakMap();
+
+function dismissToast(toast, toastKey) {
+  const timer = toastRemovalTimers.get(toast);
+  if (timer) window.clearTimeout(timer);
+  toastRemovalTimers.delete(toast);
+  if (liveToastsByKey.get(toastKey) === toast) liveToastsByKey.delete(toastKey);
+  toast.remove();
+}
+
 function showToast(title, detail = "", type = "success", options = {}) {
-  const toastKey = String(options.key || "");
-  if (toastKey) {
-    dom.toastStack.querySelectorAll(`[data-toast-key="${toastKey}"]`).forEach((item) => item.remove());
+  const toastKey = String(options.key || `${type}:${title}`);
+  let toast = liveToastsByKey.get(toastKey);
+  if (!toast?.isConnected) {
+    toast = document.createElement("div");
+    toast.dataset.toastKey = toastKey;
+    liveToastsByKey.set(toastKey, toast);
+  } else {
+    const timer = toastRemovalTimers.get(toast);
+    if (timer) window.clearTimeout(timer);
+    toastRemovalTimers.delete(toast);
+    toast.replaceChildren();
   }
-  const toast = document.createElement("div");
   toast.className = `toast${type === "error" ? " is-error" : ""}`;
-  if (toastKey) toast.dataset.toastKey = toastKey;
   const icon = createIconElement(type === "error" ? "alert" : "check", "toast-icon");
   const copy = document.createElement("div");
   const strong = document.createElement("strong");
@@ -3222,15 +3250,15 @@ function showToast(title, detail = "", type = "success", options = {}) {
     action.addEventListener("click", async () => {
       action.disabled = true;
       try { await options.actionCallback(); }
-      finally { toast.remove(); }
+      finally { dismissToast(toast, toastKey); }
     });
     toast.appendChild(action);
   }
-  dom.toastStack.appendChild(toast);
+  if (!toast.isConnected) dom.toastStack.appendChild(toast);
   const duration = Number.isFinite(Number(options.durationMs))
     ? Math.max(500, Number(options.durationMs))
     : 4200;
-  window.setTimeout(() => toast.remove(), duration);
+  toastRemovalTimers.set(toast, window.setTimeout(() => dismissToast(toast, toastKey), duration));
 }
 
 function showWorkspaceToast(title, detail = "", type = "success") {

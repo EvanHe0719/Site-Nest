@@ -202,6 +202,9 @@ test(
     assert.equal(result.stateLabel, "已启用");
     assert.ok(["paused", "background"].includes(result.pauseReason));
     assert.equal(result.settingsVisible, true);
+    assert.equal(result.saveToastCount, 1);
+    assert.equal(result.saveToastDetail, "第二次保存");
+    assert.equal(result.shortcutErrorCount, 0);
     assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
 
     const dataFile = path.join(userData, "site-nest-data.json");
@@ -241,7 +244,7 @@ test(
 );
 
 test(
-  "0.5.7 小序悬浮在网页右下角，真实点击打开小卡片且不占独立侧栏",
+  "0.5.7 小序悬浮卡片保护命中区域并隔离网页的鼠标与键盘事件",
   { timeout: 90000 },
   async (t) => {
     const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-companion-discoverability-"));
@@ -250,7 +253,24 @@ test(
     });
     const server = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      response.end("<!doctype html><title>小序验证页</title><p>本地可发现性测试</p>");
+      response.end(`<!doctype html>
+        <title>小序验证页</title>
+        <style>
+          #firstResult { position:fixed; right:18px; bottom:18px; width:286px; height:360px; border:0; background:#eef3ff; }
+          #pageSearch { position:fixed; left:40px; top:40px; width:360px; }
+        </style>
+        <input id="pageSearch" aria-label="网页搜索框">
+        <button id="firstResult" type="button">网页第一条结果</button>
+        <script>
+          globalThis.__qiyeLeakProbe = { documentClicks: 0, documentKeys: 0, documentInputs: 0, firstResultActivations: 0 };
+          document.addEventListener('click', () => { globalThis.__qiyeLeakProbe.documentClicks += 1; });
+          document.addEventListener('keydown', (event) => {
+            globalThis.__qiyeLeakProbe.documentKeys += 1;
+            if (event.key?.length === 1) document.getElementById('pageSearch').value += event.key;
+          });
+          document.addEventListener('input', () => { globalThis.__qiyeLeakProbe.documentInputs += 1; });
+          document.getElementById('firstResult').addEventListener('click', () => { globalThis.__qiyeLeakProbe.firstResultActivations += 1; });
+        </script>`);
     });
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     t.after(() => new Promise((resolve) => server.close(resolve)));
@@ -273,19 +293,27 @@ test(
     assert.equal(Math.round(result.before.viewport.width - result.before.orbRect.x - result.before.orbRect.width), 18);
     assert.equal(Math.round(result.before.viewport.height - result.before.orbRect.y - result.before.orbRect.height), 18);
     assert.equal(result.opened.panelOpen, true);
-    assert.equal(Math.round(result.opened.panelRect.width), 286);
+    assert.equal(result.opened.panelLayoutWidth, 286);
+    assert.equal(result.opened.rippling, true);
     assert.equal(result.idle.visualState, "idle");
     assert.equal(result.breathing.visualState, "breathing");
-    assert.equal(result.focused.visualState, "nap");
-    assert.equal(result.focused.panelOpen, false);
+    assert.equal(result.focused.visualState, "idle");
+    assert.equal(result.focused.panelOpen, true);
     assert.equal(result.fullscreen.visualState, "nap");
     assert.equal(result.fullscreen.panelOpen, false);
     assert.equal(result.happy.visualState, "happy");
     assert.equal(result.finalOpen.panelOpen, true);
-    assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
-    const parsed = path.parse(probe.capturePath);
-    const siteCapturePath = path.join(parsed.dir, `${parsed.name}-site${parsed.ext}`);
-    assert.ok((await fsp.stat(siteCapturePath)).size > 1000);
+    assert.equal(result.askPane.askFocused, true);
+    assert.match(result.typed.askValue, /x/i);
+    assert.equal(result.typed.askFocused, true);
+    assert.equal(result.pageEvents.documentClicks, 0);
+    assert.equal(result.pageEvents.documentKeys, 0);
+    assert.equal(result.pageEvents.documentInputs, 0);
+    assert.equal(result.pageEvents.firstResultActivations, 0);
+    assert.equal(result.pageEvents.pageSearchValue, "");
+    assert.notEqual(result.pageEvents.activeElementId, "pageSearch");
+    assert.equal(result.hitTargets.orb, "qiye-xiaoxu-widget-host");
+    assert.equal(result.hitTargets.ask, "qiye-xiaoxu-widget-host");
   },
 );
 

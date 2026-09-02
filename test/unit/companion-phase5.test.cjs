@@ -142,7 +142,9 @@ test("0.5.7 keeps the titlebar icon inert while the in-page orb is interactive",
   assert.match(widget, /qiyeCompanionHost\?\.invoke\('status'/);
   assert.equal(visualState({ state: "idle" }), "idle");
   assert.equal(visualState({ state: "resting" }), "breathing");
-  assert.equal(visualState({ state: "focusedDocked" }), "nap");
+  assert.equal(visualState({ state: "focusedDocked" }), "idle");
+  assert.equal(visualState({ state: "focusedDocked", longFocus: true }), "nap");
+  assert.equal(visualState({ quietReason: "fullscreen" }), "nap");
   assert.equal(visualState({ state: "bubbleTip", reminder: { message: "喝水" } }), "happy");
 });
 

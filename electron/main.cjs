@@ -7398,13 +7398,21 @@ function createMainWindow() {
               renderAll();
               showSettingsSection('notifications', 'companion');
               const paused = await window.siteNest.companionAction('pause', { minutes: 5 });
+              showToast('小序设置已保存', '第一次保存');
+              showToast('小序设置已保存', '第二次保存');
+              invokeConfiguredShortcut('companion.expand', 'Mod+Alt+Shift+X');
+              await new Promise((resolve) => setTimeout(resolve, 50));
+              const toasts = Array.from(document.querySelectorAll('#toastStack .toast'));
               return {
                 enabled: appState.uiSettings.companion.enabled,
                 city: appState.uiSettings.companion.weather.city,
                 focusDockSeconds: appState.uiSettings.companion.focusDockSeconds,
                 stateLabel: document.getElementById('companionSettingsStatus')?.textContent,
                 pauseReason: paused.quietReason,
-                settingsVisible: !document.getElementById('companionSettingsCard')?.hidden
+                settingsVisible: !document.getElementById('companionSettingsCard')?.hidden,
+                saveToastCount: toasts.filter((item) => item.querySelector('strong')?.textContent === '小序设置已保存').length,
+                saveToastDetail: toasts.find((item) => item.querySelector('strong')?.textContent === '小序设置已保存')?.querySelector('small')?.textContent || '',
+                shortcutErrorCount: toasts.filter((item) => item.querySelector('strong')?.textContent === '快捷键执行失败').length
               };
             })()`);
             console.log(JSON.stringify({ companionSettingsProbe: companionResult }));
@@ -7551,17 +7559,16 @@ function createMainWindow() {
             };
           })()`);
           const before = await inspectWidget();
-          const clickPoint = {
-            x: Math.round(before.orbRect.x + before.orbRect.width / 2),
-            y: Math.round(before.orbRect.y + before.orbRect.height / 2),
+          const probeWidget = async (action, payload = {}) => {
+            const value = await context.view.webContents.executeJavaScriptInIsolatedWorld(
+              COMPANION_WIDGET_WORLD_ID,
+              [{ code: `Boolean(globalThis.__qiyeXiaoxuWidget?.probe?.(${JSON.stringify(action)}, ${JSON.stringify(payload)}))`, url: "qiye-companion://probe-action" }],
+              true,
+            );
+            await new Promise((resolve) => setTimeout(resolve, 260));
+            return value;
           };
-          const clickWidget = async (point) => {
-            context.view.webContents.sendInputEvent({ type: "mouseMove", ...point });
-            context.view.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point });
-            context.view.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point });
-            await new Promise((resolve) => setTimeout(resolve, 250));
-          };
-          await clickWidget(clickPoint);
+          await probeWidget("open");
           const opened = await inspectWidget();
           const settings = { enabled: true, wellness: { enabled: true, kinds: { "eye-rest": true, water: true, movement: true } } };
           const readState = async (runtime, options = {}) => {
@@ -7577,14 +7584,29 @@ function createMainWindow() {
           const focused = await readState({ state: "focusedDocked" });
           const fullscreen = await readState({ state: "silentHidden", quietReason: "fullscreen" });
           const happy = await readState({ state: "bubbleTip", reminder: { kind: "water", message: "休息一下，记得喝水" } });
-          await clickWidget({
-            x: Math.round(happy.orbRect.x + happy.orbRect.width / 2),
-            y: Math.round(happy.orbRect.y + happy.orbRect.height / 2),
-          });
+          await probeWidget("open");
           const finalOpen = await readState({ state: "bubbleTip", reminder: { kind: "water", message: "休息一下，记得喝水" } });
-          const companionResult = { shell, before, opened, idle, breathing, focused, fullscreen, happy, finalOpen };
+          await probeWidget("select-ask");
+          const askPane = await inspectWidget();
+          await probeWidget("type", { value: "x" });
+          await probeWidget("click-isolation");
+          const typed = await inspectWidget();
+          const hitPoints = {
+            orb: { x: before.orbRect.x + before.orbRect.width / 2, y: before.orbRect.y + before.orbRect.height / 2 },
+            ask: { x: askPane.askTabRect.x + askPane.askTabRect.width / 2, y: askPane.askTabRect.y + askPane.askTabRect.height / 2 },
+          };
+          const hitTargets = await context.view.webContents.executeJavaScript(`(() => {
+            const points = ${JSON.stringify(hitPoints)};
+            return Object.fromEntries(Object.entries(points).map(([key, point]) => [key, document.elementFromPoint(point.x, point.y)?.id || '']));
+          })()`, true);
+          const pageEvents = await context.view.webContents.executeJavaScript(`({
+            ...globalThis.__qiyeLeakProbe,
+            pageSearchValue: document.getElementById('pageSearch')?.value || '',
+            activeElementId: document.activeElement?.id || ''
+          })`, true);
+          const companionResult = { shell, before, opened, idle, breathing, focused, fullscreen, happy, finalOpen, askPane, typed, hitTargets, pageEvents };
           console.log(JSON.stringify({ companionDiscoverabilityProbe: companionResult }));
-          await new Promise((resolve) => setTimeout(resolve, 350));
+          await new Promise((resolve) => setTimeout(resolve, 100));
         } else if (CAPTURE_ROUTE === "browser-toolbar") {
           if (!isSafeWebUrl(TAB_PROBE_BASE_URL)) {
             throw new Error("QIYE_TAB_PROBE_BASE_URL is required for browser-toolbar");
@@ -8562,28 +8584,25 @@ GM_addStyle('article { line-height: 1.7; }');`;
           );
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
-        const image = await mainWindow.webContents.capturePage();
-        await fsp.mkdir(path.dirname(path.resolve(CAPTURE_PATH)), { recursive: true });
-        await fsp.writeFile(path.resolve(CAPTURE_PATH), image.toPNG());
-        if (
-          ["site", "nodeseek-login", "nodeseek-reset", "companion-discoverability"].includes(
-            CAPTURE_ROUTE,
-          ) &&
-          siteView
-        ) {
-          const siteCapture = await siteView.webContents.capturePage();
-          const parsed = path.parse(path.resolve(CAPTURE_PATH));
-          await fsp.writeFile(
-            path.join(parsed.dir, `${parsed.name}-site${parsed.ext || ".png"}`),
-            siteCapture.toPNG(),
-          );
-          console.log(
-            JSON.stringify({
-              title: siteView.webContents.getTitle(),
-              url: siteView.webContents.getURL(),
-              loading: siteView.webContents.isLoading(),
-            }),
-          );
+        if (CAPTURE_ROUTE !== "companion-discoverability") {
+          const image = await mainWindow.webContents.capturePage();
+          await fsp.mkdir(path.dirname(path.resolve(CAPTURE_PATH)), { recursive: true });
+          await fsp.writeFile(path.resolve(CAPTURE_PATH), image.toPNG());
+          if (["site", "nodeseek-login", "nodeseek-reset"].includes(CAPTURE_ROUTE) && siteView) {
+            const siteCapture = await siteView.webContents.capturePage();
+            const parsed = path.parse(path.resolve(CAPTURE_PATH));
+            await fsp.writeFile(
+              path.join(parsed.dir, `${parsed.name}-site${parsed.ext || ".png"}`),
+              siteCapture.toPNG(),
+            );
+            console.log(
+              JSON.stringify({
+                title: siteView.webContents.getTitle(),
+                url: siteView.webContents.getURL(),
+                loading: siteView.webContents.isLoading(),
+              }),
+            );
+          }
         }
       } catch (error) {
         console.error(`Capture route failed (${CAPTURE_ROUTE || "default"}):`, error?.stack || error?.message || error);

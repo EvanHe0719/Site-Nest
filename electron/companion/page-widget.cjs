@@ -1,5 +1,6 @@
 const COMPANION_WIDGET_WORLD_ID = 1002;
 const COMPANION_WIDGET_HOST_ID = "qiye-xiaoxu-widget-host";
+const LONG_FOCUS_MS = 25 * 60 * 1_000;
 
 function text(value, limit = 240) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, limit);
@@ -8,7 +9,7 @@ function text(value, limit = 240) {
 function visualState(runtime = {}) {
   if (runtime.alertMessage) return "happy";
   if (runtime.reminder && runtime.state === "bubbleTip") return "happy";
-  if (runtime.quietReason === "fullscreen" || runtime.state === "focusedDocked") return "nap";
+  if (runtime.quietReason === "fullscreen" || runtime.longFocus === true) return "nap";
   if (runtime.state === "resting") return "breathing";
   return "idle";
 }
@@ -20,12 +21,17 @@ function normalizeCompanionWidgetSnapshot(input = {}) {
   const forecast = weather.snapshot && typeof weather.snapshot === "object" ? weather.snapshot : null;
   const reminder = runtime.reminder && typeof runtime.reminder === "object" ? runtime.reminder : null;
   const hardHidden = runtime.temporarilyHidden === true || ["screen-sharing", "system-away"].includes(runtime.quietReason);
+  const activeSince = Date.parse(runtime.activeSince || "");
+  const now = Number.isFinite(Number(input.now)) ? Number(input.now) : Date.now();
+  const longFocus = runtime.longFocus === true
+    || (runtime.state === "focusedDocked" && Number.isFinite(activeSince) && now - activeSince >= LONG_FOCUS_MS);
   return {
     visible: !hardHidden,
     enabled: settings.enabled === true,
     state: text(runtime.state || "silentHidden", 40),
-    visualState: visualState({ ...runtime, alertMessage: input.alertMessage }),
-    muted: runtime.quietReason === "fullscreen" || runtime.state === "focusedDocked",
+    visualState: visualState({ ...runtime, longFocus, alertMessage: input.alertMessage }),
+    muted: runtime.quietReason === "fullscreen" || longFocus,
+    longFocus,
     quietReason: text(runtime.quietReason, 80),
     reminder: reminder ? { kind: text(reminder.kind, 40), message: text(reminder.message, 240) } : null,
     alertMessage: text(input.alertMessage, 240),
@@ -77,22 +83,30 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
       *, *::before, *::after { box-sizing: border-box; }
       button, input { font: inherit; }
       button { -webkit-tap-highlight-color: transparent; }
-      .orb { position:absolute; right:0; bottom:0; display:grid; width:48px; height:48px; padding:0; place-items:center; border:0; border-radius:50%; background:transparent; cursor:pointer; transition:opacity .45s ease, transform .45s cubic-bezier(.16,1,.3,1); }
-      .core { position:relative; z-index:2; display:flex; width:40px; height:40px; align-items:center; justify-content:center; gap:7px; border-radius:50%; background:linear-gradient(135deg,#a7f3d0 0%,#267d67 58%,#134e4a 100%); box-shadow:0 4px 16px rgba(38,125,103,.35); animation:float 3s ease-in-out infinite; }
+      .orb { position:absolute; right:0; bottom:0; display:grid; width:48px; height:48px; padding:0; place-items:center; border:0; border-radius:50%; background:transparent; cursor:pointer; pointer-events:auto; isolation:isolate; transition:opacity .45s ease, transform .45s cubic-bezier(.16,1,.3,1); }
+      .core { position:relative; z-index:3; display:flex; width:40px; height:40px; align-items:center; justify-content:center; gap:7px; border-radius:50%; background:linear-gradient(135deg,#b7f7dc 0%,#3b9d80 42%,#176451 72%,#0d433d 100%); box-shadow:0 5px 18px rgba(21,103,81,.34),0 0 18px rgba(110,231,183,.25),inset 0 1px 1px rgba(255,255,255,.48); animation:float 3s ease-in-out infinite; }
       .eye { width:4px; height:5px; border-radius:2px; background:#0f3d32; animation:blink 4.5s infinite; }
-      .halo { position:absolute; z-index:1; border:2px solid rgba(52,211,153,.58); border-radius:50%; opacity:0; pointer-events:none; }
-      .halo.inner { inset:1px; }
-      .halo.outer { inset:-5px; border-width:1px; border-color:rgba(110,231,183,.42); }
+      .halo { position:absolute; inset:4px; z-index:1; border:1.5px solid rgba(52,211,153,.52); border-radius:50%; opacity:0; pointer-events:none; filter:drop-shadow(0 0 7px rgba(52,211,153,.46)); }
+      .halo.h2 { border-color:rgba(110,231,183,.43); }
+      .halo.h3 { border-color:rgba(167,243,208,.34); }
+      .halo.h4 { border-color:rgba(20,184,166,.25); }
       .zzz { position:absolute; top:-8px; right:-5px; display:none; color:rgba(38,125,103,.82); font-size:10px; font-weight:800; animation:zzz 1.8s ease-in-out infinite; }
-      .orb[data-visual-state="breathing"] .halo { animation:pulse 2.6s infinite cubic-bezier(.25,1,.5,1); }
-      .orb[data-visual-state="breathing"] .halo.outer { animation-delay:.8s; }
+      .orb[data-visual-state="idle"] .halo { animation:water-wave 4.8s infinite cubic-bezier(.16,.68,.3,1); }
+      .orb[data-visual-state="breathing"] .halo { animation:water-wave 3.25s infinite cubic-bezier(.16,.68,.3,1); }
+      .orb .halo.h2 { animation-delay:-1.05s; }
+      .orb .halo.h3 { animation-delay:-2.1s; }
+      .orb .halo.h4 { animation-delay:-3.15s; }
+      .orb.is-rippling .halo { animation:active-ripple 1.65s both cubic-bezier(.1,.72,.24,1); }
+      .orb.is-rippling .halo.h2 { animation-delay:.12s; }
+      .orb.is-rippling .halo.h3 { animation-delay:.24s; }
+      .orb.is-rippling .halo.h4 { animation-delay:.36s; }
       .orb[data-visual-state="nap"] { opacity:.26; transform:translateY(10px) scale(.88); }
       .orb[data-visual-state="nap"] .core { animation:none; }
       .orb[data-visual-state="nap"] .eye { width:7px; height:4px; border:0; border-top:2px solid #0a2b22; border-radius:50% 50% 0 0; background:transparent; animation:none; }
       .orb[data-visual-state="nap"] .zzz { display:block; }
       .orb[data-visual-state="happy"] .eye { width:7px; height:7px; border:0; border-top:2px solid #0a2b22; border-left:2px solid #0a2b22; border-radius:1px; background:transparent; animation:happy .8s ease-in-out infinite alternate; }
       .orb.is-disabled .core { filter:saturate(.35); opacity:.72; }
-      .panel { position:absolute; right:0; bottom:60px; width:286px; overflow:hidden; border:1px solid rgba(38,125,103,.2); border-radius:18px; background:rgba(255,255,255,.97); box-shadow:0 18px 46px rgba(24,55,45,.2); color:#18211f; backdrop-filter:blur(16px); animation:open .2s cubic-bezier(.16,1,.3,1); }
+      .panel { position:absolute; right:0; bottom:60px; width:286px; max-height:calc(100vh - 96px); overflow:hidden auto; pointer-events:auto; border:1px solid rgba(38,125,103,.2); border-radius:18px; background:rgba(255,255,255,.97); box-shadow:0 18px 46px rgba(24,55,45,.2); color:#18211f; backdrop-filter:blur(16px); animation:open .2s cubic-bezier(.16,1,.3,1); }
       .panel[hidden] { display:none; }
       .head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 13px 8px; }
       .identity { display:flex; align-items:center; gap:8px; min-width:0; }
@@ -120,7 +134,8 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
       @keyframes open { from { transform:translateY(6px) scale(.97); opacity:0; } to { transform:none; opacity:1; } }
       @keyframes float { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-4px); } }
       @keyframes blink { 0%,96%,100% { transform:scaleY(1); } 98% { transform:scaleY(.1); } }
-      @keyframes pulse { 0%,100% { transform:scale(.9); opacity:.9; box-shadow:0 0 0 0 rgba(52,211,153,.6); } 50% { transform:scale(1.35); opacity:.15; box-shadow:0 0 24px 8px rgba(16,185,129,.4); } }
+      @keyframes water-wave { 0% { transform:scale(.72); opacity:0; } 14% { opacity:.54; } 62%,100% { transform:scale(2.15); opacity:0; } }
+      @keyframes active-ripple { 0% { transform:scale(.7); opacity:.84; border-width:2px; } 75%,100% { transform:scale(2.35); opacity:0; border-width:.5px; } }
       @keyframes zzz { 0%,100% { transform:translate(0,2px); opacity:.38; } 50% { transform:translate(2px,-3px); opacity:.9; } }
       @keyframes happy { from { transform:translateY(1px) rotate(45deg) scale(.92); } to { transform:rotate(45deg); } }
       @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important; transition:none!important; } }
@@ -144,7 +159,7 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
           <div class="pane" data-content="ask" hidden><strong>问小序</strong><form class="ask"><input maxlength="4000" placeholder="输入问题，不会自动读取网页" aria-label="向小序提问"><button class="action send" type="submit">发送</button></form><span class="result">仅发送你手动输入的文字。</span></div>
         </div>
       </section>
-      <button class="orb" type="button" aria-label="打开小序" aria-expanded="false"><span class="halo inner"></span><span class="halo outer"></span><span class="core"><i class="eye"></i><i class="eye"></i><span class="zzz">zZ</span></span></button>
+      <button class="orb" type="button" aria-label="打开小序" aria-expanded="false"><span class="halo h1"></span><span class="halo h2"></span><span class="halo h3"></span><span class="halo h4"></span><span class="core"><i class="eye"></i><i class="eye"></i><span class="zzz">zZ</span></span></button>
     \`;
     shadow.append(wrap);
     const panel = shadow.querySelector('.panel');
@@ -157,22 +172,41 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
     const askInput = shadow.querySelector('.ask input');
     const askSend = shadow.querySelector('.send');
     let snapshot = initial;
+    let rippleTimer = null;
     const stateLabels = { idle:'待机', breathing:'休息中', nap:'专注免打扰', happy:'有新提醒' };
+    const syncHostBox = () => {
+      const panelOpen = !panel.hidden;
+      const panelHeight = panelOpen ? Math.ceil(Math.min(panel.scrollHeight, Math.max(120, innerHeight - 96))) : 0;
+      host.style.setProperty('width', panelOpen ? '286px' : '52px', 'important');
+      host.style.setProperty('height', panelOpen ? \`\${panelHeight + 60}px\` : '52px', 'important');
+    };
+    const setPanelOpen = (open) => {
+      panel.hidden = !open;
+      orb.setAttribute('aria-expanded', String(open));
+      syncHostBox();
+    };
+    const triggerRipple = () => {
+      if (rippleTimer) clearTimeout(rippleTimer);
+      orb.classList.remove('is-rippling');
+      void orb.offsetWidth;
+      orb.classList.add('is-rippling');
+      rippleTimer = setTimeout(() => { orb.classList.remove('is-rippling'); rippleTimer = null; }, 1850);
+    };
     const mount = () => {
       const fullscreen = document.fullscreenElement;
       const target = fullscreen && !/^(?:VIDEO|IFRAME)$/.test(fullscreen.tagName) ? fullscreen : document.documentElement;
       if (host.parentElement !== target) target.append(host);
     };
     const render = (next) => {
+      const wasMuted = snapshot?.muted === true;
       snapshot = next || snapshot;
       host.hidden = snapshot.visible === false;
-      if (snapshot.visible === false || snapshot.muted === true) {
-        panel.hidden = true;
-        orb.setAttribute('aria-expanded', 'false');
-      }
+      if (snapshot.visible === false || (snapshot.muted === true && !wasMuted)) setPanelOpen(false);
       orb.dataset.visualState = snapshot.visualState || 'idle';
       orb.classList.toggle('is-disabled', snapshot.enabled !== true);
-      stateText.textContent = snapshot.enabled ? (stateLabels[snapshot.visualState] || '待机') : '尚未启用';
+      stateText.textContent = snapshot.enabled
+        ? (snapshot.state === 'focusedDocked' && !snapshot.longFocus ? '安静陪伴' : (stateLabels[snapshot.visualState] || '待机'))
+        : '尚未启用';
       const message = snapshot.alertMessage || snapshot.reminder?.message || '';
       notice.hidden = !message; notice.textContent = message;
       const weather = snapshot.weather || {};
@@ -182,6 +216,7 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
       const wellness = snapshot.wellness || {};
       const enabledKinds = [wellness.eyeRest && '护眼', wellness.water && '喝水', wellness.movement && '活动'].filter(Boolean);
       healthText.textContent = wellness.enabled && enabledKinds.length ? \`已启用：\${enabledKinds.join('、')}。\` : '健康提醒尚未启用。';
+      syncHostBox();
     };
     const selectPane = (name) => {
       shadow.querySelectorAll('.tab').forEach((button) => button.setAttribute('aria-selected', String(button.dataset.pane === name)));
@@ -194,14 +229,15 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
     };
     orb.addEventListener('click', (event) => {
       if (!event.isTrusted) return;
-      panel.hidden = !panel.hidden;
-      orb.setAttribute('aria-expanded', String(!panel.hidden));
+      triggerRipple();
+      setPanelOpen(panel.hidden);
       if (!panel.hidden) void refreshStatus();
     });
-    shadow.querySelector('.close').addEventListener('click', (event) => { if (event.isTrusted) { panel.hidden = true; orb.setAttribute('aria-expanded','false'); } });
-    shadow.querySelectorAll('.tab').forEach((button) => button.addEventListener('click', (event) => { if (event.isTrusted) selectPane(button.dataset.pane); }));
+    shadow.querySelector('.close').addEventListener('click', (event) => { if (event.isTrusted) setPanelOpen(false); });
+    shadow.querySelectorAll('.tab').forEach((button) => button.addEventListener('click', (event) => { if (event.isTrusted) { triggerRipple(); selectPane(button.dataset.pane); } }));
     shadow.querySelector('.refresh').addEventListener('click', async (event) => {
       if (!event.isTrusted) return;
+      triggerRipple();
       event.currentTarget.disabled = true; weatherText.textContent = '正在刷新天气…';
       const response = await globalThis.qiyeCompanionHost?.invoke('weather.refresh', {});
       event.currentTarget.disabled = false;
@@ -210,15 +246,38 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
     shadow.querySelector('.ask').addEventListener('submit', async (event) => {
       event.preventDefault(); if (!event.isTrusted) return;
       const question = String(askInput.value || '').trim(); if (!question) return;
+      triggerRipple();
       askSend.disabled = true; result.textContent = '小序正在思考…';
       const response = await globalThis.qiyeCompanionHost?.invoke('ask', { question });
       askSend.disabled = false;
       result.textContent = response?.ok ? (response.value?.answer || '已完成') : (response?.error?.message || '请求未完成');
+      triggerRipple();
     });
+    for (const type of ['pointerdown','pointerup','mousedown','mouseup','click','dblclick','contextmenu','keydown','keypress','keyup','beforeinput','input','change','submit','wheel','focusin','focusout']) {
+      shadow.addEventListener(type, (event) => event.stopPropagation());
+    }
+    const resizeObserver = new ResizeObserver(syncHostBox);
+    resizeObserver.observe(panel);
     document.addEventListener('fullscreenchange', mount, true);
-    mount(); render(initial);
+    setPanelOpen(false); mount(); render(initial);
     globalThis.__qiyeXiaoxuWidget = {
       update: render,
+      probe: (action, payload = {}) => {
+        if (action === 'open') { triggerRipple(); setPanelOpen(true); return true; }
+        if (action === 'select-ask') { triggerRipple(); selectPane('ask'); return true; }
+        if (action === 'type') {
+          askInput.focus();
+          askInput.value = String(payload.value || '');
+          askInput.dispatchEvent(new KeyboardEvent('keydown', { key:'x', code:'KeyX', bubbles:true, composed:true }));
+          askInput.dispatchEvent(new InputEvent('input', { data:askInput.value, inputType:'insertText', bubbles:true, composed:true }));
+          return true;
+        }
+        if (action === 'click-isolation') {
+          shadow.querySelector('[data-pane="ask"]').dispatchEvent(new MouseEvent('click', { bubbles:true, composed:true }));
+          return true;
+        }
+        return false;
+      },
       inspect: () => {
         const rect = orb.getBoundingClientRect();
         const panelRect = panel.getBoundingClientRect();
@@ -230,9 +289,15 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
           hostRight: hostStyle.right,
           hostBottom: hostStyle.bottom,
           panelOpen: !panel.hidden,
+          panelLayoutWidth: panel.offsetWidth,
           visualState: orb.dataset.visualState || '',
+          rippling: orb.classList.contains('is-rippling'),
           orbRect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
           panelRect: { x: panelRect.x, y: panelRect.y, width: panelRect.width, height: panelRect.height },
+          askTabRect: (() => { const value = shadow.querySelector('[data-pane="ask"]').getBoundingClientRect(); return { x:value.x, y:value.y, width:value.width, height:value.height }; })(),
+          askInputRect: (() => { const value = askInput.getBoundingClientRect(); return { x:value.x, y:value.y, width:value.width, height:value.height }; })(),
+          askValue: askInput.value,
+          askFocused: shadow.activeElement === askInput,
           viewport: { width: innerWidth, height: innerHeight },
         };
       },

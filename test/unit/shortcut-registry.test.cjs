@@ -97,6 +97,8 @@ test("settings UI supports grouped search, recording, conflict check, reset, and
   assert.match(html, /id="resetAllShortcuts"/);
   assert.match(renderer, /captureShortcutKey/);
   assert.match(renderer, /dispatchShortcut/);
+  assert.match(renderer, /if \(event\.repeat\)/);
+  assert.match(renderer, /\["SHORTCUT_DISABLED", "SHORTCUT_BINDING_MISMATCH"\]\.includes/);
   assert.match(preload, /shortcuts:update/);
   assert.match(preload, /shortcuts:trigger/);
   assert.doesNotMatch(preload, /globalShortcut/);
