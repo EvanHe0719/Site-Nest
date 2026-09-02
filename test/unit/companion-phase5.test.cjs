@@ -127,6 +127,19 @@ test("companion UI actions, optional shortcuts and settings controls are discove
   assert.match(html, /data-action-id="companion\.expand"/);
 });
 
+test("0.5.7 keeps the companion rail discoverable while optional features remain opt-in", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "..", "renderer", "index.html"), "utf8");
+  const renderer = fs.readFileSync(path.join(__dirname, "..", "..", "renderer", "app.js"), "utf8");
+  assert.match(html, /id="globalCompanionTrigger"/);
+  assert.match(renderer, /globalCompanionTrigger\.addEventListener\("click"/);
+  assert.match(renderer, /showSettingsSection\("notifications", "companion"\)/);
+  assert.match(renderer, /!enabled \|\| companionRuntime\.state !== "silentHidden"/);
+  assert.match(renderer, /启用基础小序/);
+  assert.match(renderer, /weather: \{ \.\.\.\(current\.weather \|\| \{\}\), enabled: false \}/);
+  assert.match(renderer, /kinds: \{ "eye-rest": false, water: false, movement: false \}/);
+  assert.match(renderer, /panel === "home"\) renderCompanionHome\(\)/);
+});
+
 test("desktop companion notification exposes open, acknowledge, snooze and dismiss actions", () => {
   class FakeNotification extends EventEmitter {
     static isSupported() { return true; }

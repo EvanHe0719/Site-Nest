@@ -87,13 +87,13 @@ test("shell rail is single-instance, keyboard accessible, reduced-motion aware a
   assert.doesNotMatch(summaryExtractionScript(15_000), /companion-dock|companion-panel/);
 });
 
-test("production lifecycle stops companion, weather and AI without packaging or version changes", () => {
+test("production lifecycle stops companion, weather and AI in the 0.5.7 release", () => {
   const main = fs.readFileSync(path.join(ROOT, "electron", "main.cjs"), "utf8");
   const packageJson = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
   assert.match(main, /companionRuntimeService\?\.stop\(\)/);
   assert.match(main, /weatherService\?\.stop\(\)/);
   assert.match(main, /companionAIService\?\.cancelAll\(\)/);
-  assert.equal(packageJson.version, "0.5.6");
+  assert.equal(packageJson.version, "0.5.7");
   assert.equal(packageJson.build.appId, "local.qiye.sitehub");
   assert.doesNotMatch(main, /new BrowserWindow\([^)]*companion/is);
 });

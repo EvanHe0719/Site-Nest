@@ -6165,6 +6165,8 @@ svg {
 .browser-content.is-companion-enabled.is-companion-panel-open { grid-template-columns: minmax(0, 1fr) minmax(340px, 380px) 44px; }
 .browser-content.is-action-panel-open.is-companion-enabled { grid-template-columns: minmax(0, 1fr) minmax(360px, 400px) 44px; }
 .companion-edge-rail { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; min-width: 44px; border-left: 1px solid var(--line); background: linear-gradient(180deg, #f7faf7 0%, #edf4ef 100%); }
+.companion-edge-rail.is-companion-disabled .companion-orb { filter: saturate(.35); opacity: .72; }
+.companion-edge-rail.is-companion-disabled .companion-dock-label { color: #77857f; }
 .companion-dock { display: grid; justify-items: center; gap: 7px; width: 36px; padding: 10px 3px; border: 0; border-radius: 18px; background: transparent; color: #49675e; cursor: pointer; }
 .companion-dock:hover, .companion-dock:focus-visible, .companion-dock[aria-expanded="true"] { outline: none; background: rgba(38, 125, 103, 0.11); }
 .companion-dock-label { writing-mode: vertical-rl; font-size: 9px; letter-spacing: .14em; }
@@ -6303,6 +6305,25 @@ svg {
 .titlebar-search-trigger:focus-visible { outline: 2px solid rgba(30, 123, 94, .24); outline-offset: 2px; }
 .titlebar-search-trigger > [data-icon] { width: 13px; height: 13px; color: #34413c; }
 .titlebar-search-trigger > span:nth-child(2) { text-align: center; }
+.titlebar-companion-trigger {
+  -webkit-app-region: no-drag;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+.titlebar-companion-trigger:hover { background: rgba(38, 125, 103, .08); }
+.titlebar-companion-trigger:focus-visible { outline: 2px solid rgba(30, 123, 94, .24); outline-offset: 2px; }
+.companion-orb--titlebar { width: 18px; height: 18px; }
+.companion-orb--titlebar::before, .companion-orb--titlebar::after { top: 7px; width: 3px; height: 3px; }
+.companion-orb--titlebar::before { left: 4px; }
+.companion-orb--titlebar::after { right: 4px; }
+.companion-orb--titlebar i { left: 6px; bottom: 3px; }
 .titlebar-data-status {
   -webkit-app-region: no-drag;
   display: inline-grid;

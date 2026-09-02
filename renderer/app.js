@@ -123,6 +123,7 @@ const dom = {
   dueSoonTicketList: document.getElementById("dueSoonTicketList"),
   researchSiteGrid: document.getElementById("researchSiteGrid"),
   globalSearchTrigger: document.getElementById("globalSearchTrigger"),
+  globalCompanionTrigger: document.getElementById("globalCompanionTrigger"),
   globalSearchPalette: document.getElementById("globalSearchPalette"),
   globalSearchInput: document.getElementById("globalSearchInput"),
   globalSearchEngine: document.getElementById("globalSearchEngine"),
@@ -8306,20 +8307,33 @@ function companionEnabled() {
   return appState.uiSettings?.companion?.enabled === true;
 }
 
+function companionHardHidden() {
+  return companionRuntime.temporarilyHidden === true
+    || ["fullscreen", "screen-sharing", "system-away"].includes(companionRuntime.quietReason);
+}
+
 function renderCompanionShell() {
   const enabled = companionEnabled();
-  const visible = enabled && companionRuntime.state !== "silentHidden";
+  const browserVisible = dom.browserPage.classList.contains("is-visible");
+  const visible = browserVisible
+    && !companionHardHidden()
+    && (!enabled || companionRuntime.state !== "silentHidden");
   dom.companionEdgeRail.hidden = !visible;
+  dom.companionEdgeRail.classList.toggle("is-companion-disabled", !enabled);
   dom.browserContent.classList.toggle("is-companion-enabled", visible);
   if (!visible && companionPanelOpen) setCompanionPanelOpen(false);
   dom.companionDock.setAttribute("aria-expanded", String(companionPanelOpen));
+  dom.companionDock.title = enabled ? "小序" : "打开小序（尚未启用）";
+  dom.companionWeatherButton.disabled = !enabled;
+  dom.companionAssistantButton.disabled = !enabled;
+  dom.companionPauseButton.disabled = !enabled;
   requestAnimationFrame(() => requestAnimationFrame(syncBrowserBounds));
 }
 
 function renderCompanionRuntime(snapshot = companionRuntime) {
   companionRuntime = { ...companionRuntime, ...(snapshot || {}) };
   const labels = { idle: "待机", focusedDocked: "专注中", resting: "休息中", bubbleTip: "轻提示", expanded: "已展开", silentHidden: "已隐藏" };
-  dom.companionStateLabel.textContent = labels[companionRuntime.state] || "待机";
+  dom.companionStateLabel.textContent = companionEnabled() ? (labels[companionRuntime.state] || "待机") : "未启用";
   dom.companionDock.dataset.state = companionRuntime.state;
   const reminder = companionRuntime.reminder;
   dom.companionBubble.hidden = !(reminder && companionRuntime.state === "bubbleTip" && companionEnabled());
@@ -8328,6 +8342,69 @@ function renderCompanionRuntime(snapshot = companionRuntime) {
   else if (companionRuntime.quietReason) dom.companionGreeting.textContent = "当前处于安静状态，我不会主动打扰。";
   else dom.companionGreeting.textContent = "我会安静地陪在这里。";
   renderCompanionShell();
+}
+
+function renderCompanionHome() {
+  dom.companionContent.replaceChildren();
+  const empty = document.createElement("div");
+  empty.className = "companion-empty";
+  const title = document.createElement("strong");
+  const detail = document.createElement("small");
+  const actions = document.createElement("div");
+  actions.className = "companion-ai-actions";
+  if (companionEnabled()) {
+    title.textContent = "小序已在当前窗口待命";
+    detail.textContent = "天气和健康提醒仍分别遵循设置；不会因为打开面板而自动联网或读取网页正文。";
+  } else {
+    title.textContent = "小序尚未启用";
+    detail.textContent = "入口会一直保留。你可以只启用基础伴随功能，天气、健康提醒和网页 AI 都不会随之自动开启。";
+    const enable = document.createElement("button");
+    enable.type = "button";
+    enable.className = "primary-button compact-button";
+    enable.dataset.actionId = "companion.toggle";
+    enable.textContent = "启用基础小序";
+    enable.addEventListener("click", async () => {
+      enable.disabled = true;
+      const current = appState.uiSettings?.companion || {};
+      try {
+        const result = await window.siteNest.updateUiSettings({
+          companion: {
+            ...current,
+            enabled: true,
+            onboardingSeen: true,
+            weather: { ...(current.weather || {}), enabled: false },
+            wellness: {
+              ...(current.wellness || {}),
+              enabled: true,
+              kinds: { "eye-rest": false, water: false, movement: false },
+            },
+          },
+        });
+        appState = result.state || { ...appState, uiSettings: result.uiSettings };
+        renderCompanionSettings();
+        renderCompanionRuntime(await window.siteNest.getCompanionRuntime());
+        renderCompanionHome();
+        showToast("小序已启用", "天气、健康提醒和网页 AI 仍保持关闭或按需使用");
+      } catch (error) {
+        enable.disabled = false;
+        showToast("无法启用小序", error?.message || "请稍后重试", "error");
+      }
+    });
+    actions.appendChild(enable);
+  }
+  const settings = document.createElement("button");
+  settings.type = "button";
+  settings.className = "secondary-button compact-button";
+  settings.dataset.actionId = "companion.settings.open";
+  settings.textContent = "打开小序设置";
+  settings.addEventListener("click", () => {
+    setCompanionPanelOpen(false);
+    navigateTo("settings");
+    showSettingsSection("notifications", "companion");
+  });
+  actions.appendChild(settings);
+  empty.append(title, detail, actions);
+  dom.companionContent.appendChild(empty);
 }
 
 function weatherValue(value, suffix = "") {
@@ -8552,7 +8629,7 @@ async function summarizeCurrentPageWithCompanion() {
 }
 
 function setCompanionPanelOpen(open, panel = "home") {
-  const canOpen = Boolean(open && companionEnabled() && browserSnapshot.hasOpenPage && dom.browserPage.classList.contains("is-visible"));
+  const canOpen = Boolean(open && dom.browserPage.classList.contains("is-visible") && !companionHardHidden());
   if (canOpen && pageActionPanelOpen) setPageActionPanelOpen(false);
   companionPanelOpen = canOpen;
   activeRightPanel = canOpen ? "companion" : activeRightPanel === "companion" ? null : activeRightPanel;
@@ -8561,6 +8638,7 @@ function setCompanionPanelOpen(open, panel = "home") {
   dom.companionDock.setAttribute("aria-expanded", String(canOpen));
   dom.browserContent.classList.toggle("is-companion-panel-open", canOpen);
   dom.companionContent.dataset.panel = panel;
+  if (canOpen && panel === "home") renderCompanionHome();
   if (!canOpen && companionAIRequestId) {
     void window.siteNest?.cancelCompanionAI?.(companionAIRequestId);
     companionAIRequestId = null;
@@ -8627,6 +8705,7 @@ function handleBrowserState(next = {}) {
       clearWorkspaceBrowserPresentation(nextWorkspaceId, { showEmpty: true });
       renderAll();
     }
+    renderCompanionShell();
     return;
   }
 
@@ -8705,9 +8784,18 @@ function handleBrowserState(next = {}) {
     window.clearTimeout(pageActionRefreshTimer);
     pageActionRefreshTimer = window.setTimeout(() => void refreshPageActions(), 180);
   }
+  renderCompanionShell();
 }
 
 function bindEvents() {
+  dom.globalCompanionTrigger.addEventListener("click", () => {
+    if (dom.browserPage.classList.contains("is-visible")) {
+      setCompanionPanelOpen(true);
+      return;
+    }
+    navigateTo("settings");
+    showSettingsSection("notifications", "companion");
+  });
   dom.companionDock.addEventListener("click", () => setCompanionPanelOpen(!companionPanelOpen));
   dom.closeCompanionPanel.addEventListener("click", () => {
     setCompanionPanelOpen(false);

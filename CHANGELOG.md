@@ -1,5 +1,11 @@
 # 变更记录
 
+## 0.5.7 - 2026-09-02
+
+- 修复已实现的小序在既有用户数据中完全不可发现的问题：顶部增加全局小序入口；浏览网页时右侧 Rail 始终保留，即使小序尚未启用也可打开说明面板。
+- 增加“启用基础小序”安全入口；该操作不会自动开启天气、护眼、喝水或活动提醒，也不会主动发送网页正文给 DeepSeek。
+- 0.5.7 首次包含此前六阶段完成的小序状态机、天气、健康关怀、显式 DeepSeek 助手和本机运行态实现；schemaVersion 继续使用 18。
+
 ## 开发中 - 小序伴随助手 Sprint
 
 - 在 Shell Renderer 中新增单实例 44px Companion Rail 与共用右侧面板；不依赖 WebContentsView 上方的 CSS z-index，不向远程网页注入小序 DOM，也不新增 Companion BrowserWindow/Renderer。

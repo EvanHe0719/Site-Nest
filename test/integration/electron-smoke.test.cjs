@@ -241,6 +241,42 @@ test(
 );
 
 test(
+  "0.5.7 未启用的小序入口仍可发现，基础启用不连带开启天气和健康提醒",
+  { timeout: 90000 },
+  async (t) => {
+    const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-companion-discoverability-"));
+    t.after(async () => {
+      await fsp.rm(userData, { recursive: true, force: true });
+    });
+    const server = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><title>小序验证页</title><p>本地可发现性测试</p>");
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    t.after(() => new Promise((resolve) => server.close(resolve)));
+    const address = server.address();
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    const probe = await runElectron({ userData, route: "companion-discoverability", width: 1400, height: 900, baseUrl });
+    const line = probe.stdout.split(/\r?\n/).find((item) => item.includes('"companionDiscoverabilityProbe"'));
+    assert.ok(line, probe.stdout);
+    const result = JSON.parse(line).companionDiscoverabilityProbe;
+    assert.equal(result.before.enabled, false);
+    assert.equal(result.before.railVisible, true, JSON.stringify(result));
+    assert.equal(result.before.panelVisible, false);
+    assert.match(result.before.dockTitle, /尚未启用/);
+    assert.equal(result.opened.panelVisible, true);
+    assert.match(result.opened.message, /小序尚未启用/);
+    assert.equal(result.after.enabled, true);
+    assert.equal(result.after.weatherEnabled, false);
+    assert.deepEqual(result.after.wellnessKinds, { "eye-rest": false, water: false, movement: false });
+    assert.equal(result.after.railVisible, true);
+    assert.equal(result.after.panelVisible, true);
+    assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
+  },
+);
+
+test(
   "工作和个人波形时间轴独立读取、切换视图、生成任务草稿并持久化",
   { timeout: 90000 },
   async (t) => {

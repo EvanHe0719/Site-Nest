@@ -7365,6 +7365,61 @@ function createMainWindow() {
         } else if (CAPTURE_ROUTE === "sites") {
           await mainWindow.webContents.executeJavaScript("navigateTo('sites')");
           await new Promise((resolve) => setTimeout(resolve, 700));
+        } else if (CAPTURE_ROUTE === "companion-discoverability") {
+          if (!isSafeWebUrl(TAB_PROBE_BASE_URL)) {
+            throw new Error("QIYE_TAB_PROBE_BASE_URL is required for companion-discoverability");
+          }
+          const companionURL = new URL("/companion", TAB_PROBE_BASE_URL).toString();
+          await mainWindow.webContents.executeJavaScript(`(async () => {
+            const added = await window.siteNest.addSite({
+              name: '小序可发现性验证',
+              url: ${JSON.stringify(companionURL)},
+              workspaceId: 'personal'
+            });
+            appState = added.state;
+            await showSite(added.site);
+          })()`);
+          await new Promise((resolve) => setTimeout(resolve, 900));
+          await mainWindow.webContents.executeJavaScript(`showSite(appState.sites.find((site) => site.name === '小序可发现性验证'))`);
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          const companionResult = await mainWindow.webContents.executeJavaScript(`(async () => {
+            const rail = document.getElementById('companionEdgeRail');
+            const panel = document.getElementById('companionPanel');
+            const dock = document.getElementById('companionDock');
+            const before = {
+              enabled: appState.uiSettings.companion.enabled,
+              railVisible: !rail.hidden,
+              panelVisible: !panel.hidden,
+              dockTitle: dock.title,
+              currentRoute,
+              browserPageClass: document.getElementById('browserPage')?.className || '',
+              hasOpenPage: browserSnapshot.hasOpenPage,
+            };
+            dock.click();
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            const opened = {
+              panelVisible: !panel.hidden,
+              message: document.getElementById('companionContent')?.textContent || '',
+            };
+            document.querySelector('#companionContent [data-action-id="companion.toggle"]')?.click();
+            for (let attempt = 0; attempt < 40 && appState.uiSettings.companion.enabled !== true; attempt += 1) {
+              await new Promise((resolve) => setTimeout(resolve, 25));
+            }
+            const settings = appState.uiSettings.companion;
+            return {
+              before,
+              opened,
+              after: {
+                enabled: settings.enabled,
+                weatherEnabled: settings.weather.enabled,
+                wellnessKinds: settings.wellness.kinds,
+                railVisible: !rail.hidden,
+                panelVisible: !panel.hidden,
+              },
+            };
+          })()`);
+          console.log(JSON.stringify({ companionDiscoverabilityProbe: companionResult }));
+          await new Promise((resolve) => setTimeout(resolve, 350));
         } else if (CAPTURE_ROUTE === "browser-toolbar") {
           if (!isSafeWebUrl(TAB_PROBE_BASE_URL)) {
             throw new Error("QIYE_TAB_PROBE_BASE_URL is required for browser-toolbar");
