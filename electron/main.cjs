@@ -7583,13 +7583,25 @@ function createMainWindow() {
           const happy = await readState({ state: "bubbleTip", reminder: { kind: "water", message: "休息一下，记得喝水" } });
           await probeWidget("open");
           const finalOpen = await readState({ state: "bubbleTip", reminder: { kind: "water", message: "休息一下，记得喝水" } });
+          const longPreviewAnswer = Array.from(
+            { length: 80 },
+            (_value, index) => `第 ${index + 1} 行用于验证整段对话只使用一个主滚动区。`,
+          ).join("\n");
+          await probeWidget("preview-reply", { question: "静夜思", answer: longPreviewAnswer });
+          const conversationPreview = await inspectWidget();
           await probeWidget("focus-ask");
+          const askLayout = await inspectWidget();
+          const askPoint = {
+            x: Math.round(askLayout.askInputRect.x + askLayout.askInputRect.width / 2),
+            y: Math.round(askLayout.askInputRect.y + askLayout.askInputRect.height / 2),
+          };
+          context.view.webContents.focus();
+          context.view.webContents.sendInputEvent({ type: "mouseMove", ...askPoint });
+          context.view.webContents.sendInputEvent({ type: "mouseDown", ...askPoint, button: "left", clickCount: 1 });
+          context.view.webContents.sendInputEvent({ type: "mouseUp", ...askPoint, button: "left", clickCount: 1 });
+          await new Promise((resolve) => setTimeout(resolve, 120));
           const askPane = await inspectWidget();
-          for (const keyCode of ["x", "9"]) {
-            context.view.webContents.sendInputEvent({ type: "keyDown", keyCode });
-            context.view.webContents.sendInputEvent({ type: "char", keyCode });
-            context.view.webContents.sendInputEvent({ type: "keyUp", keyCode });
-          }
+          await context.view.webContents.insertText("x9");
           await new Promise((resolve) => setTimeout(resolve, 160));
           await probeWidget("click-isolation");
           const typed = await inspectWidget();
@@ -7606,7 +7618,7 @@ function createMainWindow() {
             pageSearchValue: document.getElementById('pageSearch')?.value || '',
             activeElementId: document.activeElement?.id || ''
           })`, true);
-          const companionResult = { shell, before, opened, idle, breathing, focused, fullscreen, happy, finalOpen, askPane, typed, hitTargets, pageEvents };
+          const companionResult = { shell, before, opened, idle, breathing, focused, fullscreen, happy, finalOpen, conversationPreview, askPane, typed, hitTargets, pageEvents };
           console.log(JSON.stringify({ companionDiscoverabilityProbe: companionResult }));
           await new Promise((resolve) => setTimeout(resolve, 100));
         } else if (CAPTURE_ROUTE === "browser-toolbar") {

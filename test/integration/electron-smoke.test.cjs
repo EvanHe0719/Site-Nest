@@ -296,17 +296,39 @@ test(
     assert.equal(result.opened.panelLayoutWidth, 360);
     assert.equal(result.opened.tabCount, 0);
     assert.equal(result.opened.inputBoundary, "iframe");
+    assert.equal(result.opened.messageAvatarCount, 0);
+    assert.equal(result.opened.welcomeInConversation, true);
+    assert.equal(result.opened.panelOverflowY, "hidden");
+    assert.equal(result.opened.conversationOverflowY, "auto");
+    assert.equal(result.opened.nestedMessageScrollerCount, 0);
+    assert.equal(result.opened.orbEyeCount, 2);
+    assert.equal(result.opened.miniEyeCount, 2);
     assert.equal(result.opened.rippling, true);
     assert.equal(result.idle.visualState, "idle");
+    assert.equal(result.idle.miniVisualState, "idle");
     assert.equal(result.breathing.visualState, "breathing");
+    assert.equal(result.breathing.miniVisualState, "breathing");
     assert.equal(result.focused.visualState, "idle");
     assert.equal(result.focused.panelOpen, true);
     assert.equal(result.fullscreen.visualState, "nap");
+    assert.equal(result.fullscreen.miniVisualState, "nap");
     assert.equal(result.fullscreen.panelOpen, false);
     assert.equal(result.happy.visualState, "happy");
+    assert.equal(result.happy.miniVisualState, "happy");
     assert.equal(result.finalOpen.panelOpen, true);
+    assert.equal(result.conversationPreview.messageAvatarCount, 0);
+    assert.ok(result.conversationPreview.conversationMessageCount >= 4);
+    assert.equal(result.conversationPreview.latestUserAlignSelf, "flex-end");
+    assert.equal(result.conversationPreview.latestAssistantAlignSelf, "flex-start");
+    assert.equal(result.conversationPreview.nestedMessageScrollerCount, 0);
+    assert.ok(result.conversationPreview.conversationScrollHeight > result.conversationPreview.conversationClientHeight);
+    assert.equal(result.conversationPreview.miniVisualState, "happy");
     assert.equal(result.askPane.askFocused, true);
-    assert.match(result.typed.askValue, /x/i);
+    assert.match(result.typed.askValue, /x/i, JSON.stringify({
+      askPane: result.askPane,
+      typed: result.typed,
+      conversationPreview: result.conversationPreview,
+    }));
     assert.match(result.typed.askValue, /9/);
     assert.equal(result.typed.askFocused, true);
     assert.equal(result.pageEvents.documentClicks, 0);
