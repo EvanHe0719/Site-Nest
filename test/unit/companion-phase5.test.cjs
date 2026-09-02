@@ -110,7 +110,7 @@ test("companion actions support hide/wake and persisted reminder cooldown withou
   assert.equal(service.timer, null);
 });
 
-test("companion UI actions, optional shortcuts and settings controls are discoverable", () => {
+test("companion background actions and settings remain registered while the panel action is not mounted", () => {
   for (const actionId of [
     "companion.toggle", "companion.expand", "companion.collapse", "companion.hide", "companion.wake",
     "companion.pause", "companion.resume", "companion.snooze", "companion.ack-water",
@@ -124,20 +124,18 @@ test("companion UI actions, optional shortcuts and settings controls are discove
   const html = fs.readFileSync(path.join(__dirname, "..", "..", "renderer", "index.html"), "utf8");
   assert.match(html, /id="companionSettingsCard"/);
   assert.match(html, /data-action-id="companion\.settings\.save"/);
-  assert.match(html, /data-action-id="companion\.expand"/);
+  assert.doesNotMatch(html, /data-action-id="companion\.expand"/);
 });
 
-test("0.5.7 keeps the companion rail discoverable while optional features remain opt-in", () => {
+test("0.5.7 keeps inert companion icons without reopening the removed sidebar", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "..", "renderer", "index.html"), "utf8");
   const renderer = fs.readFileSync(path.join(__dirname, "..", "..", "renderer", "app.js"), "utf8");
-  assert.match(html, /id="globalCompanionTrigger"/);
-  assert.match(renderer, /globalCompanionTrigger\.addEventListener\("click"/);
-  assert.match(renderer, /showSettingsSection\("notifications", "companion"\)/);
-  assert.match(renderer, /!enabled \|\| companionRuntime\.state !== "silentHidden"/);
-  assert.match(renderer, /启用基础小序/);
-  assert.match(renderer, /weather: \{ \.\.\.\(current\.weather \|\| \{\}\), enabled: false \}/);
-  assert.match(renderer, /kinds: \{ "eye-rest": false, water: false, movement: false \}/);
-  assert.match(renderer, /panel === "home"\) renderCompanionHome\(\)/);
+  assert.match(html, /id="globalCompanionTrigger"[^>]*aria-disabled="true"/);
+  assert.match(html, /id="companionDock"[^>]*aria-disabled="true"/);
+  assert.doesNotMatch(html, /id="companionPanel"/);
+  assert.doesNotMatch(renderer, /globalCompanionTrigger\.addEventListener\("click"/);
+  assert.doesNotMatch(renderer, /companionDock\.addEventListener\("click"/);
+  assert.match(renderer, /quietReason === "fullscreen" \|\| companionRuntime\.state === "focusedDocked"/);
 });
 
 test("desktop companion notification exposes open, acknowledge, snooze and dismiss actions", () => {

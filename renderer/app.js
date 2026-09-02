@@ -564,22 +564,9 @@ const dom = {
   copyZohoTicketLink: document.getElementById("copyZohoTicketLink"),
   openZohoTicketExternal: document.getElementById("openZohoTicketExternal"),
   giteeAssociationState: document.getElementById("giteeAssociationState"),
-  companionPanel: document.getElementById("companionPanel"),
   companionEdgeRail: document.getElementById("companionEdgeRail"),
   companionDock: document.getElementById("companionDock"),
   companionBubble: document.getElementById("companionBubble"),
-  companionGreeting: document.getElementById("companionGreeting"),
-  companionStateLabel: document.getElementById("companionStateLabel"),
-  companionContent: document.getElementById("companionContent"),
-  closeCompanionPanel: document.getElementById("closeCompanionPanel"),
-  companionWeatherButton: document.getElementById("companionWeatherButton"),
-  companionAssistantButton: document.getElementById("companionAssistantButton"),
-  companionPauseButton: document.getElementById("companionPauseButton"),
-  companionWeatherPill: document.getElementById("companionWeatherPill"),
-  companionWeatherText: document.getElementById("companionWeatherText"),
-  companionQuickAskForm: document.getElementById("companionQuickAskForm"),
-  companionQuickAskInput: document.getElementById("companionQuickAskInput"),
-  companionQuickAskSend: document.getElementById("companionQuickAskSend"),
   appContextMenu: document.getElementById("appContextMenu"),
   toastStack: document.getElementById("toastStack"),
 };
@@ -644,7 +631,6 @@ let assistantCache = [];
 let executionLogCache = [];
 let pageActionSnapshot = null;
 let pageActionPanelOpen = false;
-let companionPanelOpen = false;
 let activeRightPanel = null;
 let companionRuntime = { state: "silentHidden", reminder: null, quietReason: null };
 let companionWeather = { configured: false, status: "not-configured", snapshot: null, error: null };
@@ -1616,8 +1602,8 @@ async function executeShortcutAction(actionId) {
   else if (actionId === "automation.open") navigateTo("automations");
   else if (actionId === "page-actions.open") setPageActionPanelOpen(true);
   else if (actionId === "translation.page") await window.siteNest.showTranslationPageMenu();
-  else if (actionId === "companion.expand") setCompanionPanelOpen(true);
-  else if (actionId === "companion.ai.summarize") await summarizeCurrentPageWithCompanion();
+  else if (actionId === "companion.expand") return;
+  else if (actionId === "companion.ai.summarize") showToast("小序交互暂未开放", "顶部与右下角图标当前仅展示状态，交互内容等待确认");
   else if (actionId === "google.sync") await runGoogleSyncAction("sync");
   else throw new Error("当前界面没有这个动作的可执行入口");
 }
@@ -8339,7 +8325,6 @@ async function refreshPageActions() {
 
 function setPageActionPanelOpen(open) {
   pageActionPanelOpen = Boolean(open && browserSnapshot.hasOpenPage && dom.browserPage.classList.contains("is-visible"));
-  if (pageActionPanelOpen && companionPanelOpen) setCompanionPanelOpen(false);
   activeRightPanel = pageActionPanelOpen ? "page-actions" : activeRightPanel === "page-actions" ? null : activeRightPanel;
   dom.pageActionPanel.hidden = !pageActionPanelOpen;
   dom.browserContent.classList.toggle("is-action-panel-open", pageActionPanelOpen);
@@ -8356,7 +8341,7 @@ function companionEnabled() {
 
 function companionHardHidden() {
   return companionRuntime.temporarilyHidden === true
-    || ["fullscreen", "screen-sharing", "system-away"].includes(companionRuntime.quietReason);
+    || ["screen-sharing", "system-away"].includes(companionRuntime.quietReason);
 }
 
 function renderCompanionShell() {
@@ -8364,32 +8349,34 @@ function renderCompanionShell() {
   const browserVisible = dom.browserPage.classList.contains("is-visible");
   const visible = browserVisible
     && !companionHardHidden()
-    && (!enabled || companionRuntime.state !== "silentHidden");
+    && (!enabled || companionRuntime.state !== "silentHidden" || companionRuntime.quietReason === "fullscreen");
   dom.companionEdgeRail.hidden = !visible;
   dom.companionEdgeRail.classList.toggle("is-companion-disabled", !enabled);
+  dom.companionEdgeRail.classList.toggle(
+    "is-companion-muted",
+    companionRuntime.quietReason === "fullscreen" || companionRuntime.state === "focusedDocked",
+  );
   dom.browserContent.classList.toggle("is-companion-enabled", visible);
-  if (!visible && companionPanelOpen) setCompanionPanelOpen(false);
-  dom.companionDock.setAttribute("aria-expanded", String(companionPanelOpen));
-  dom.companionDock.title = enabled ? "小序" : "打开小序（尚未启用）";
-  dom.companionWeatherButton.disabled = !enabled;
-  dom.companionAssistantButton.disabled = !enabled;
-  dom.companionPauseButton.disabled = !enabled;
-  dom.companionQuickAskInput.disabled = !enabled;
-  dom.companionQuickAskSend.disabled = !enabled;
+  dom.companionDock.setAttribute("aria-expanded", "false");
+  dom.companionDock.title = companionRuntime.reminder?.message
+    || (companionRuntime.quietReason === "fullscreen" ? "视频全屏中，小序已变淡" : enabled ? "小序状态" : "小序尚未启用");
   requestAnimationFrame(() => requestAnimationFrame(syncBrowserBounds));
 }
 
 function renderCompanionRuntime(snapshot = companionRuntime) {
   companionRuntime = { ...companionRuntime, ...(snapshot || {}) };
-  const labels = { idle: "待机", focusedDocked: "专注中", resting: "休息中", bubbleTip: "轻提示", expanded: "已展开", silentHidden: "已隐藏" };
-  dom.companionStateLabel.textContent = companionEnabled() ? (labels[companionRuntime.state] || "待机") : "未启用";
   dom.companionDock.dataset.state = companionRuntime.state;
   const reminder = companionRuntime.reminder;
-  dom.companionBubble.hidden = !(reminder && companionRuntime.state === "bubbleTip" && companionEnabled());
+  dom.companionBubble.hidden = true;
   dom.companionBubble.textContent = reminder?.message || "";
-  if (reminder) dom.companionGreeting.textContent = reminder.message;
-  else if (companionRuntime.quietReason) dom.companionGreeting.textContent = "当前处于安静状态，我不会主动打扰。";
-  else dom.companionGreeting.textContent = "我会安静地陪在这里。";
+  dom.companionEdgeRail.classList.toggle(
+    "is-notifying",
+    Boolean(reminder && companionRuntime.state === "bubbleTip" && companionEnabled()),
+  );
+  dom.companionDock.setAttribute(
+    "aria-label",
+    reminder?.message ? `小序提醒：${reminder.message}` : "小序状态图标，当前不可操作",
+  );
   renderCompanionShell();
 }
 
@@ -8462,6 +8449,7 @@ function weatherValue(value, suffix = "") {
 
 function renderCompanionWeather(status = companionWeather) {
   companionWeather = { ...companionWeather, ...(status || {}) };
+  if (!dom.companionWeatherText || !dom.companionContent) return;
   const pillSnapshot = companionWeather.snapshot;
   dom.companionWeatherText.textContent = pillSnapshot
     ? `${weatherValue(pillSnapshot.temperature, "℃")} ${pillSnapshot.condition || "天气"}`
@@ -8679,39 +8667,13 @@ async function askCompanionFromQuickBox() {
 }
 
 async function summarizeCurrentPageWithCompanion() {
-  setCompanionPanelOpen(true, "assistant");
-  const status = await window.siteNest?.getCompanionAIStatus?.() || { configured: false };
-  renderCompanionAssistant(status);
-  if (status.configured === false) {
-    showToast("DeepSeek 尚未配置", "请先在设置与数据 → 翻译中完成安全配置", "error");
-    return;
-  }
-  companionAIRequestId = companionAIRequestIdForNow();
-  companionAIResult = "小序正在处理…";
-  renderCompanionAssistant(status);
-  const response = await window.siteNest?.summarizeCompanionPage?.(companionAIRequestId);
-  companionAIRequestId = null;
-  companionAIResult = response?.ok ? (response.value?.answer || "已完成") : (response?.error?.message || "请求未完成");
-  renderCompanionAssistant(status);
-  if (!response?.ok) showToast("小序请求未完成", companionAIResult, "error");
+  showToast("小序交互暂未开放", "当前只保留状态图标，提问与总结内容等待确认");
 }
 
-function setCompanionPanelOpen(open, panel = "home") {
-  const canOpen = Boolean(open && dom.browserPage.classList.contains("is-visible") && !companionHardHidden());
-  if (canOpen && pageActionPanelOpen) setPageActionPanelOpen(false);
-  companionPanelOpen = canOpen;
-  activeRightPanel = canOpen ? "companion" : activeRightPanel === "companion" ? null : activeRightPanel;
-  dom.companionPanel.hidden = !canOpen;
-  dom.companionPanel.setAttribute("aria-hidden", String(!canOpen));
-  dom.companionDock.setAttribute("aria-expanded", String(canOpen));
-  dom.browserContent.classList.toggle("is-companion-panel-open", canOpen);
-  dom.companionContent.dataset.panel = panel;
-  if (canOpen && panel === "home") renderCompanionHome();
-  if (!canOpen && companionAIRequestId) {
-    void window.siteNest?.cancelCompanionAI?.(companionAIRequestId);
-    companionAIRequestId = null;
-  }
-  if (canOpen) dom.closeCompanionPanel.focus({ preventScroll: true });
+function setCompanionPanelOpen() {
+  activeRightPanel = activeRightPanel === "companion" ? null : activeRightPanel;
+  dom.companionDock.setAttribute("aria-expanded", "false");
+  dom.browserContent.classList.remove("is-companion-panel-open");
   requestAnimationFrame(() => requestAnimationFrame(syncBrowserBounds));
 }
 
@@ -8856,39 +8818,6 @@ function handleBrowserState(next = {}) {
 }
 
 function bindEvents() {
-  dom.globalCompanionTrigger.addEventListener("click", () => {
-    if (dom.browserPage.classList.contains("is-visible")) {
-      setCompanionPanelOpen(true);
-      return;
-    }
-    navigateTo("settings");
-    showSettingsSection("notifications", "companion");
-  });
-  dom.companionDock.addEventListener("click", () => setCompanionPanelOpen(!companionPanelOpen));
-  dom.closeCompanionPanel.addEventListener("click", () => {
-    setCompanionPanelOpen(false);
-    dom.companionDock.focus({ preventScroll: true });
-  });
-  dom.companionWeatherButton.addEventListener("click", () => {
-    setCompanionPanelOpen(true, "weather");
-    void loadCompanionWeather();
-  });
-  dom.companionWeatherPill.addEventListener("click", () => {
-    setCompanionPanelOpen(true, "weather");
-    void loadCompanionWeather();
-  });
-  dom.companionQuickAskForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    void askCompanionFromQuickBox();
-  });
-  dom.companionAssistantButton.addEventListener("click", () => {
-    setCompanionPanelOpen(true, "assistant");
-    void loadCompanionAssistant();
-  });
-  dom.companionPauseButton.addEventListener("click", async () => {
-    const snapshot = await window.siteNest?.companionAction?.("pause", { minutes: 60 });
-    renderCompanionRuntime(snapshot);
-  });
   dom.globalSearchTrigger.addEventListener("click", () => openGlobalSearchPalette());
   dom.closeGlobalSearch.addEventListener("click", () => closeGlobalSearchPalette());
   dom.globalSearchPalette.addEventListener("mousedown", (event) => {
@@ -9660,7 +9589,7 @@ function bindEvents() {
     invokeConfiguredShortcut(payload.actionId, payload.accelerator);
   });
   window.siteNest.onAppCommand?.((payload) => {
-    if (payload?.action === "companion.open") setCompanionPanelOpen(true);
+    if (payload?.action === "companion.open") showToast("小序交互暂未开放", "当前仅保留状态提醒图标");
   });
   dom.shortcutSearchInput?.addEventListener("input", renderShortcuts);
   dom.shortcutCategoryFilter?.addEventListener("change", renderShortcuts);
@@ -10212,11 +10141,6 @@ function bindEvents() {
         dom.pageActionsButton.focus();
         return;
       }
-      if (companionPanelOpen) {
-        setCompanionPanelOpen(false);
-        dom.companionDock.focus({ preventScroll: true });
-        return;
-      }
       if (currentSite) {
         event.preventDefault();
         void window.siteNest.browserAction("stop");
@@ -10259,7 +10183,9 @@ function bindEvents() {
   window.siteNest?.onCompanionWeather?.(renderCompanionWeather);
   window.siteNest?.onCompanionWeatherAlert?.((event) => {
     dom.companionBubble.textContent = event?.message || "天气发生变化";
-    dom.companionBubble.hidden = !companionEnabled();
+    dom.companionBubble.hidden = true;
+    dom.companionEdgeRail.classList.toggle("is-notifying", companionEnabled());
+    dom.companionDock.title = event?.message || "天气发生变化";
     showToast("天气提醒", event?.message || "天气发生变化");
   });
   window.siteNest?.onDataStatusUpdated?.((snapshot) => {

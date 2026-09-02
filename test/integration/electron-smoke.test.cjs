@@ -241,7 +241,7 @@ test(
 );
 
 test(
-  "0.5.7 未启用的小序入口仍可发现，基础启用不连带开启天气和健康提醒",
+  "0.5.7 小序只保留状态图标，点击不展开侧栏且专注和全屏时变淡",
   { timeout: 90000 },
   async (t) => {
     const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-companion-discoverability-"));
@@ -263,15 +263,16 @@ test(
     const result = JSON.parse(line).companionDiscoverabilityProbe;
     assert.equal(result.before.enabled, false);
     assert.equal(result.before.railVisible, true, JSON.stringify(result));
-    assert.equal(result.before.panelVisible, false);
+    assert.equal(result.before.panelExists, false);
     assert.match(result.before.dockTitle, /尚未启用/);
-    assert.equal(result.opened.panelVisible, true);
-    assert.match(result.opened.message, /小序尚未启用/);
-    assert.equal(result.after.enabled, true);
-    assert.equal(result.after.weatherEnabled, false);
-    assert.deepEqual(result.after.wellnessKinds, { "eye-rest": false, water: false, movement: false });
-    assert.equal(result.after.railVisible, true);
-    assert.equal(result.after.panelVisible, true);
+    assert.equal(result.before.dockDisabled, "true");
+    assert.equal(result.before.titlebarDisabled, "true");
+    assert.equal(result.opened.panelExists, false);
+    assert.equal(result.opened.panelClassApplied, false);
+    assert.deepEqual(result.focused, { visible: true, muted: true, state: "focusedDocked" });
+    assert.equal(result.fullscreen.visible, true);
+    assert.equal(result.fullscreen.muted, true);
+    assert.match(result.fullscreen.title, /全屏/);
     assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
   },
 );

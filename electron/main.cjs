@@ -7428,36 +7428,34 @@ function createMainWindow() {
             const rail = document.getElementById('companionEdgeRail');
             const panel = document.getElementById('companionPanel');
             const dock = document.getElementById('companionDock');
+            const titlebarIcon = document.getElementById('globalCompanionTrigger');
             const before = {
               enabled: appState.uiSettings.companion.enabled,
               railVisible: !rail.hidden,
-              panelVisible: !panel.hidden,
+              panelExists: Boolean(panel),
               dockTitle: dock.title,
+              dockDisabled: dock.getAttribute('aria-disabled'),
+              titlebarDisabled: titlebarIcon.getAttribute('aria-disabled'),
               currentRoute,
               browserPageClass: document.getElementById('browserPage')?.className || '',
               hasOpenPage: browserSnapshot.hasOpenPage,
             };
             dock.click();
+            titlebarIcon.click();
             await new Promise((resolve) => setTimeout(resolve, 50));
             const opened = {
-              panelVisible: !panel.hidden,
-              message: document.getElementById('companionContent')?.textContent || '',
+              panelExists: Boolean(panel),
+              panelClassApplied: document.getElementById('browserContent')?.classList.contains('is-companion-panel-open'),
             };
-            document.querySelector('#companionContent [data-action-id="companion.toggle"]')?.click();
-            for (let attempt = 0; attempt < 40 && appState.uiSettings.companion.enabled !== true; attempt += 1) {
-              await new Promise((resolve) => setTimeout(resolve, 25));
-            }
-            const settings = appState.uiSettings.companion;
+            renderCompanionRuntime({ ...companionRuntime, state: 'focusedDocked', quietReason: null });
+            const focused = { visible: !rail.hidden, muted: rail.classList.contains('is-companion-muted'), state: dock.dataset.state };
+            renderCompanionRuntime({ ...companionRuntime, state: 'silentHidden', quietReason: 'fullscreen' });
+            const fullscreen = { visible: !rail.hidden, muted: rail.classList.contains('is-companion-muted'), title: dock.title };
             return {
               before,
               opened,
-              after: {
-                enabled: settings.enabled,
-                weatherEnabled: settings.weather.enabled,
-                wellnessKinds: settings.wellness.kinds,
-                railVisible: !rail.hidden,
-                panelVisible: !panel.hidden,
-              },
+              focused,
+              fullscreen,
             };
           })()`);
           console.log(JSON.stringify({ companionDiscoverabilityProbe: companionResult }));

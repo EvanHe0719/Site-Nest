@@ -73,20 +73,19 @@ test("weather provider uses bounded timeout and public WEATHER error codes", asy
   await assert.rejects(invalid.resolveCity("上海"), (error) => error.code === "WEATHER_INVALID_RESPONSE");
 });
 
-test("shell rail is single-instance, keyboard accessible, reduced-motion aware and never injected into remote pages", () => {
+test("shell status orb is single-instance, inert, reduced-motion aware and never injected into remote pages", () => {
   const html = fs.readFileSync(path.join(ROOT, "renderer", "index.html"), "utf8");
   const styles = fs.readFileSync(path.join(ROOT, "renderer", "styles.css"), "utf8");
   const renderer = fs.readFileSync(path.join(ROOT, "renderer", "app.js"), "utf8");
   assert.equal((html.match(/id="companionDock"/g) || []).length, 1);
-  assert.equal((html.match(/id="companionPanel"/g) || []).length, 1);
-  assert.match(html, /aria-controls="companionPanel"/);
+  assert.equal((html.match(/id="companionPanel"/g) || []).length, 0);
+  assert.match(html, /id="companionDock"[^>]*aria-disabled="true"/);
   assert.match(html, /aria-expanded="false"/);
-  assert.match(html, /id="companionQuickAskForm"/);
-  assert.match(html, /id="companionWeatherPill"/);
+  assert.doesNotMatch(html, /id="companionQuickAskForm"/);
+  assert.doesNotMatch(html, /id="companionWeatherPill"/);
   assert.match(styles, /xiaoxu-orb-pulse/);
   assert.match(styles, /prefers-reduced-motion:\s*reduce/);
-  assert.match(renderer, /if \(companionPanelOpen\)/);
-  assert.match(renderer, /dom\.companionDock\.focus/);
+  assert.doesNotMatch(renderer, /dom\.companionDock\.focus/);
   assert.doesNotMatch(summaryExtractionScript(15_000), /companion-dock|companion-panel/);
 });
 

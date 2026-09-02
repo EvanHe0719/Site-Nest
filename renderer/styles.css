@@ -6167,6 +6167,10 @@ svg {
 .browser-content.is-action-panel-open.is-companion-enabled { grid-template-columns: minmax(0, 1fr) minmax(360px, 400px) 60px; }
 .companion-edge-rail { position: relative; z-index: 1; display: flex; align-items: flex-end; justify-content: center; min-width: 60px; padding: 0 0 18px; background: linear-gradient(180deg, rgba(247,250,247,0) 0%, rgba(237,244,239,.84) 100%); }
 .companion-edge-rail.is-companion-disabled .orb-core { filter: saturate(.35); opacity: .72; }
+.companion-edge-rail.is-companion-muted .companion-dock { opacity: .18; transform: translateY(8px) scale(.88); }
+.companion-edge-rail.is-companion-muted .companion-dock:hover { opacity: .34; transform: translateY(5px) scale(.92); }
+.companion-edge-rail.is-notifying .orb-core { box-shadow: 0 0 0 5px rgba(38,125,103,.12), 0 4px 18px rgba(38,125,103,.45); }
+.companion-edge-rail.is-notifying .orb-pulse-ring { animation-duration: 1.25s; opacity: .9; }
 .companion-dock { position: relative; display: grid; width: 48px; height: 48px; padding: 0; place-items: center; border: 0; border-radius: 50%; background: transparent; color: #49675e; cursor: pointer; transition: transform .3s cubic-bezier(.34,1.56,.64,1), opacity .3s ease; }
 .companion-dock:hover, .companion-dock:focus-visible, .companion-dock[aria-expanded="true"] { outline: none; transform: translateY(-2px) scale(1.04); }
 .companion-dock:focus-visible { box-shadow: 0 0 0 3px rgba(38,125,103,.2); }
@@ -6231,6 +6235,9 @@ svg {
 .companion-settings-groups h4 { margin: 0 0 10px; color: #345248; font-size: 12px; }
 @media (max-width: 1080px) { .browser-content.is-companion-enabled.is-companion-panel-open { grid-template-columns: minmax(0, 1fr) 280px 60px; } }
 @media (prefers-reduced-motion: reduce) { .companion-orb, .orb-eye, .orb-pulse-ring, .companion-panel, .companion-dock { animation: none !important; transition: none !important; } }
+
+.titlebar-companion-trigger[aria-disabled="true"],
+.companion-dock[aria-disabled="true"] { cursor: default; }
 
 .ui-action-audit-metrics {
   display: grid;

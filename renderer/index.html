@@ -38,7 +38,7 @@
             <span data-icon="search"></span>
             <span>搜索</span>
           </button>
-          <button class="titlebar-companion-trigger" id="globalCompanionTrigger" type="button" title="打开小序" aria-label="打开小序">
+          <button class="titlebar-companion-trigger" id="globalCompanionTrigger" type="button" title="小序（交互内容待确认）" aria-label="小序占位图标，当前不可操作" aria-disabled="true">
             <span class="companion-orb companion-orb--titlebar" aria-hidden="true"><i></i></span>
           </button>
           <button class="titlebar-data-status" id="dataStatusButton" type="button" title="本地数据正常" aria-label="查看数据与同步状态" aria-haspopup="dialog" aria-expanded="false">
@@ -1475,39 +1475,8 @@
                   尚未执行页面动作
                 </div>
               </aside>
-              <aside class="companion-panel xiaoxu-popover" id="companionPanel" aria-label="小序伴随助手" aria-hidden="true" hidden>
-                <header class="companion-panel-header">
-                  <div class="companion-identity">
-                    <span class="companion-orb companion-orb--small" aria-hidden="true"><i></i></span>
-                    <div><span class="section-kicker">COMPANION</span><h2>小序</h2></div>
-                  </div>
-                  <div class="xiaoxu-popover-header-actions">
-                    <button class="xiaoxu-weather-pill" id="companionWeatherPill" type="button" aria-label="查看小序天气"><span data-icon="cloud"></span><span id="companionWeatherText">天气未配置</span></button>
-                    <button class="icon-button icon-button--small" id="closeCompanionPanel" type="button" aria-label="收起小序" data-action-id="companion.collapse"><span data-icon="close"></span></button>
-                  </div>
-                </header>
-                <div class="companion-panel-body">
-                  <p class="companion-greeting" id="companionGreeting">我会安静地陪在这里。</p>
-                  <form class="xiaoxu-ai-box" id="companionQuickAskForm">
-                    <input type="text" id="companionQuickAskInput" maxlength="4000" placeholder="向小序提问…" aria-label="向小序提问" />
-                    <button class="xiaoxu-ai-send" id="companionQuickAskSend" type="submit" title="发送" aria-label="发送给小序"><span data-icon="spark"></span></button>
-                  </form>
-                  <div class="companion-status-card" id="companionStatusCard">
-                    <span class="status-pill" id="companionStateLabel">待机</span>
-                    <small>默认不读取网页正文，也不会记录鼠标位置或按键内容。</small>
-                  </div>
-                  <div class="companion-quick-actions" aria-label="小序快捷操作">
-                    <button type="button" id="companionWeatherButton" data-action-id="companion.weather.open"><span data-icon="cloud"></span>天气</button>
-                    <button type="button" id="companionAssistantButton" data-action-id="companion.ai.ask"><span data-icon="spark"></span>问小序</button>
-                    <button type="button" id="companionPauseButton" data-action-id="companion.pause"><span data-icon="clock"></span>暂停提醒</button>
-                  </div>
-                  <section class="companion-content" id="companionContent" aria-live="polite">
-                    <div class="companion-empty"><strong>功能尚未启用</strong><small>可在“设置与数据 → 计划与通知”中开启。</small></div>
-                  </section>
-                </div>
-              </aside>
               <div class="companion-edge-rail xiaoxu-floating-widget" id="companionEdgeRail" hidden>
-                <button class="companion-dock xiaoxu-orb-btn" id="companionDock" type="button" aria-label="打开小序" aria-controls="companionPanel" aria-expanded="false" title="小序" data-action-id="companion.expand">
+                <button class="companion-dock xiaoxu-orb-btn" id="companionDock" type="button" aria-label="小序状态图标，当前不可操作" aria-expanded="false" aria-disabled="true" title="小序状态">
                   <span class="orb-pulse-ring" aria-hidden="true"></span>
                   <span class="orb-core" aria-hidden="true"><i class="orb-eye"></i><i class="orb-eye"></i></span>
                   <span class="visually-hidden">小序</span>
