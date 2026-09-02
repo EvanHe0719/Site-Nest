@@ -147,8 +147,8 @@ test(
 );
 
 test(
-  "本地任务通过安全 IPC 完成增删改、提醒延后并跨重启持久化",
-  { timeout: 90000 },
+  "本地日程通过安全 IPC 完成增删改、提醒延后、动态日期预览并跨重启持久化",
+  { timeout: 120000 },
   async (t) => {
     const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-task-integration-"));
     t.after(async () => {
@@ -180,6 +180,18 @@ test(
     const restarted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
     assert.equal(restarted.localTasks.length, 1);
     assert.equal(restarted.taskReminders[0].state, "snoozed");
+
+    const scheduleUi = await runElectron({ userData, route: "task-modal", width: 1440, height: 900 });
+    const scheduleLine = scheduleUi.stdout.split(/\r?\n/).find((item) => item.includes('"scheduleCapture"'));
+    assert.ok(scheduleLine, scheduleUi.stdout);
+    const scheduleResult = JSON.parse(scheduleLine).scheduleCapture;
+    assert.equal(scheduleResult.modalOpen, true);
+    assert.equal(scheduleResult.previewHours, 24);
+    assert.match(scheduleResult.previewDateChange.beforeTitle, /月/);
+    assert.equal(scheduleResult.previewDateChange.afterTitle, "9月10日");
+    assert.equal(scheduleResult.previewDateChange.draftVisible, true);
+    assert.equal(scheduleResult.selectedDaySidebarExists, false);
+    assert.ok((await fsp.stat(scheduleUi.capturePath)).size > 1000);
   },
 );
 

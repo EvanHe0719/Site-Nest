@@ -47,6 +47,7 @@ const {
 } = require("../../electron/browser/download-manager.cjs");
 const {
   ManagedPopupService,
+  normalizeNavigationReferrer,
   sanitizeNavigationUrl,
 } = require("../../electron/browser/managed-popup-service.cjs");
 const {
@@ -451,6 +452,18 @@ test("managed popup navigation audit removes every query and fragment value", ()
     "https://accounts.example.com/oauth/callback",
   );
   assert.equal(sanitizeNavigationUrl("javascript:alert(1)"), "");
+});
+
+test("managed tabs preserve only a safe same-origin navigation referrer", () => {
+  assert.equal(
+    normalizeNavigationReferrer(
+      "https://www.nodeseek.com/post-123-1",
+      "https://www.nodeseek.com/categories/info?sort=latest#feed",
+    ),
+    "https://www.nodeseek.com/categories/info",
+  );
+  assert.equal(normalizeNavigationReferrer("https://other.example/path", "https://www.nodeseek.com/categories/info"), "");
+  assert.equal(normalizeNavigationReferrer("javascript:alert(1)", "https://www.nodeseek.com/categories/info"), "");
 });
 
 test("managed popup cleanup closes only windows owned by one browser profile", () => {

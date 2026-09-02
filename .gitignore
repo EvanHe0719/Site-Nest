@@ -2,6 +2,7 @@
 node_modules/
 release/
 test-artifacts/
+.codex-artifacts/
 
 # Logs and transient process output
 *.log

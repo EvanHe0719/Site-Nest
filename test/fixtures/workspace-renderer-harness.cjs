@@ -2160,7 +2160,7 @@ async function runSearch055Scenario(window) {
     dom.globalSearchInput.value = '工作';
     dom.globalSearchInput.dispatchEvent(new Event('input', { bubbles: true }));
   })()`);
-  await waitForRendererCondition(window, "globalSearchItems.some((item) => item.group === '计划任务')", "task result missing");
+  await waitForRendererCondition(window, "globalSearchItems.some((item) => item.group === '日程')", "schedule result missing");
   const sourceGroups = await window.webContents.executeJavaScript(
     "Array.from(new Set(globalSearchItems.map((item) => item.group)))",
   );
@@ -2253,7 +2253,7 @@ async function runSearch055VisualScenario(window) {
     dom.globalSearchInput.value = '工作';
     dom.globalSearchInput.dispatchEvent(new Event('input', { bubbles: true }));
   })()`);
-  await waitForRendererCondition(window, "globalSearchItems.some((item) => item.group === '计划任务')", "visual search results missing");
+  await waitForRendererCondition(window, "globalSearchItems.some((item) => item.group === '日程')", "visual search results missing");
   return window.webContents.executeJavaScript(`(() => ({
     open: globalSearchOpen,
     groups: Array.from(new Set(globalSearchItems.map((item) => item.group))),

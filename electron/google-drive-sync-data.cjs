@@ -191,19 +191,22 @@ function normalizeSyncOptions(value) {
 
 function normalizePlans(value) {
   return assertArray(value || [], "plans", MAX_TASKS).map((candidate, index) => {
-    assertRecord(candidate, "INVALID_SYNC_SNAPSHOT", `第 ${index + 1} 个计划无效`);
+    assertRecord(candidate, "INVALID_SYNC_SNAPSHOT", `第 ${index + 1} 个日程无效`);
     return safeJsonValue({
       id: safeIdentifier(candidate.id, `plans[${index}].id`, 160),
-      title: boundedString(candidate.title || "未命名计划", `plans[${index}].title`, 500, { required: true }),
+      title: boundedString(candidate.title || "未命名日程", `plans[${index}].title`, 500, { required: true }),
       notes: boundedString(candidate.notes || "", `plans[${index}].notes`, 5000, { trim: false }) || "",
       workspaceId: boundedString(candidate.workspaceId || "personal", `plans[${index}].workspaceId`, 120, { required: true }),
       status: boundedString(candidate.status || "todo", `plans[${index}].status`, 40, { required: true }),
       priority: boundedString(candidate.priority || "medium", `plans[${index}].priority`, 40, { required: true }),
+      color: /^#[0-9a-f]{6}$/i.test(String(candidate.color || "")) ? String(candidate.color).toLowerCase() : "#23a783",
       startAt: optionalIso(candidate.startAt, `plans[${index}].startAt`),
       dueAt: optionalIso(candidate.dueAt, `plans[${index}].dueAt`),
       allDay: Boolean(candidate.allDay),
+      recurrence: safeJsonValue(candidate.recurrence || { frequency: "none", interval: 1, weekdays: [], customUnit: "week", until: null }),
       reminderOffsets: Array.isArray(candidate.reminderOffsets) ? candidate.reminderOffsets.slice(0, 20).map(Number).filter(Number.isFinite) : [],
       tags: Array.isArray(candidate.tags) ? candidate.tags.slice(0, 50).map((tag) => String(tag).slice(0, 100)) : [],
+      tagIds: Array.isArray(candidate.tagIds) ? candidate.tagIds.slice(0, 100).map((tag) => String(tag).slice(0, 120)) : [],
       orderKey: String(candidate.orderKey || "").slice(0, 200),
       timeZone: String(candidate.timeZone || "").slice(0, 100),
       createdAt: optionalIso(candidate.createdAt, `plans[${index}].createdAt`),

@@ -19,8 +19,8 @@ class TrayService {
     }
     this.tray.setContextMenu(this.Menu.buildFromTemplate([
       { label: "打开栖页", click: () => this.onOpen?.() },
-      { label: "今天的任务", click: () => this.onToday?.() },
-      { label: "添加任务", click: () => this.onAdd?.() },
+      { label: "今天的日程", click: () => this.onToday?.() },
+      { label: "创建日程", click: () => this.onAdd?.() },
       { type: "separator" },
       { label: paused ? "恢复提醒" : "暂停提醒 1 小时", click: () => this.onPause?.(!paused) },
       { type: "separator" },

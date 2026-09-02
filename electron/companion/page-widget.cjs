@@ -154,7 +154,7 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
     const wrap = document.createElement('div');
     wrap.innerHTML = \`
       <section class="panel" aria-label="小序悬浮助手" hidden>
-        <div class="head"><div class="identity"><span class="mini" data-visual-state="idle" aria-hidden="true"><i class="face-eye"></i><i class="face-eye"></i><span class="mini-zzz">zZ</span></span><span><strong>小序</strong><small class="state">陪伴中</small></span></div><button class="weather-pill is-empty" type="button" aria-label="刷新天气">☁ 天气待更新</button><button class="close" type="button" aria-label="关闭">×</button></div>
+        <div class="head"><div class="identity"><span class="mini" data-visual-state="idle" aria-hidden="true"><i class="face-eye"></i><i class="face-eye"></i><span class="mini-zzz">zZ</span></span><span><strong>小序</strong><small class="state">陪伴中</small></span></div><button class="weather-pill is-empty" type="button" aria-label="刷新天气">☁ 天气未配置</button><button class="close" type="button" aria-label="关闭">×</button></div>
         <div class="body">
           <div class="conversation" role="log" aria-label="小序对话" aria-live="polite">
             <div class="message assistant welcome-message"><span class="welcome">我在这里，可以直接问我问题。</span></div>
@@ -263,16 +263,16 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
       const message = snapshot.alertMessage || snapshot.reminder?.message || '';
       notice.hidden = !message; notice.textContent = message;
       const weather = snapshot.weather || {};
-      weatherPill.classList.toggle('is-empty', !weather.configured);
-      weatherPill.textContent = weather.configured
-        ? weather.temperature === null ? '☁ 天气已开启' : \`☁ \${weather.temperature}℃ \${weather.condition || weather.city || '天气'}\`
-        : '☁ 天气待设置';
+      weatherPill.classList.toggle('is-empty', !weather.configured || weather.temperature === null);
+      weatherPill.textContent = !weather.configured
+        ? '☁ 天气未配置'
+        : weather.temperature !== null
+          ? \`☁ \${weather.temperature}℃ \${weather.condition || weather.city || '天气'}\`
+          : weather.status === 'error' ? '☁ 天气暂不可用' : '☁ 正在获取天气…';
       const wellness = snapshot.wellness || {};
       const enabledKinds = [wellness.eyeRest && '护眼', wellness.water && '喝水', wellness.movement && '活动'].filter(Boolean);
-      const weatherSentence = weather.configured
-        ? weather.temperature === null
-          ? '天气功能已经开启，正在等待最新数据。'
-          : \`\${weather.city || '当前城市'}现在\${weather.condition || '天气平稳'}，约 \${weather.temperature}℃。\`
+      const weatherSentence = weather.configured && weather.temperature !== null
+        ? \`\${weather.city || '当前城市'}现在\${weather.condition || '天气平稳'}，约 \${weather.temperature}℃。\`
         : '';
       const healthSentence = wellness.enabled && enabledKinds.length ? \`我会留意\${enabledKinds.join('、')}提醒。\` : '';
       welcome.textContent = [\`\${greeting()}！我在这里。\`, weatherSentence, healthSentence].filter(Boolean).join(' ');

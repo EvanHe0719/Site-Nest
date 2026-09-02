@@ -264,8 +264,6 @@ const dom = {
   taskWeekGrid: document.getElementById("taskWeekGrid"),
   taskMonthTitle: document.getElementById("taskMonthTitle"),
   taskMonthCalendar: document.getElementById("taskMonthCalendar"),
-  taskSelectedDayTitle: document.getElementById("taskSelectedDayTitle"),
-  taskSelectedDayList: document.getElementById("taskSelectedDayList"),
   taskAllList: document.getElementById("taskAllList"),
   taskCompletedList: document.getElementById("taskCompletedList"),
   usageHomeCard: document.getElementById("usageHomeCard"),
@@ -359,13 +357,35 @@ const dom = {
   taskWorkspace: document.getElementById("taskWorkspace"),
   taskPriority: document.getElementById("taskPriority"),
   taskStatus: document.getElementById("taskStatus"),
-  taskStartAt: document.getElementById("taskStartAt"),
-  taskDueAt: document.getElementById("taskDueAt"),
+  taskStartDate: document.getElementById("taskStartDate"),
+  taskStartTime: document.getElementById("taskStartTime"),
+  taskEndTime: document.getElementById("taskEndTime"),
+  taskEndDate: document.getElementById("taskEndDate"),
   taskAllDay: document.getElementById("taskAllDay"),
+  taskRecurrence: document.getElementById("taskRecurrence"),
+  taskRecurrenceUntil: document.getElementById("taskRecurrenceUntil"),
+  taskRecurrenceCustom: document.getElementById("taskRecurrenceCustom"),
+  taskRecurrenceInterval: document.getElementById("taskRecurrenceInterval"),
+  taskRecurrenceUnit: document.getElementById("taskRecurrenceUnit"),
+  taskColor: document.getElementById("taskColor"),
   taskCustomReminder: document.getElementById("taskCustomReminder"),
   taskTags: document.getElementById("taskTags"),
   taskTagIds: document.getElementById("taskTagIds"),
   deleteTaskButton: document.getElementById("deleteTaskButton"),
+  taskPreviewDateTitle: document.getElementById("taskPreviewDateTitle"),
+  taskPreviewDateSubtitle: document.getElementById("taskPreviewDateSubtitle"),
+  taskPreviewAllDay: document.getElementById("taskPreviewAllDay"),
+  taskPreviewGrid: document.getElementById("taskPreviewGrid"),
+  taskDetailLayer: document.getElementById("taskDetailLayer"),
+  taskDetailScrim: document.getElementById("taskDetailScrim"),
+  taskDetailColor: document.getElementById("taskDetailColor"),
+  taskDetailTitle: document.getElementById("taskDetailTitle"),
+  taskDetailContent: document.getElementById("taskDetailContent"),
+  taskDetailEdit: document.getElementById("taskDetailEdit"),
+  taskDetailDelete: document.getElementById("taskDetailDelete"),
+  taskDetailClose: document.getElementById("taskDetailClose"),
+  taskDetailTimeline: document.getElementById("taskDetailTimeline"),
+  taskDetailStatusAction: document.getElementById("taskDetailStatusAction"),
   habitModal: document.getElementById("habitModal"),
   habitModalTitle: document.getElementById("habitModalTitle"),
   habitForm: document.getElementById("habitForm"),
@@ -686,7 +706,8 @@ let pendingUserScriptReview = null;
 let currentTaskView = "week";
 let taskWeekAnchor = new Date();
 let taskMonthAnchor = new Date();
-let selectedTaskDay = new Date();
+let taskPreviewDate = new Date();
+let activeTaskDetailId = null;
 let selectedChromeProfile = "";
 let selectedChromeProfileBookmarkCount = 0;
 let editingSiteId = null;
@@ -770,7 +791,7 @@ const SETTINGS_SECTIONS = Object.freeze([
   { id: "shortcuts", title: "快捷键", kicker: "SHORTCUTS", icon: "settings", description: "按功能分组管理当前平台的应用快捷键。" },
   { id: "browsing", title: "浏览与性能", kicker: "BROWSING", icon: "window", description: "网页内存、新窗口、登录弹窗与浏览身份。" },
   { id: "translation", title: "翻译与 DeepSeek", kicker: "TRANSLATION", icon: "language", description: "划词翻译、DeepSeek 查询、整页翻译与隐私边界。" },
-  { id: "notifications", title: "计划与通知", kicker: "NOTIFICATIONS", icon: "calendar", description: "桌面提醒、托盘和随系统启动。" },
+  { id: "notifications", title: "日程与通知", kicker: "NOTIFICATIONS", icon: "calendar", description: "桌面提醒、托盘和随系统启动。" },
   { id: "connections", title: "连接与集成", kicker: "CONNECTIONS", icon: "workflow", description: "Zoho Desk 与预留的只读连接器。" },
   { id: "accounts", title: "账号与同步", kicker: "ACCOUNTS", icon: "cloud", description: "Google 数据同步和 Chrome 本地书签。" },
   { id: "data", title: "数据与备份", kicker: "LOCAL DATA", icon: "database", description: "本地数据目录和浏览会话边界。" },
@@ -781,7 +802,7 @@ const SETTINGS_SECTIONS = Object.freeze([
 const SETTINGS_SEARCH_INDEX = Object.freeze([
   { section: "general", panel: "sessions", title: "当前会话", description: "切换空间和会话显示方式" },
   { section: "search", panel: "search-engine", title: "默认搜索引擎", description: "Google、Bing、百度、DuckDuckGo 与搜索历史" },
-  { section: "shortcuts", panel: "shortcuts", title: "快捷键", description: "搜索、导航、页签、工作空间和计划快捷键" },
+  { section: "shortcuts", panel: "shortcuts", title: "快捷键", description: "搜索、导航、页签、工作空间和日程快捷键" },
   { section: "browsing", panel: "memory", title: "网页视图内存", description: "内存模式、后台自动休眠和保持运行" },
   { section: "browsing", panel: "popup-policy", title: "新窗口与登录弹窗", description: "OAuth、SSO、POST 和站点弹窗策略" },
   { section: "translation", panel: "translation", title: "DeepSeek 翻译与划词查询", description: "DeepSeek API、目标语言与敏感网站确认" },
@@ -1006,7 +1027,7 @@ function localSearchMatches(query) {
   taskState.tasks
     .filter((task) => `${task.title} ${task.notes || ""} ${(task.tags || []).join(" ")}`.toLocaleLowerCase("zh-CN").includes(normalized))
     .slice(0, 5)
-    .forEach((task) => matches.push(globalResult("计划任务", `task:${task.id}`, task.title, `${workspaceName(task.workspaceId)} · ${taskDueLabel(task)}`, "任务", () => {
+    .forEach((task) => matches.push(globalResult("日程", `task:${task.id}`, task.title, `${workspaceName(task.workspaceId)} · ${taskDueLabel(task)}`, "日程", () => {
       currentTaskView = "all";
       navigateTo("plan");
       openTaskModal(task);
@@ -1636,7 +1657,7 @@ function dispatchConfiguredShortcut(event) {
 }
 
 const CONTENT_TAG_OBJECT_LABELS = Object.freeze({
-  task: "任务",
+  task: "日程",
   habit: "习惯",
   timeline: "时间线",
   site: "站点",
@@ -4687,6 +4708,17 @@ function translationFormPayload() {
 
 const TASK_PRIORITY_LABELS = { low: "低", normal: "普通", high: "高", urgent: "紧急" };
 const TASK_STATUS_LABELS = { todo: "待办", doing: "进行中", done: "已完成", cancelled: "已取消" };
+const TASK_CALENDAR = window.QiyeTaskCalendar;
+const TASK_RECURRENCE_LABELS = {
+  none: "不重复",
+  daily: "每天",
+  weekly: "每周",
+  weekdays: "每个工作日（周一至周五）",
+  "monthly-date": "每月同日",
+  "monthly-weekday": "每月同周次",
+  yearly: "每年同日",
+  custom: "自定义",
+};
 const TIMELINE_TYPE_LABELS = {
   achievement: "成就",
   turningPoint: "重大转折",
@@ -4836,7 +4868,7 @@ function openTimelineEventModal(event = null, draft = {}) {
   const sourceLabel = value.sourceUrl
     ? `来源网页：${value.sourceTitle || value.sourceHostname || value.sourceUrl}\n${value.sourceUrl}`
     : value.relatedTaskIds?.length
-      ? `关联任务：${value.relatedTaskIds.join("、")}`
+      ? `关联日程：${value.relatedTaskIds.join("、")}`
       : "";
   dom.timelineSourcePreview.hidden = !sourceLabel;
   dom.timelineSourcePreview.textContent = sourceLabel;
@@ -5090,7 +5122,7 @@ function createTimelineEventCard(event) {
     source.className = "timeline-event-source";
     source.textContent = event.sourceHostname
       ? `来源：${event.sourceHostname}`
-      : `关联 ${event.relatedTaskIds.length} 个任务`;
+      : `关联 ${event.relatedTaskIds.length} 个日程`;
     card.appendChild(source);
   }
   card.addEventListener("click", () => openTimelineEventModal(event));
@@ -5424,7 +5456,7 @@ async function setTaskCompleted(task, completed) {
     const result = await window.siteNest.setTaskStatus(task.id, completed ? "done" : "todo");
     applyTaskSnapshot(result);
   } catch (error) {
-    showToast("无法更新任务", error?.message || "请稍后重试", "error");
+    showToast("无法更新日程", error?.message || "请稍后重试", "error");
   }
 }
 
@@ -5478,7 +5510,8 @@ function createTaskCard(task, options = {}) {
     });
     card.appendChild(timeline);
   }
-  card.addEventListener("click", () => openTaskModal(task));
+  card.style.setProperty("--schedule-color", TASK_CALENDAR.normalizeColor(task.color));
+  card.addEventListener("click", () => openTaskDetail(task));
   return card;
 }
 
@@ -5486,37 +5519,111 @@ function taskForId(taskId) {
   return taskState.tasks.find((task) => task.id === String(taskId || "")) || null;
 }
 
-function toLocalDateTimeInput(iso) {
-  if (!iso) return "";
-  const date = new Date(iso);
-  if (Number.isNaN(date.valueOf())) return "";
-  const local = new Date(date.valueOf() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
+function localTimeInputValue(value, fallback = "") {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.valueOf())) return fallback;
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
-function fromLocalDateTimeInput(value) {
-  if (!value) return null;
+function localDateTimeFromParts(dateValue, timeValue, options = {}) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateValue || ""));
+  if (!match) return null;
+  const timeMatch = /^(\d{2}):(\d{2})$/.exec(String(timeValue || ""));
+  const date = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    options.endOfDay ? 23 : Number(timeMatch?.[1] || 0),
+    options.endOfDay ? 59 : Number(timeMatch?.[2] || 0),
+    options.endOfDay ? 59 : 0,
+    options.endOfDay ? 999 : 0,
+  );
+  return Number.isNaN(date.valueOf()) ? null : date;
+}
+
+function setTaskDateFields(task, day) {
+  const anchor = day ? new Date(day) : new Date();
+  if (!task && !day) {
+    anchor.setMinutes(Math.ceil(anchor.getMinutes() / 30) * 30, 0, 0);
+    if (anchor.getHours() >= 23) anchor.setHours(9, 0, 0, 0);
+  } else if (!task && day) {
+    anchor.setHours(9, 0, 0, 0);
+  }
+  const defaultEnd = new Date(anchor.valueOf() + 60 * 60_000);
+  const start = task?.startAt ? new Date(task.startAt) : anchor;
+  const end = task?.dueAt ? new Date(task.dueAt) : defaultEnd;
+  dom.taskStartDate.value = localDateKey(start);
+  dom.taskStartTime.value = localTimeInputValue(start, "09:00");
+  dom.taskEndTime.value = localTimeInputValue(end, "10:00");
+  dom.taskEndDate.value = localDateKey(end);
+}
+
+function weekdayLabel(value) {
   const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? null : date.toISOString();
+  return ["日", "一", "二", "三", "四", "五", "六"][date.getDay()] || "";
+}
+
+function weekdayNumber(value) {
+  const day = new Date(value).getDay();
+  return day === 0 ? 7 : day;
+}
+
+function monthWeekOrdinal(value) {
+  const date = new Date(value);
+  return Math.floor((date.getDate() - 1) / 7) + 1;
+}
+
+function syncTaskRecurrenceLabels() {
+  const start = localDateTimeFromParts(dom.taskStartDate.value, dom.taskStartTime.value || "00:00") || new Date();
+  const weekly = dom.taskRecurrence.querySelector('option[value="weekly"]');
+  const monthlyDate = dom.taskRecurrence.querySelector('option[value="monthly-date"]');
+  const monthlyWeekday = dom.taskRecurrence.querySelector('option[value="monthly-weekday"]');
+  const yearly = dom.taskRecurrence.querySelector('option[value="yearly"]');
+  if (weekly) weekly.textContent = `每周${weekdayLabel(start)}`;
+  if (monthlyDate) monthlyDate.textContent = `每月 ${start.getDate()} 日`;
+  if (monthlyWeekday) monthlyWeekday.textContent = `每月第 ${monthWeekOrdinal(start)} 个周${weekdayLabel(start)}`;
+  if (yearly) yearly.textContent = `每年 ${start.getMonth() + 1} 月 ${start.getDate()} 日`;
+}
+
+function syncTaskAllDayFields() {
+  const allDay = dom.taskAllDay.checked;
+  dom.taskForm.classList.toggle("is-all-day", allDay);
+  dom.taskStartTime.disabled = allDay;
+  dom.taskEndTime.disabled = allDay;
+  dom.taskStartTime.required = !allDay;
+  dom.taskEndTime.required = !allDay;
+}
+
+function syncTaskRecurrenceFields() {
+  const frequency = dom.taskRecurrence.value;
+  dom.taskRecurrenceCustom.hidden = frequency !== "custom";
+  dom.taskRecurrenceUntil.disabled = frequency === "none";
+  if (frequency === "none") dom.taskRecurrenceUntil.value = "";
+  syncTaskRecurrenceLabels();
 }
 
 function openTaskModal(task = null, day = null) {
+  closeTaskDetail();
   dom.taskForm.reset();
   dom.taskId.value = task?.id || "";
-  dom.taskModalTitle.textContent = task ? "编辑任务" : "添加任务";
+  dom.taskModalTitle.textContent = task ? "修改日程" : "创建日程";
   dom.taskTitle.value = task?.title || "";
   dom.taskNotes.value = task?.notes || "";
   dom.taskWorkspace.value = task?.workspaceId || activeWorkspaceId();
   dom.taskPriority.value = task?.priority || "normal";
   dom.taskStatus.value = task?.status || "todo";
-  dom.taskStartAt.value = toLocalDateTimeInput(task?.startAt);
-  dom.taskDueAt.value = toLocalDateTimeInput(task?.dueAt);
-  if (!task && day) {
-    const due = new Date(day);
-    due.setHours(17, 0, 0, 0);
-    dom.taskDueAt.value = toLocalDateTimeInput(due.toISOString());
-  }
+  dom.taskColor.value = TASK_CALENDAR.normalizeColor(task?.color);
+  setTaskDateFields(task, day);
   dom.taskAllDay.checked = task?.allDay === true;
+  const recurrence = TASK_CALENDAR.normalizeRecurrence(task?.recurrence);
+  dom.taskRecurrence.value = recurrence.frequency;
+  dom.taskRecurrenceUntil.value = recurrence.until ? localDateKey(recurrence.until) : "";
+  dom.taskRecurrenceInterval.value = String(recurrence.interval || 1);
+  dom.taskRecurrenceUnit.value = recurrence.customUnit || "week";
+  const selectedWeekdays = recurrence.weekdays.length ? recurrence.weekdays : [weekdayNumber(dom.taskStartDate.value)];
+  dom.taskForm.querySelectorAll('input[name="taskRecurrenceWeekday"]').forEach((input) => {
+    input.checked = selectedWeekdays.includes(Number(input.value));
+  });
   const standard = new Set([0, 5, 10, 15, 30, 60, 1440]);
   dom.taskForm.querySelectorAll('input[name="taskReminder"]').forEach((input) => {
     input.checked = task?.reminderOffsets?.includes(Number(input.value)) || false;
@@ -5526,7 +5633,12 @@ function openTaskModal(task = null, day = null) {
   dom.taskTags.value = (task?.tags || []).join(", ");
   renderContentTagPicker("task", task?.tagIds || []);
   dom.deleteTaskButton.classList.toggle("is-hidden", !task);
+  taskPreviewDate = localDateTimeFromParts(dom.taskStartDate.value, "00:00") || new Date();
+  syncTaskAllDayFields();
+  syncTaskRecurrenceFields();
   openModal(dom.taskModal);
+  renderTaskDayPreview({ scrollToDraft: true });
+  requestAnimationFrame(() => dom.taskTitle.focus());
 }
 
 function taskFormPayload() {
@@ -5534,6 +5646,22 @@ function taskFormPayload() {
     .map((input) => Number(input.value));
   const custom = Number(dom.taskCustomReminder.value);
   if (dom.taskCustomReminder.value !== "" && Number.isFinite(custom) && custom >= 0) reminderOffsets.push(custom);
+  const allDay = dom.taskAllDay.checked;
+  const start = localDateTimeFromParts(dom.taskStartDate.value, allDay ? "00:00" : dom.taskStartTime.value);
+  const end = localDateTimeFromParts(dom.taskEndDate.value, allDay ? "23:59" : dom.taskEndTime.value, { endOfDay: allDay });
+  if (!start || !end) throw new Error("请填写完整的开始与结束日期");
+  if (end < start) throw new Error("结束时间不能早于开始时间");
+  const frequency = dom.taskRecurrence.value;
+  const until = frequency === "none" || !dom.taskRecurrenceUntil.value
+    ? null
+    : localDateTimeFromParts(dom.taskRecurrenceUntil.value, "23:59", { endOfDay: true });
+  if (until && until < start) throw new Error("重复结束日期不能早于日程开始日期");
+  let weekdays = [];
+  if (frequency === "weekly") weekdays = [weekdayNumber(start)];
+  if (frequency === "weekdays") weekdays = [1, 2, 3, 4, 5];
+  if (frequency === "custom") {
+    weekdays = Array.from(dom.taskForm.querySelectorAll('input[name="taskRecurrenceWeekday"]:checked')).map((input) => Number(input.value));
+  }
   return {
     id: dom.taskId.value || undefined,
     title: dom.taskTitle.value.trim(),
@@ -5541,16 +5669,242 @@ function taskFormPayload() {
     workspaceId: dom.taskWorkspace.value,
     priority: dom.taskPriority.value,
     status: dom.taskStatus.value,
-    startAt: fromLocalDateTimeInput(dom.taskStartAt.value),
-    dueAt: fromLocalDateTimeInput(dom.taskDueAt.value),
-    allDay: dom.taskAllDay.checked,
+    color: TASK_CALENDAR.normalizeColor(dom.taskColor.value),
+    startAt: start.toISOString(),
+    dueAt: end.toISOString(),
+    allDay,
+    recurrence: {
+      frequency,
+      interval: frequency === "custom" ? Number(dom.taskRecurrenceInterval.value) || 1 : 1,
+      weekdays,
+      customUnit: dom.taskRecurrenceUnit.value,
+      until: until?.toISOString() || null,
+    },
     reminderOffsets,
     tags: dom.taskTags.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean),
     tagIds: tagIdsForPicker("task"),
   };
 }
 
-function renderTaskList(container, tasks, emptyText = "暂无任务") {
+function formatTaskClock(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return "";
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function taskDateRangeLabel(task) {
+  const interval = TASK_CALENDAR.taskInterval(task);
+  if (!interval) return "未设置时间";
+  const startDate = interval.start.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "short" });
+  const endDate = interval.end.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "short" });
+  if (task.allDay) return startDate === endDate ? `${startDate} · 全天` : `${startDate} — ${endDate} · 全天`;
+  const start = `${startDate} ${formatTaskClock(interval.start)}`;
+  const end = localDateKey(interval.start) === localDateKey(interval.end)
+    ? formatTaskClock(interval.end)
+    : `${endDate} ${formatTaskClock(interval.end)}`;
+  return `${start} — ${end}`;
+}
+
+function taskRecurrenceLabel(task) {
+  const recurrence = TASK_CALENDAR.normalizeRecurrence(task?.recurrence);
+  if (recurrence.frequency === "none") return "不重复";
+  let label = TASK_RECURRENCE_LABELS[recurrence.frequency] || "不重复";
+  const start = TASK_CALENDAR.taskInterval(task)?.start;
+  if (recurrence.frequency === "weekly" && start) label = `每周${weekdayLabel(start)}`;
+  if (recurrence.frequency === "monthly-date" && start) label = `每月 ${start.getDate()} 日`;
+  if (recurrence.frequency === "monthly-weekday" && start) label = `每月第 ${monthWeekOrdinal(start)} 个周${weekdayLabel(start)}`;
+  if (recurrence.frequency === "yearly" && start) label = `每年 ${start.getMonth() + 1} 月 ${start.getDate()} 日`;
+  if (recurrence.frequency === "custom") {
+    const unit = { day: "天", week: "周", month: "月" }[recurrence.customUnit] || "周";
+    const days = recurrence.weekdays.length ? ` · 周${recurrence.weekdays.map((day) => "一二三四五六日"[day - 1]).join("、")}` : "";
+    label = `每 ${recurrence.interval} ${unit}${days}`;
+  }
+  return recurrence.until ? `${label} · 至 ${new Date(recurrence.until).toLocaleDateString("zh-CN")}` : label;
+}
+
+function taskReminderLabel(task) {
+  if (!task.reminderOffsets?.length) return "无提醒";
+  return task.reminderOffsets.map((offset) => {
+    if (offset === 0) return "开始时";
+    if (offset < 60) return `提前 ${offset} 分钟`;
+    if (offset % 1440 === 0) return `提前 ${offset / 1440} 天`;
+    if (offset % 60 === 0) return `提前 ${offset / 60} 小时`;
+    return `提前 ${offset} 分钟`;
+  }).join("、");
+}
+
+function closeTaskDetail() {
+  if (!dom.taskDetailLayer) return;
+  activeTaskDetailId = null;
+  dom.taskDetailLayer.classList.remove("is-open");
+  dom.taskDetailLayer.setAttribute("aria-hidden", "true");
+}
+
+function addTaskDetailRow(label, value) {
+  const row = document.createElement("dl");
+  row.className = "task-detail-row";
+  const term = document.createElement("dt");
+  term.textContent = label;
+  const detail = document.createElement("dd");
+  detail.textContent = value || "—";
+  row.append(term, detail);
+  dom.taskDetailContent.appendChild(row);
+}
+
+function renderTaskDetail() {
+  const task = taskForId(activeTaskDetailId);
+  if (!task) {
+    closeTaskDetail();
+    return;
+  }
+  const color = TASK_CALENDAR.normalizeColor(task.color);
+  dom.taskDetailColor.style.setProperty("--schedule-color", color);
+  dom.taskDetailTitle.textContent = task.title;
+  dom.taskDetailContent.replaceChildren();
+  addTaskDetailRow("时间", taskDateRangeLabel(task));
+  addTaskDetailRow("重复", taskRecurrenceLabel(task));
+  addTaskDetailRow("执行任务", task.notes || "未填写执行说明");
+  addTaskDetailRow("提前提醒", taskReminderLabel(task));
+  addTaskDetailRow("空间", workspaceName(task.workspaceId));
+  addTaskDetailRow("优先级", TASK_PRIORITY_LABELS[task.priority] || "普通");
+  addTaskDetailRow("待办状态", TASK_STATUS_LABELS[task.status] || "待办");
+  addTaskDetailRow("标签", [
+    ...(task.tags || []),
+    ...(task.tagIds || []).map((tagId) => contentTagState.tags.find((tag) => tag.id === tagId)?.canonicalName || ""),
+  ].filter(Boolean).join("、") || "无标签");
+  dom.taskDetailStatusAction.textContent = task.status === "done" ? "恢复待办" : "标记完成";
+  dom.taskDetailTimeline.disabled = task.status !== "done";
+  dom.taskDetailTimeline.title = task.status === "done" ? "将完成结果整理为时间轴记录" : "完成日程后可记录到时间轴";
+}
+
+function openTaskDetail(task) {
+  if (!task || !dom.taskDetailLayer) return;
+  activeTaskDetailId = task.id;
+  renderTaskDetail();
+  dom.taskDetailLayer.classList.add("is-open");
+  dom.taskDetailLayer.setAttribute("aria-hidden", "false");
+  requestAnimationFrame(() => dom.taskDetailClose.focus());
+}
+
+async function deleteTaskWithConfirmation(task, options = {}) {
+  if (!task || !window.confirm(`删除日程“${task.title}”？此操作同时删除其本地提醒。`)) return false;
+  try {
+    const result = await window.siteNest.deleteTask(task.id);
+    applyTaskSnapshot(result);
+    if (options.closeModal) closeModal(dom.taskModal);
+    closeTaskDetail();
+    showToast("日程已删除", task.title);
+    return true;
+  } catch (error) {
+    showToast("无法删除日程", error?.message || "请稍后重试", "error");
+    return false;
+  }
+}
+
+function taskAgendaTime(entry) {
+  const { task, start, end, dayKey } = entry;
+  if (task.allDay) return "全天";
+  const startsToday = localDateKey(start) === dayKey;
+  const endsToday = localDateKey(end) === dayKey;
+  if (startsToday) return formatTaskClock(start);
+  if (endsToday) return `至${formatTaskClock(end)}`;
+  return "延续";
+}
+
+function createTaskAgendaItem(entry) {
+  const task = entry.task;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "task-agenda-item";
+  button.dataset.taskId = task.id;
+  button.dataset.status = task.status;
+  button.style.setProperty("--schedule-color", TASK_CALENDAR.normalizeColor(task.color));
+  const dot = document.createElement("span");
+  dot.className = "task-agenda-dot";
+  const time = document.createElement("span");
+  time.className = "task-agenda-time";
+  time.textContent = taskAgendaTime(entry);
+  const title = document.createElement("span");
+  title.className = "task-agenda-title";
+  title.textContent = task.title;
+  button.title = `${taskAgendaTime(entry)} · ${task.title}`;
+  button.append(dot, time, title);
+  button.addEventListener("click", () => openTaskDetail(task));
+  return button;
+}
+
+function previewDraftTask() {
+  try {
+    const payload = taskFormPayload();
+    return { ...payload, id: payload.id || "schedule-draft", title: payload.title || "新日程", createdAt: payload.startAt };
+  } catch {
+    return null;
+  }
+}
+
+function previewMinutes(value) {
+  const date = new Date(value);
+  return date.getHours() * 60 + date.getMinutes();
+}
+
+function appendTaskPreviewEvent(occurrence, dayKey, options = {}) {
+  const startsToday = localDateKey(occurrence.start) === dayKey;
+  const endsToday = localDateKey(occurrence.end) === dayKey;
+  const startMinute = startsToday ? previewMinutes(occurrence.start) : 0;
+  const endMinute = endsToday ? previewMinutes(occurrence.end) : 1440;
+  const element = document.createElement("div");
+  element.className = `schedule-preview-event${options.draft ? " is-draft" : ""}`;
+  element.style.setProperty("--schedule-color", TASK_CALENDAR.normalizeColor(occurrence.task.color, options.draft ? "#2563eb" : "#3b82f6"));
+  element.style.top = `${Math.max(0, startMinute / 60 * 46 + 2)}px`;
+  element.style.height = `${Math.max(28, (Math.max(startMinute + 30, endMinute) - startMinute) / 60 * 46 - 4)}px`;
+  const title = document.createElement("strong");
+  title.textContent = occurrence.task.title;
+  const time = document.createElement("small");
+  time.textContent = `${startsToday ? formatTaskClock(occurrence.start) : "00:00"} – ${endsToday ? formatTaskClock(occurrence.end) : "24:00"}${options.draft ? " · 当前填写" : ""}`;
+  element.append(title, time);
+  dom.taskPreviewGrid.appendChild(element);
+  return element;
+}
+
+function renderTaskDayPreview(options = {}) {
+  if (!dom.taskPreviewGrid || !dom.taskStartDate.value) return;
+  const previewDay = TASK_CALENDAR.startOfDay(taskPreviewDate);
+  const previewEnd = new Date(previewDay);
+  previewEnd.setHours(23, 59, 59, 999);
+  const dayKey = localDateKey(previewDay);
+  const today = dayKey === localDateKey(new Date());
+  dom.taskPreviewDateTitle.textContent = `${previewDay.getMonth() + 1}月${previewDay.getDate()}日${today ? " 今天" : ""}`;
+  dom.taskPreviewDateSubtitle.textContent = `周${weekdayLabel(previewDay)}`;
+  dom.taskPreviewGrid.replaceChildren();
+  dom.taskPreviewGrid.style.height = `${24 * 46}px`;
+  for (let hour = 0; hour < 24; hour += 1) {
+    const label = document.createElement("span");
+    label.className = "schedule-preview-hour";
+    label.style.top = `${hour * 46}px`;
+    label.textContent = `${String(hour).padStart(2, "0")}:00`;
+    dom.taskPreviewGrid.appendChild(label);
+  }
+  const editingId = dom.taskId.value;
+  const existing = TASK_CALENDAR.expandOccurrences(taskState.tasks.filter((task) => task.id !== editingId), previewDay, previewEnd);
+  const draft = previewDraftTask();
+  const draftOccurrences = draft ? TASK_CALENDAR.expandOccurrences([draft], previewDay, previewEnd) : [];
+  const allDay = [...existing.map((occurrence) => ({ occurrence, draft: false })), ...draftOccurrences.map((occurrence) => ({ occurrence, draft: true }))]
+    .filter(({ occurrence }) => occurrence.task.allDay);
+  dom.taskPreviewAllDay.hidden = !allDay.length;
+  dom.taskPreviewAllDay.style.setProperty("--schedule-color", TASK_CALENDAR.normalizeColor(draft?.color));
+  dom.taskPreviewAllDay.textContent = allDay.map(({ occurrence, draft: isDraft }) => `${isDraft ? "当前：" : ""}${occurrence.task.title}`).join(" · ");
+  for (const occurrence of existing.filter((item) => !item.task.allDay)) appendTaskPreviewEvent(occurrence, dayKey);
+  let draftElement = null;
+  for (const occurrence of draftOccurrences.filter((item) => !item.task.allDay)) draftElement = appendTaskPreviewEvent(occurrence, dayKey, { draft: true });
+  if (options.scrollToDraft) {
+    requestAnimationFrame(() => {
+      const target = draftElement ? Number.parseFloat(draftElement.style.top) : today ? previewMinutes(new Date()) / 60 * 46 : 9 * 46;
+      dom.taskPreviewGrid.scrollTop = Math.max(0, target - 2 * 46);
+    });
+  }
+}
+
+function renderTaskList(container, tasks, emptyText = "暂无日程") {
   container.replaceChildren();
   if (!tasks.length) {
     const empty = document.createElement("div");
@@ -5564,9 +5918,9 @@ function renderTaskList(container, tasks, emptyText = "暂无任务") {
 
 function renderTaskWeek() {
   if (!dom.taskWeekGrid) return;
-  const start = startOfLocalWeek(taskWeekAnchor);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 6);
+  const layout = TASK_CALENDAR.occurrencesForWeek(taskState.tasks, taskWeekAnchor);
+  const start = layout.weekStart;
+  const end = layout.weekEnd;
   dom.taskWeekTitle.textContent = `本周 W${String(isoWeekNumber(start)).padStart(2, "0")}`;
   dom.taskWeekRange.textContent = `${start.toLocaleDateString("zh-CN")} — ${end.toLocaleDateString("zh-CN")}`;
   dom.taskWeekGrid.replaceChildren();
@@ -5581,18 +5935,18 @@ function renderTaskWeek() {
     header.innerHTML = `<span>${["一", "二", "三", "四", "五", "六", "日"][index]}</span><strong>${day.getMonth() + 1}/${day.getDate()}</strong>`;
     const list = document.createElement("div");
     list.className = "task-day-list";
-    const tasks = taskState.tasks.filter((task) => localDateKey(taskDate(task)) === key && task.status !== "cancelled").sort(taskSort);
-    tasks.forEach((task) => list.appendChild(createTaskCard(task, { compact: true })));
-    if (!tasks.length) {
+    const entries = layout.entriesByDay.get(key) || [];
+    entries.forEach((entry) => list.appendChild(createTaskAgendaItem(entry)));
+    if (!entries.length) {
       const empty = document.createElement("small");
       empty.className = "task-day-empty";
-      empty.textContent = "暂无任务";
+      empty.textContent = "暂无日程";
       list.appendChild(empty);
     }
     const add = document.createElement("button");
     add.type = "button";
     add.className = "task-day-add";
-    add.textContent = "+ 添加任务";
+    add.textContent = "+ 创建日程";
     add.addEventListener("click", () => openTaskModal(null, day));
     column.append(header, list, add);
     dom.taskWeekGrid.appendChild(column);
@@ -5613,40 +5967,56 @@ function renderTaskMonth() {
   const month = taskMonthAnchor.getMonth();
   dom.taskMonthTitle.textContent = `${year} 年 ${month + 1} 月`;
   dom.taskMonthCalendar.replaceChildren();
+  const layout = TASK_CALENDAR.monthSegments(taskState.tasks, taskMonthAnchor);
+  const weekdayHeader = document.createElement("div");
+  weekdayHeader.className = "task-month-weekdays";
   for (const label of ["一", "二", "三", "四", "五", "六", "日"]) {
     const head = document.createElement("span");
     head.className = "task-month-weekday";
     head.textContent = label;
-    dom.taskMonthCalendar.appendChild(head);
+    weekdayHeader.appendChild(head);
   }
-  const first = new Date(year, month, 1);
-  const offset = (first.getDay() || 7) - 1;
-  for (let blank = 0; blank < offset; blank += 1) dom.taskMonthCalendar.appendChild(document.createElement("span"));
-  const days = new Date(year, month + 1, 0).getDate();
+  dom.taskMonthCalendar.appendChild(weekdayHeader);
   const todayKey = localDateKey(new Date());
-  for (let number = 1; number <= days; number += 1) {
-    const day = new Date(year, month, number);
-    const key = localDateKey(day);
-    const tasks = taskState.tasks.filter((task) => localDateKey(taskDate(task)) === key && task.status !== "cancelled");
-    const unfinished = tasks.filter((task) => task.status !== "done");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "task-month-day";
-    if (key === todayKey) button.classList.add("is-today");
-    if (key === localDateKey(selectedTaskDay)) button.classList.add("is-selected");
-    if (tasks.some((task) => ["high", "urgent"].includes(task.priority) && task.status !== "done")) button.classList.add("has-priority");
-    const count = tasks.length ? `<small>${unfinished.length}/${tasks.length}</small>` : "";
-    button.innerHTML = `<strong>${number}</strong>${count}`;
-    button.addEventListener("click", () => { selectedTaskDay = day; renderTaskMonth(); });
-    dom.taskMonthCalendar.appendChild(button);
+  for (let row = 0; row < layout.rowCount; row += 1) {
+    const week = document.createElement("div");
+    week.className = "task-month-week";
+    week.dataset.monthRow = String(row);
+    week.style.setProperty("--month-row-height", `${Math.max(92, 64 + (layout.rowLanes[row] || 0) * 23)}px`);
+    for (const day of layout.days.filter((item) => item.row === row)) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "task-month-day";
+      button.style.gridColumn = String(day.column + 1);
+      if (!day.inMonth) button.classList.add("is-outside");
+      if (day.key === todayKey) button.classList.add("is-today");
+      const number = document.createElement("strong");
+      number.className = "task-month-day-number";
+      number.textContent = String(day.date.getDate());
+      button.appendChild(number);
+      button.title = `${day.date.toLocaleDateString("zh-CN")} · 创建日程`;
+      button.addEventListener("click", () => openTaskModal(null, day.date));
+      week.appendChild(button);
+    }
+    for (const segment of layout.segments.filter((item) => item.row === row)) {
+      const event = document.createElement("button");
+      event.type = "button";
+      event.className = "task-month-event";
+      if (segment.continuesBefore) event.classList.add("continues-before");
+      if (segment.continuesAfter) event.classList.add("continues-after");
+      event.style.gridColumn = `${segment.startColumn + 1} / span ${segment.span}`;
+      event.style.setProperty("--month-lane", String(segment.lane));
+      event.style.setProperty("--schedule-color", TASK_CALENDAR.normalizeColor(segment.occurrence.task.color));
+      event.textContent = segment.occurrence.task.title;
+      event.title = `${taskDateRangeLabel(segment.occurrence.task)} · ${segment.occurrence.task.title}`;
+      event.addEventListener("click", (clickEvent) => {
+        clickEvent.stopPropagation();
+        openTaskDetail(segment.occurrence.task);
+      });
+      week.appendChild(event);
+    }
+    dom.taskMonthCalendar.appendChild(week);
   }
-  const selectedKey = localDateKey(selectedTaskDay);
-  dom.taskSelectedDayTitle.textContent = `${selectedTaskDay.toLocaleDateString("zh-CN")} · 当天任务`;
-  renderTaskList(
-    dom.taskSelectedDayList,
-    taskState.tasks.filter((task) => localDateKey(taskDate(task)) === selectedKey).sort(taskSort),
-    "当天暂无任务",
-  );
 }
 
 function renderPlan() {
@@ -5655,7 +6025,7 @@ function renderPlan() {
     ? "添加记录"
     : currentTaskView === "habits"
       ? "创建长期目标"
-      : "添加任务";
+      : "创建日程";
   dom.planAddTaskButton.replaceChildren(
     createIconElement("plus"),
     document.createTextNode(addLabel),
@@ -5670,8 +6040,8 @@ function renderPlan() {
   });
   renderTaskWeek();
   renderTaskMonth();
-  renderTaskList(dom.taskAllList, taskState.tasks.filter((task) => task.status !== "done").sort(taskSort), "暂无未完成任务");
-  renderTaskList(dom.taskCompletedList, taskState.tasks.filter((task) => task.status === "done").sort((a, b) => Date.parse(b.completedAt) - Date.parse(a.completedAt)), "暂无已完成任务");
+  renderTaskList(dom.taskAllList, taskState.tasks.filter((task) => task.status !== "done").sort(taskSort), "暂无未完成日程");
+  renderTaskList(dom.taskCompletedList, taskState.tasks.filter((task) => task.status === "done").sort((a, b) => Date.parse(b.completedAt) - Date.parse(a.completedAt)), "暂无已完成日程");
   if (currentTaskView === "timeline") {
     renderTimeline();
     const year = Number(timelineState.settings.selectedYear) || new Date().getFullYear();
@@ -5694,14 +6064,14 @@ function renderWorkspaceTaskWidgets() {
     container.replaceChildren();
     const header = document.createElement("header");
     const copy = document.createElement("div");
-    copy.innerHTML = '<span class="section-kicker">WEEKLY PLAN</span><h2>本周计划</h2>';
+    copy.innerHTML = '<span class="section-kicker">WEEKLY SCHEDULE</span><h2>本周日程</h2>';
     const actions = document.createElement("div");
-    const add = document.createElement("button"); add.type = "button"; add.className = "text-button"; add.textContent = "添加任务"; add.addEventListener("click", () => openTaskModal());
+    const add = document.createElement("button"); add.type = "button"; add.className = "text-button"; add.textContent = "创建日程"; add.addEventListener("click", () => openTaskModal());
     const view = document.createElement("button"); view.type = "button"; view.className = "text-button"; view.textContent = "查看本周"; view.addEventListener("click", () => { currentTaskView = "week"; navigateTo("plan"); });
     actions.append(add, view); header.append(copy, actions);
     const list = document.createElement("div"); list.className = "workspace-task-list";
     if (!candidates.length) {
-      const empty = document.createElement("p"); empty.className = "task-widget-empty"; empty.textContent = "本周还没有需要优先处理的任务。"; list.appendChild(empty);
+      const empty = document.createElement("p"); empty.className = "task-widget-empty"; empty.textContent = "本周还没有需要优先处理的日程。"; list.appendChild(empty);
     } else candidates.forEach((task) => list.appendChild(createTaskCard(task, { compact: true })));
     container.append(header, list);
   });
@@ -5763,6 +6133,8 @@ function applyTaskSnapshot(snapshot = {}) {
   renderPlan();
   renderWorkspaceTaskWidgets();
   renderTaskSettings();
+  if (activeTaskDetailId) renderTaskDetail();
+  if (dom.taskModal?.classList.contains("is-open")) renderTaskDayPreview();
 }
 
 async function loadTasks() {
@@ -5770,7 +6142,7 @@ async function loadTasks() {
   try {
     applyTaskSnapshot(await window.siteNest.getTasks());
   } catch (error) {
-    showToast("无法读取本地计划", error?.message || "请稍后重试", "error");
+    showToast("无法读取本地日程", error?.message || "请稍后重试", "error");
   }
 }
 
@@ -8457,7 +8829,7 @@ function renderCompanionWeather(status = companionWeather) {
     const title = document.createElement("strong");
     title.textContent = "天气尚未配置";
     const detail = document.createElement("small");
-    detail.textContent = "在“设置与数据 → 计划与通知”中开启天气并填写城市。";
+    detail.textContent = "在“设置与数据 → 日程与通知”中开启天气并填写城市。";
     empty.append(title, detail);
     dom.companionContent.appendChild(empty);
     return;
@@ -8589,7 +8961,7 @@ function renderCompanionAssistant(status = {}, options = {}) {
   const createTask = document.createElement("button");
   createTask.type = "button";
   createTask.className = "text-button";
-  createTask.textContent = "创建任务";
+  createTask.textContent = "创建日程";
   createTask.dataset.actionId = "task.quick-create";
   createTask.disabled = !companionAIResult;
   createTask.addEventListener("click", () => {
@@ -9208,7 +9580,7 @@ function bindEvents() {
     }
   });
   dom.clearUsageStats?.addEventListener("click", async () => {
-    if (!window.confirm("清除全部栖页使用统计？此操作不会删除任务、习惯或坚持星。")) return;
+    if (!window.confirm("清除全部栖页使用统计？此操作不会删除日程、习惯或坚持星。")) return;
     try {
       applyHabitSnapshot(await window.siteNest.clearUsageStats());
       showToast("使用统计已清除", "习惯打卡与坚持星未受影响");
@@ -9396,8 +9768,13 @@ function bindEvents() {
     if (monthMove) {
       const movement = Number(monthMove.dataset.monthMove);
       taskMonthAnchor = movement === 0 ? new Date() : new Date(taskMonthAnchor.getFullYear(), taskMonthAnchor.getMonth() + movement, 1);
-      selectedTaskDay = new Date(taskMonthAnchor.getFullYear(), taskMonthAnchor.getMonth(), 1);
       renderTaskMonth();
+    }
+    const previewMove = event.target.closest("[data-task-preview-move]");
+    if (previewMove) {
+      const movement = Number(previewMove.dataset.taskPreviewMove);
+      taskPreviewDate = movement === 0 ? new Date() : TASK_CALENDAR.addDays(taskPreviewDate, movement);
+      renderTaskDayPreview({ scrollToDraft: true });
     }
     const timelineYearMove = event.target.closest("[data-timeline-year-move]");
     if (timelineYearMove) {
@@ -9406,10 +9783,57 @@ function bindEvents() {
       void setTimelineYear(movement === 0 ? new Date().getFullYear() : current + movement);
     }
   });
+  dom.taskAllDay.addEventListener("change", () => {
+    syncTaskAllDayFields();
+    renderTaskDayPreview({ scrollToDraft: true });
+  });
+  dom.taskRecurrence.addEventListener("change", () => {
+    syncTaskRecurrenceFields();
+    renderTaskDayPreview();
+  });
+  dom.taskStartDate.addEventListener("change", () => {
+    if (!dom.taskEndDate.value || dom.taskEndDate.value < dom.taskStartDate.value) dom.taskEndDate.value = dom.taskStartDate.value;
+    taskPreviewDate = localDateTimeFromParts(dom.taskStartDate.value, "00:00") || taskPreviewDate;
+    syncTaskRecurrenceLabels();
+    renderTaskDayPreview({ scrollToDraft: true });
+  });
+  for (const field of [dom.taskStartTime, dom.taskEndTime, dom.taskEndDate, dom.taskRecurrenceUntil, dom.taskRecurrenceInterval, dom.taskRecurrenceUnit, dom.taskColor, dom.taskTitle]) {
+    field.addEventListener("input", () => renderTaskDayPreview());
+    field.addEventListener("change", () => renderTaskDayPreview());
+  }
+  dom.taskForm.querySelectorAll('input[name="taskRecurrenceWeekday"]').forEach((input) => input.addEventListener("change", () => renderTaskDayPreview()));
+  dom.taskForm.querySelectorAll("[data-task-color]").forEach((button) => button.addEventListener("click", () => {
+    dom.taskColor.value = TASK_CALENDAR.normalizeColor(button.dataset.taskColor);
+    renderTaskDayPreview();
+  }));
+  dom.taskDetailScrim.addEventListener("click", closeTaskDetail);
+  dom.taskDetailClose.addEventListener("click", closeTaskDetail);
+  dom.taskDetailEdit.addEventListener("click", () => {
+    const task = taskForId(activeTaskDetailId);
+    if (task) openTaskModal(task);
+  });
+  dom.taskDetailDelete.addEventListener("click", () => void deleteTaskWithConfirmation(taskForId(activeTaskDetailId)));
+  dom.taskDetailStatusAction.addEventListener("click", () => {
+    const task = taskForId(activeTaskDetailId);
+    if (task) void setTaskCompleted(task, task.status !== "done");
+  });
+  dom.taskDetailTimeline.addEventListener("click", () => {
+    const task = taskForId(activeTaskDetailId);
+    if (task?.status === "done") {
+      closeTaskDetail();
+      openTaskAsTimelineDraft(task);
+    }
+  });
   dom.taskForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const payload = taskFormPayload();
-    if (!payload.title) return;
+    let payload;
+    try {
+      payload = taskFormPayload();
+      if (!payload.title) throw new Error("请填写日程主题");
+    } catch (error) {
+      showToast("无法保存日程", error?.message || "请检查日程内容", "error");
+      return;
+    }
     const submit = dom.taskForm.querySelector('button[type="submit"]');
     submit.disabled = true;
     try {
@@ -9418,24 +9842,16 @@ function bindEvents() {
         : await window.siteNest.addTask(payload);
       applyTaskSnapshot(result);
       closeModal(dom.taskModal);
-      showToast(payload.id ? "任务已更新" : "任务已添加", payload.title);
+      showToast(payload.id ? "日程已更新" : "日程已创建", payload.title);
     } catch (error) {
-      showToast("无法保存任务", error?.message || "请检查任务内容", "error");
+      showToast("无法保存日程", error?.message || "请检查日程内容", "error");
     } finally {
       submit.disabled = false;
     }
   });
   dom.deleteTaskButton.addEventListener("click", async () => {
     const task = taskForId(dom.taskId.value);
-    if (!task || !window.confirm(`删除任务“${task.title}”？此操作同时删除其本地提醒。`)) return;
-    try {
-      const result = await window.siteNest.deleteTask(task.id);
-      applyTaskSnapshot(result);
-      closeModal(dom.taskModal);
-      showToast("任务已删除", task.title);
-    } catch (error) {
-      showToast("无法删除任务", error?.message || "请稍后重试", "error");
-    }
+    await deleteTaskWithConfirmation(task, { closeModal: true });
   });
   dom.saveCompanionSettings.addEventListener("click", async () => {
     dom.saveCompanionSettings.disabled = true;

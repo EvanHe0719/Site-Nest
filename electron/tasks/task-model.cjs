@@ -3,6 +3,9 @@ const { randomUUID } = require("node:crypto");
 const TASK_STATUSES = new Set(["todo", "doing", "done", "cancelled"]);
 const TASK_PRIORITIES = new Set(["low", "normal", "high", "urgent"]);
 const REMINDER_STATES = new Set(["pending", "fired", "snoozed", "dismissed"]);
+const TASK_RECURRENCE_FREQUENCIES = new Set(["none", "daily", "weekly", "weekdays", "monthly-date", "monthly-weekday", "yearly", "custom"]);
+const TASK_RECURRENCE_UNITS = new Set(["day", "week", "month"]);
+const DEFAULT_TASK_COLOR = "#23a783";
 
 function isoOrNull(value) {
   if (!value) return null;
@@ -27,13 +30,36 @@ function normalizeReminderOffsets(value) {
     .slice(0, 20);
 }
 
+function normalizeTaskColor(value) {
+  const color = String(value || "").trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(color) ? color : DEFAULT_TASK_COLOR;
+}
+
+function normalizeTaskRecurrence(value = {}) {
+  const input = value && typeof value === "object" ? value : {};
+  return {
+    frequency: TASK_RECURRENCE_FREQUENCIES.has(input.frequency) ? input.frequency : "none",
+    interval: Math.min(365, Math.max(1, Math.round(Number(input.interval) || 1))),
+    weekdays: Array.from(new Set((Array.isArray(input.weekdays) ? input.weekdays : [])
+      .map(Number)
+      .filter((item) => Number.isInteger(item) && item >= 1 && item <= 7)))
+      .sort((left, right) => left - right)
+      .slice(0, 7),
+    customUnit: TASK_RECURRENCE_UNITS.has(input.customUnit) ? input.customUnit : "week",
+    until: isoOrNull(input.until),
+  };
+}
+
 function normalizeLocalTask(value, options = {}) {
   const input = /** @type {any} */ (value && typeof value === "object" ? value : {});
   const now = isoOrNull(options.now) || new Date().toISOString();
   const id = String(input.id || randomUUID()).trim().slice(0, 120);
   const title = String(input.title || "").trim().slice(0, 300);
-  if (!title) throw new Error("任务标题不能为空");
+  if (!title) throw new Error("日程主题不能为空");
   const status = TASK_STATUSES.has(input.status) ? input.status : "todo";
+  const startAt = isoOrNull(input.startAt);
+  const dueAt = isoOrNull(input.dueAt);
+  if (startAt && dueAt && Date.parse(dueAt) < Date.parse(startAt)) throw new Error("日程结束时间不能早于开始时间");
   const completedAt = status === "done"
     ? (isoOrNull(input.completedAt) || now)
     : null;
@@ -44,9 +70,11 @@ function normalizeLocalTask(value, options = {}) {
     workspaceId: String(input.workspaceId || options.defaultWorkspaceId || "personal").slice(0, 120),
     status,
     priority: TASK_PRIORITIES.has(input.priority) ? input.priority : "normal",
-    startAt: isoOrNull(input.startAt),
-    dueAt: isoOrNull(input.dueAt),
+    color: normalizeTaskColor(input.color),
+    startAt,
+    dueAt,
     allDay: input.allDay === true,
+    recurrence: normalizeTaskRecurrence(input.recurrence),
     reminderOffsets: normalizeReminderOffsets(input.reminderOffsets),
     tags: Array.from(new Set((Array.isArray(input.tags) ? input.tags : [])
       .map((item) => String(item || "").trim().slice(0, 60))
@@ -126,8 +154,9 @@ function normalizeTaskSettings(value = {}) {
 }
 
 function buildTaskReminders(task, existing = []) {
-  if (!task?.dueAt || !Array.isArray(task.reminderOffsets) || ["done", "cancelled"].includes(task.status)) return [];
-  const due = Date.parse(task.dueAt);
+  const reminderBase = task?.startAt || task?.dueAt;
+  if (!reminderBase || !Array.isArray(task.reminderOffsets) || ["done", "cancelled"].includes(task.status)) return [];
+  const due = Date.parse(reminderBase);
   if (!Number.isFinite(due)) return [];
   const byId = new Map(existing.map((item) => [item.id, item]));
   return task.reminderOffsets.map((offset) => {
@@ -169,7 +198,7 @@ function addTaskToState(state, input, options = {}) {
     defaultWorkspaceId: next.activeWorkspaceId,
     timeZone: next.timeZone || deviceTimeZone(),
   });
-  if (!workspaceIds.has(task.workspaceId)) throw new Error("任务所属空间不存在");
+  if (!workspaceIds.has(task.workspaceId)) throw new Error("日程所属空间不存在");
   next.localTasks.push(task);
   refreshTaskReminders(next, task.id);
   next.updatedAt = now;
@@ -181,9 +210,9 @@ function updateTaskInState(state, input, options = {}) {
   const now = isoOrNull(options.now) || new Date().toISOString();
   const id = String(input?.id || "");
   const index = next.localTasks.findIndex((item) => item.id === id);
-  if (index < 0) throw new Error("找不到指定任务");
+  if (index < 0) throw new Error("找不到指定日程");
   const task = normalizeLocalTask({ ...next.localTasks[index], ...input, id, updatedAt: now }, { now, timeZone: next.timeZone });
-  if (!next.workspaces.some((item) => item.id === task.workspaceId)) throw new Error("任务所属空间不存在");
+  if (!next.workspaces.some((item) => item.id === task.workspaceId)) throw new Error("日程所属空间不存在");
   next.localTasks[index] = task;
   refreshTaskReminders(next, id);
   next.updatedAt = now;
@@ -194,7 +223,7 @@ function deleteTaskFromState(state, taskId, options = {}) {
   const next = cloneState(state);
   const id = String(taskId || "");
   const index = next.localTasks.findIndex((item) => item.id === id);
-  if (index < 0) throw new Error("找不到指定任务");
+  if (index < 0) throw new Error("找不到指定日程");
   const [task] = next.localTasks.splice(index, 1);
   next.taskReminders = next.taskReminders.filter((item) => item.taskId !== id);
   next.updatedAt = isoOrNull(options.now) || new Date().toISOString();
@@ -224,7 +253,9 @@ function updateReminderInState(state, reminderId, patch, options = {}) {
 }
 
 module.exports = {
+  DEFAULT_TASK_COLOR,
   TASK_PRIORITIES,
+  TASK_RECURRENCE_FREQUENCIES,
   TASK_STATUSES,
   addTaskToState,
   buildTaskReminders,
@@ -233,6 +264,8 @@ module.exports = {
   normalizeLocalTask,
   normalizeLocalTasks,
   normalizeReminderOffsets,
+  normalizeTaskColor,
+  normalizeTaskRecurrence,
   normalizeTaskReminders,
   normalizeTaskSettings,
   updateReminderInState,

@@ -41,6 +41,42 @@ test("local tasks store UTC timestamps, device timezone and stable reminder ids"
   );
 });
 
+test("schedule color, recurrence and date range survive task normalization", () => {
+  const result = addTaskToState(initialState(), {
+    title: "周五复盘",
+    workspaceId: "work",
+    color: "#6DD3B0",
+    startAt: "2026-09-04T08:00:00.000Z",
+    dueAt: "2026-09-04T09:00:00.000Z",
+    recurrence: { frequency: "weekly", weekdays: [5, 5, 9], until: "2026-12-31T15:59:59.000Z" },
+  }, { now: NOW });
+
+  assert.equal(result.task.color, "#6dd3b0");
+  assert.deepEqual(result.task.recurrence.weekdays, [5]);
+  assert.equal(result.task.recurrence.frequency, "weekly");
+  assert.equal(result.task.recurrence.interval, 1);
+});
+
+test("a schedule cannot end before it starts", () => {
+  assert.throws(() => addTaskToState(initialState(), {
+    title: "错误区间",
+    startAt: "2026-09-04T09:00:00.000Z",
+    dueAt: "2026-09-04T08:00:00.000Z",
+  }, { now: NOW }), /结束时间不能早于开始时间/);
+});
+
+test("schedule reminders are based on the start time while legacy due-only tasks remain compatible", () => {
+  const scheduled = addTaskToState(initialState(), {
+    title: "下午会议",
+    startAt: "2026-09-04T07:30:00.000Z",
+    dueAt: "2026-09-04T08:30:00.000Z",
+    reminderOffsets: [15],
+  }, { now: NOW });
+  assert.equal(scheduled.state.taskReminders[0].remindAt, "2026-09-04T07:15:00.000Z");
+  const legacy = addTaskToState(initialState(), { title: "旧截止任务", dueAt: DUE, reminderOffsets: [15] }, { now: NOW });
+  assert.equal(legacy.state.taskReminders[0].remindAt, "2026-08-30T03:45:00.000Z");
+});
+
 test("an unchanged reminder keeps its fired state across normalization and restart", () => {
   const task = {
     id: "task-a",
@@ -199,9 +235,9 @@ test("background and tray behavior remains explicit and tray menu exposes requir
   });
   const instance = tray.ensure();
   assert.deepEqual(instance.menu.filter((item) => item.label).map((item) => item.label), [
-    "打开栖页", "今天的任务", "添加任务", "暂停提醒 1 小时", "退出",
+    "打开栖页", "今天的日程", "创建日程", "暂停提醒 1 小时", "退出",
   ]);
-  instance.menu.find((item) => item.label === "今天的任务").click();
+  instance.menu.find((item) => item.label === "今天的日程").click();
   instance.menu.find((item) => item.label === "暂停提醒 1 小时").click();
   assert.deepEqual(calls.slice(-2), [["today"], ["pause", true]]);
   tray.destroy();

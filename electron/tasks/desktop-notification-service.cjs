@@ -61,7 +61,7 @@ class DesktopNotificationService {
     if (!this.Notification?.isSupported?.()) return { supported: false };
     const notification = new this.Notification({
       title: task.title,
-      body: task.dueAt ? `任务提醒 · ${new Date(task.dueAt).toLocaleString()}` : "栖页本地任务提醒",
+      body: task.startAt || task.dueAt ? `日程提醒 · ${new Date(task.startAt || task.dueAt).toLocaleString()}` : "栖页本地日程提醒",
       icon: this.icon,
       silent: options.sound === false,
       urgency: ["urgent", "high"].includes(task.priority) ? "critical" : "normal",

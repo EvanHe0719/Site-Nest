@@ -93,7 +93,14 @@ function sampleState() {
   state.assistantExecutionLogs = [
     { id: "log-1", summary: "token=assistant-log-secret" },
   ];
-  state.localTasks = [{ id: "local-task", title: "仅本机客户任务", notes: "不得上传" }];
+  state.localTasks = [{
+    id: "local-task",
+    title: "跨日客户日程",
+    notes: "允许随计划模块同步",
+    color: "#6dd3b0",
+    recurrence: { frequency: "weekly", interval: 1, weekdays: [5], customUnit: "week", until: "2026-12-31T15:59:59.000Z" },
+    tagIds: ["customer"],
+  }];
   state.taskReminders = [{ id: "local-reminder", taskId: "local-task" }];
   state.taskSettings = { remindersEnabled: true, trayOnClose: true };
   state.timelineEvents = [{ id: "local-timeline", title: "仅本机时间轴", sourceUrl: "https://example.test/?token=secret" }];
@@ -135,6 +142,9 @@ test("safe snapshot is an allowlist and excludes sessions, OAuth material, cooki
   assert.equal(Object.hasOwn(snapshot, "timelineEvents"), false);
   assert.equal(Object.hasOwn(snapshot, "timelineUiSettings"), false);
   assert.equal(Object.hasOwn(snapshot, "tabGroups"), false);
+  assert.equal(snapshot.plans[0].color, "#6dd3b0");
+  assert.equal(snapshot.plans[0].recurrence.frequency, "weekly");
+  assert.deepEqual(snapshot.plans[0].tagIds, ["customer"]);
 
   const site = snapshot.sites[0];
   assert.equal(site.url, "https://safe.example.test/path?page=1");

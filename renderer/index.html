@@ -93,9 +93,9 @@
                 <span>我的站点</span>
                 <span class="nav-count" id="sidebarSiteCount">0</span>
               </button>
-              <button class="nav-item" type="button" data-route="plan" title="计划">
+              <button class="nav-item" type="button" data-route="plan" title="日程">
                 <span class="nav-icon" data-icon="calendar"></span>
-                <span>计划</span>
+                <span>日程</span>
                 <span class="nav-count" id="sidebarTaskCount">0</span>
               </button>
               <button class="nav-item" type="button" data-route="automations" title="自动化中心">
@@ -178,7 +178,7 @@
                 <strong class="google-sync-error-title is-hidden" id="googleSyncErrorTitle"></strong>
                 <p class="google-sync-error is-hidden" id="googleSyncError" role="status"></p>
                 <p class="google-sync-notice">
-                  Google Drive 用于保存栖页自己的站点、计划、设置和历史数据，不会接管 Chrome 官方同步。
+                  Google Drive 用于保存栖页自己的站点、日程、设置和历史数据，不会接管 Chrome 官方同步。
                 </p>
                 <div class="google-sync-actions">
                   <button class="primary-button google-sync-action google-sync-action--wide" id="googleSignInButton" type="button" data-action-id="google.sign-in">
@@ -465,17 +465,17 @@
             <div class="page-scroll content-scroll plan-scroll">
               <header class="content-header plan-header">
                 <div>
-                  <span class="section-kicker">LOCAL PLAN</span>
-                  <h1>计划</h1>
-                  <p>任务用于计划未来；时间轴用于记录已经发生或持续的重要经历，均只保存在这台电脑。</p>
+                  <span class="section-kicker">LOCAL SCHEDULE</span>
+                  <h1>日程</h1>
+                  <p>日程用于安排未来；时间轴用于记录已经发生或持续的重要经历，均只保存在这台电脑。</p>
                 </div>
-                <div class="plan-header-actions"><button class="secondary-button" type="button" data-open-content-tags><span data-icon="tag"></span>内容标签</button><button class="primary-button" id="planAddTaskButton" type="button"><span data-icon="plus"></span>添加任务</button></div>
+                <div class="plan-header-actions"><button class="secondary-button" type="button" data-open-content-tags><span data-icon="tag"></span>内容标签</button><button class="primary-button" id="planAddTaskButton" type="button"><span data-icon="plus"></span>创建日程</button></div>
               </header>
-              <div class="plan-view-tabs" id="planViewTabs" role="tablist" aria-label="计划视图">
+              <div class="plan-view-tabs" id="planViewTabs" role="tablist" aria-label="日程视图">
                 <button class="is-active" type="button" data-task-view="week" role="tab">本周</button>
                 <button type="button" data-task-view="month" role="tab">本月</button>
                 <button type="button" data-task-view="habits" role="tab">习惯打卡</button>
-                <button type="button" data-task-view="all" role="tab">全部任务</button>
+                <button type="button" data-task-view="all" role="tab">全部日程</button>
                 <button type="button" data-task-view="completed" role="tab">已完成</button>
                 <button type="button" data-task-view="timeline" role="tab">时间轴</button>
               </div>
@@ -488,10 +488,10 @@
               </section>
               <section class="plan-view-panel" id="taskMonthPanel" data-task-panel="month" hidden>
                 <div class="plan-period-toolbar">
-                  <div><strong id="taskMonthTitle">本月</strong><small>仅显示栖页本地任务</small></div>
+                  <div><strong id="taskMonthTitle">本月</strong><small>跨日安排会连续铺在日期之间</small></div>
                   <div><button type="button" data-month-move="-1">上个月</button><button type="button" data-month-move="0">本月</button><button type="button" data-month-move="1">下个月</button></div>
                 </div>
-                <div class="task-month-layout"><div class="task-month-calendar" id="taskMonthCalendar"></div><aside class="task-selected-day"><h2 id="taskSelectedDayTitle">当天任务</h2><div id="taskSelectedDayList"></div></aside></div>
+                <div class="task-month-layout"><div class="task-month-calendar" id="taskMonthCalendar"></div></div>
               </section>
               <section class="plan-view-panel habit-panel" id="habitPanel" data-task-panel="habits" hidden>
                 <div class="habit-summary-bar">
@@ -898,7 +898,7 @@
                       <div><span class="section-kicker">KEYBOARD SHORTCUTS</span><h3>快捷键</h3></div>
                       <span class="status-pill" id="shortcutPlatformStatus">当前平台</span>
                     </div>
-                    <p>自定义栖页中的搜索、导航、页签、计划和网页操作快捷键。这里只显示已经注册并可调用的真实界面动作。</p>
+                    <p>自定义栖页中的搜索、导航、页签、日程和网页操作快捷键。这里只显示已经注册并可调用的真实界面动作。</p>
                     <div class="shortcut-toolbar">
                       <label class="shortcut-search"><span data-icon="search"></span><input id="shortcutSearchInput" type="search" placeholder="搜索快捷键" autocomplete="off" /></label>
                       <select id="shortcutCategoryFilter" aria-label="按分类筛选"><option value="">全部分类</option></select>
@@ -965,7 +965,7 @@
                     <div class="settings-title-row"><div><span class="section-kicker">NOTIFICATIONS &amp; BACKGROUND</span><h3>通知与后台</h3></div><span class="status-pill" id="taskReminderSettingsStatus">提醒已关闭</span></div>
                     <p>最小化到托盘时提醒继续；完全退出后提醒停止。托盘模式会释放网页视图，只保留轻量主进程和最近一条提醒计时器。</p>
                     <div class="task-settings-grid">
-                      <label class="settings-switch-row"><span><strong>启用任务提醒</strong><small>使用 Windows 桌面通知</small></span><input id="taskRemindersEnabled" type="checkbox" /></label>
+                      <label class="settings-switch-row"><span><strong>启用日程提醒</strong><small>使用 Windows 桌面通知</small></span><input id="taskRemindersEnabled" type="checkbox" /></label>
                       <label class="settings-switch-row"><span><strong>关闭窗口后驻留托盘</strong><small>关闭不等于完全退出</small></span><input id="taskTrayOnClose" type="checkbox" /></label>
                       <label class="settings-switch-row"><span><strong>随系统启动</strong><small>使用 Windows 登录启动项</small></span><input id="taskAutoLaunch" type="checkbox" /></label>
                       <label class="settings-switch-row"><span><strong>启动时保持最小化</strong><small>可从托盘打开栖页</small></span><input id="taskStartMinimized" type="checkbox" /></label>
@@ -1108,7 +1108,7 @@
                     <fieldset class="google-sync-module-settings" id="googleSyncModuleSettings">
                       <legend>同步内容</legend>
                       <label><input type="checkbox" data-google-sync-module="sites" checked> 站点</label>
-                      <label><input type="checkbox" data-google-sync-module="plans" checked> 计划</label>
+                      <label><input type="checkbox" data-google-sync-module="plans" checked> 日程</label>
                       <label><input type="checkbox" data-google-sync-module="settings" checked> 设置（含 DeepSeek 模型与偏好，不含 API Key）</label>
                       <label><input type="checkbox" data-google-sync-module="searchHistory" checked> 搜索历史</label>
                       <label><input type="checkbox" data-google-sync-module="browsingHistory" checked> 浏览历史</label>
@@ -1198,7 +1198,7 @@
                       </div>
                       <span class="status-pill" id="contentTagTotal">0 个标签</span>
                     </div>
-                    <p>用同一套标签整理任务、习惯、时间线、站点和用户脚本。别名只用于明确映射，不会自动推断同义词。</p>
+                    <p>用同一套标签整理日程、习惯、时间线、站点和用户脚本。别名只用于明确映射，不会自动推断同义词。</p>
                     <div class="content-tags-toolbar">
                       <button class="primary-button compact-button" id="addContentTagButton" type="button" data-action-id="content-tag.save"><span data-icon="plus"></span>新增标签</button>
                       <button class="secondary-button compact-button" id="addContentTagGroupButton" type="button"><span data-icon="folder"></span>新增分组</button>
@@ -1485,7 +1485,7 @@
       <section class="global-search-card">
         <header class="global-search-header">
           <span data-icon="search"></span>
-          <input id="globalSearchInput" type="search" placeholder="搜索网页、站点、书签、任务，或输入网址" autocomplete="off" aria-label="全局搜索" />
+          <input id="globalSearchInput" type="search" placeholder="搜索网页、站点、书签、日程，或输入网址" autocomplete="off" aria-label="全局搜索" />
           <select id="globalSearchEngine" aria-label="本次搜索引擎"></select>
           <button class="icon-button icon-button--small" id="closeGlobalSearch" type="button" aria-label="关闭全局搜索"><span data-icon="close"></span></button>
         </header>
@@ -1525,29 +1525,75 @@
       </div>
     </div>
 
-    <div class="modal-backdrop" id="taskModal" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle">
+    <div class="modal-backdrop schedule-modal-backdrop" id="taskModal" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle">
       <div class="modal-card task-modal-card">
-        <div class="modal-header"><div><span class="section-kicker">LOCAL TASK</span><h2 id="taskModalTitle">添加任务</h2></div><button class="icon-button" type="button" data-close-modal="taskModal" aria-label="关闭"><span data-icon="close"></span></button></div>
-        <form id="taskForm" data-action-id="task.save">
-          <input id="taskId" type="hidden" />
-          <label class="form-field"><span>任务标题</span><input id="taskTitle" maxlength="300" required placeholder="例如：回复采购退货单位工单" /></label>
-          <label class="form-field"><span>备注</span><textarea id="taskNotes" rows="3" maxlength="5000" placeholder="可选，仅保存在本机"></textarea></label>
-          <div class="form-field-row task-form-field-row--three">
-            <label class="form-field"><span>所属空间</span><select id="taskWorkspace"><option value="personal">个人</option><option value="work">工作</option><option value="research">研究</option></select></label>
-            <label class="form-field"><span>优先级</span><select id="taskPriority"><option value="low">低</option><option value="normal" selected>普通</option><option value="high">高</option><option value="urgent">紧急</option></select></label>
-            <label class="form-field"><span>状态</span><select id="taskStatus"><option value="todo">待办</option><option value="doing">进行中</option><option value="done">已完成</option><option value="cancelled">已取消</option></select></label>
-          </div>
-          <div class="form-field-row">
-            <label class="form-field"><span>开始时间</span><input id="taskStartAt" type="datetime-local" /></label>
-            <label class="form-field"><span>截止时间</span><input id="taskDueAt" type="datetime-local" /></label>
-          </div>
-          <label class="settings-switch-row task-all-day-row"><span><strong>全天任务</strong><small>仍以本机时区存储和显示</small></span><input id="taskAllDay" type="checkbox" /></label>
-          <fieldset class="task-reminder-fieldset"><legend>提醒</legend><label><input type="checkbox" name="taskReminder" value="0" /> 到期时</label><label><input type="checkbox" name="taskReminder" value="5" /> 提前 5 分钟</label><label><input type="checkbox" name="taskReminder" value="10" /> 提前 10 分钟</label><label><input type="checkbox" name="taskReminder" value="15" /> 提前 15 分钟</label><label><input type="checkbox" name="taskReminder" value="30" /> 提前 30 分钟</label><label><input type="checkbox" name="taskReminder" value="60" /> 提前 1 小时</label><label><input type="checkbox" name="taskReminder" value="1440" /> 提前 1 天</label><label>自定义分钟 <input id="taskCustomReminder" type="number" min="0" max="525600" /></label></fieldset>
-          <fieldset class="content-tag-picker" data-content-tag-picker="task"><legend>内容标签 <small>统一用于跨模块整理</small></legend><input id="taskTagIds" type="hidden" /><div class="content-tag-picker-options"></div><small class="content-tag-picker-empty">尚未创建内容标签，可在“设置与数据 → 数据与备份 → 内容标签管理”中添加。</small></fieldset>
-          <label class="form-field"><span>旧标签 <small>兼容原有逗号标签</small></span><input id="taskTags" maxlength="500" placeholder="客户, SAP, 跟进" /></label>
-          <div class="modal-actions"><button class="text-button text-button--quiet is-hidden" id="deleteTaskButton" type="button" data-action-id="task.delete">删除任务</button><button class="secondary-button" type="button" data-close-modal="taskModal">取消</button><button class="primary-button" type="submit">保存任务</button></div>
-        </form>
+        <div class="schedule-modal-header"><div><span class="section-kicker">LOCAL SCHEDULE</span><h2 id="taskModalTitle">创建日程</h2></div><button class="icon-button" type="button" data-close-modal="taskModal" aria-label="关闭"><span data-icon="close"></span></button></div>
+        <div class="schedule-modal-body">
+          <form class="schedule-editor-form" id="taskForm" data-action-id="task.save">
+            <div class="schedule-editor-scroll">
+              <input id="taskId" type="hidden" />
+              <label class="schedule-subject-field"><span class="visually-hidden">添加主题</span><input id="taskTitle" maxlength="300" required placeholder="添加主题" /></label>
+
+              <section class="schedule-form-section schedule-time-section" aria-labelledby="scheduleTimeLabel">
+                <div class="schedule-section-icon" aria-hidden="true"><span data-icon="clock"></span></div>
+                <div class="schedule-section-content">
+                  <span class="visually-hidden" id="scheduleTimeLabel">日程时间</span>
+                  <div class="schedule-time-row">
+                    <label><span>开始日期</span><input id="taskStartDate" type="date" required /></label>
+                    <label class="task-time-field"><span>开始时间</span><input id="taskStartTime" type="time" step="300" required /></label>
+                    <span class="schedule-time-separator" aria-hidden="true">—</span>
+                    <label class="task-time-field"><span>结束时间</span><input id="taskEndTime" type="time" step="300" required /></label>
+                    <label><span>结束日期</span><input id="taskEndDate" type="date" required /></label>
+                  </div>
+                  <div class="schedule-time-options"><label><input id="taskAllDay" type="checkbox" /> 全天</label><span>本机时区</span></div>
+                  <div class="schedule-repeat-row">
+                    <label><span>重复</span><select id="taskRecurrence"><option value="none">不重复</option><option value="daily">每天</option><option value="weekly">每周</option><option value="weekdays">每个工作日（周一至周五）</option><option value="monthly-date">每月同日</option><option value="monthly-weekday">每月同周次</option><option value="yearly">每年同日</option><option value="custom">自定义</option></select></label>
+                    <label class="task-repeat-until-field"><span>重复至</span><input id="taskRecurrenceUntil" type="date" /></label>
+                  </div>
+                  <div class="schedule-custom-repeat" id="taskRecurrenceCustom" hidden>
+                    <label><span>每</span><input id="taskRecurrenceInterval" type="number" min="1" max="365" value="1" /></label>
+                    <label><span>周期</span><select id="taskRecurrenceUnit"><option value="day">天</option><option value="week" selected>周</option><option value="month">月</option></select></label>
+                    <fieldset><legend>重复星期</legend><label><input type="checkbox" name="taskRecurrenceWeekday" value="1" />一</label><label><input type="checkbox" name="taskRecurrenceWeekday" value="2" />二</label><label><input type="checkbox" name="taskRecurrenceWeekday" value="3" />三</label><label><input type="checkbox" name="taskRecurrenceWeekday" value="4" />四</label><label><input type="checkbox" name="taskRecurrenceWeekday" value="5" />五</label><label><input type="checkbox" name="taskRecurrenceWeekday" value="6" />六</label><label><input type="checkbox" name="taskRecurrenceWeekday" value="7" />日</label></fieldset>
+                  </div>
+                </div>
+              </section>
+
+              <section class="schedule-form-section">
+                <div class="schedule-section-icon" aria-hidden="true"><span data-icon="clock"></span></div>
+                <fieldset class="task-reminder-fieldset"><legend>提醒</legend><label><input type="checkbox" name="taskReminder" value="0" /> 开始时</label><label><input type="checkbox" name="taskReminder" value="5" /> 提前 5 分钟</label><label><input type="checkbox" name="taskReminder" value="10" /> 提前 10 分钟</label><label><input type="checkbox" name="taskReminder" value="15" /> 提前 15 分钟</label><label><input type="checkbox" name="taskReminder" value="30" /> 提前 30 分钟</label><label><input type="checkbox" name="taskReminder" value="60" /> 提前 1 小时</label><label><input type="checkbox" name="taskReminder" value="1440" /> 提前 1 天</label><label>自定义分钟 <input id="taskCustomReminder" type="number" min="0" max="525600" /></label></fieldset>
+              </section>
+
+              <div class="form-field-row task-form-field-row--three schedule-metadata-row">
+                <label class="form-field"><span>所属空间</span><select id="taskWorkspace"><option value="personal">个人</option><option value="work">工作</option><option value="research">研究</option></select></label>
+                <label class="form-field"><span>优先级</span><select id="taskPriority"><option value="low">低</option><option value="normal" selected>普通</option><option value="high">高</option><option value="urgent">紧急</option></select></label>
+                <label class="form-field"><span>待办状态</span><select id="taskStatus"><option value="todo">待办</option><option value="doing">进行中</option><option value="done">已完成</option><option value="cancelled">已取消</option></select></label>
+              </div>
+
+              <fieldset class="schedule-color-picker"><legend>日程颜色</legend><input id="taskColor" type="color" value="#23a783" aria-label="自定义日程颜色" /><div class="schedule-color-presets" aria-label="常用颜色"><button type="button" data-task-color="#23a783" aria-label="薄荷绿"></button><button type="button" data-task-color="#3b82f6" aria-label="蓝色"></button><button type="button" data-task-color="#8b5cf6" aria-label="紫色"></button><button type="button" data-task-color="#f59e0b" aria-label="橙色"></button><button type="button" data-task-color="#ef6461" aria-label="珊瑚红"></button><button type="button" data-task-color="#64748b" aria-label="灰蓝"></button></div></fieldset>
+              <label class="form-field"><span>执行任务与备注</span><textarea id="taskNotes" rows="3" maxlength="5000" placeholder="补充要做什么、会议链接或其他说明"></textarea></label>
+              <fieldset class="content-tag-picker" data-content-tag-picker="task"><legend>内容标签 <small>统一用于跨模块整理</small></legend><input id="taskTagIds" type="hidden" /><div class="content-tag-picker-options"></div><small class="content-tag-picker-empty">尚未创建内容标签，可在“设置与数据 → 数据与备份 → 内容标签管理”中添加。</small></fieldset>
+              <label class="form-field"><span>旧标签 <small>兼容原有逗号标签</small></span><input id="taskTags" maxlength="500" placeholder="客户, SAP, 跟进" /></label>
+            </div>
+            <div class="modal-actions schedule-modal-actions"><button class="text-button text-button--quiet is-hidden" id="deleteTaskButton" type="button" data-action-id="task.delete">删除日程</button><span></span><button class="secondary-button" type="button" data-close-modal="taskModal">取消</button><button class="primary-button" type="submit">保存</button></div>
+          </form>
+
+          <aside class="schedule-day-preview" aria-label="当日日程时间轴">
+            <header><div class="schedule-preview-nav"><button type="button" data-task-preview-move="0">今天</button><button type="button" data-task-preview-move="-1" aria-label="前一天">‹</button><button type="button" data-task-preview-move="1" aria-label="后一天">›</button></div><div><strong id="taskPreviewDateTitle">今天</strong><small id="taskPreviewDateSubtitle"></small></div></header>
+            <div class="schedule-preview-timezone">GMT+8 · 本机时间</div>
+            <div class="schedule-preview-all-day" id="taskPreviewAllDay" hidden></div>
+            <div class="schedule-preview-grid" id="taskPreviewGrid"></div>
+          </aside>
+        </div>
       </div>
+    </div>
+
+    <div class="task-detail-layer" id="taskDetailLayer" aria-hidden="true">
+      <button class="task-detail-scrim" id="taskDetailScrim" type="button" aria-label="关闭日程详情"></button>
+      <aside class="task-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="taskDetailTitle">
+        <header><div class="task-detail-heading"><span id="taskDetailColor"></span><div><small>日程详情</small><h2 id="taskDetailTitle"></h2></div></div><div class="task-detail-actions"><button id="taskDetailEdit" type="button" aria-label="修改日程"><span data-icon="edit"></span></button><button id="taskDetailDelete" type="button" aria-label="删除日程"><span data-icon="trash"></span></button><button id="taskDetailClose" type="button" aria-label="关闭"><span data-icon="close"></span></button></div></header>
+        <div class="task-detail-content" id="taskDetailContent"></div>
+        <footer><button class="secondary-button" id="taskDetailTimeline" type="button">记录到时间轴</button><button class="primary-button" id="taskDetailStatusAction" type="button">标记完成</button></footer>
+      </aside>
     </div>
 
     <div class="modal-backdrop" id="timelineEventModal" role="dialog" aria-modal="true" aria-labelledby="timelineEventModalTitle">
@@ -1872,6 +1918,7 @@
 
     <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 
+    <script src="./task-calendar.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

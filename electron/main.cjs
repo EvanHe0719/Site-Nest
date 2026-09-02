@@ -68,6 +68,7 @@ const {
   DownloadManager,
   ExternalProtocolService,
   ManagedPopupService,
+  normalizeNavigationReferrer,
   NavigationPerformanceTracer,
   PageCapabilityOrchestrator,
   PageResourceService,
@@ -591,6 +592,7 @@ function createRuntimeTab(workspaceId, persisted = {}) {
       persisted.reliableContext && typeof persisted.reliableContext === "object"
         ? { ...persisted.reliableContext }
         : null,
+    pendingHttpReferrer: normalizeNavigationReferrer(url, persisted.httpReferrer),
     currentHomeUrl: homeURL,
     currentSiteId: siteId,
     browserProfileId,
@@ -1250,6 +1252,7 @@ function getBrowserServices() {
       return openTransientBrowserTab(context.workspaceId, url, {
         background: options.background === true,
         browserProfileId: context.browserProfileId,
+        referrer: options.referrer,
       });
     },
     openExternal: async (url) => {
@@ -1267,7 +1270,10 @@ function getBrowserServices() {
         noLink: true,
       });
       if (result.response === 1) {
-        await openTransientBrowserTab(context.workspaceId, details.url);
+        await openTransientBrowserTab(context.workspaceId, details.url, {
+          browserProfileId: context.browserProfileId,
+          referrer: details.referrer?.url || context.view?.webContents?.getURL?.(),
+        });
       }
     },
     onBlocked: (decision) => {
@@ -2609,6 +2615,16 @@ async function inspectKnownSiteIssue(context = activeBrowserContext()) {
   }
   const hasNetworkPage =
     /Network Error/i.test(title) || /Oops!\s*Network Error/i.test(body);
+  const hasCloudflareChallenge =
+    /(?:403|Just a moment|Attention Required|Cloudflare)/i.test(title)
+    || /(?:403 Forbidden|cf-chl-|Cloudflare Ray ID|Performing security verification)/i.test(body);
+  if (hasCloudflareChallenge) {
+    compactBrowserState({
+      siteIssue: "nodeseek-challenge",
+      error: "NodeSeek 要求完成 Cloudflare 站点验证；栖页已保留当前会话，请在页面完成验证后重试",
+    }, context);
+    return;
+  }
   if (!hasNetworkPage) {
     context.nodeSeekAutoRetryUsed = false;
     compactBrowserState({ siteIssue: "" }, context);
@@ -2665,9 +2681,9 @@ async function repairCurrentSiteNetwork(context = activeBrowserContext()) {
   return context.browserState;
 }
 
-async function loadUrlAllowingRedirectAbort(contents, url) {
+async function loadUrlAllowingRedirectAbort(contents, url, options = {}) {
   try {
-    await contents.loadURL(url);
+    await contents.loadURL(url, options.httpReferrer ? { httpReferrer: options.httpReferrer } : undefined);
   } catch (error) {
     const aborted =
       error?.code === "ERR_ABORTED" ||
@@ -3189,6 +3205,8 @@ function destroyAllWorkspaceBrowserViews() {
 function ensureRuntimeTabView(tab, options = {}) {
   const view = ensureSiteView(tab);
   const targetURL = normalizeUrl(options.url || tab.browserState.currentURL);
+  const httpReferrer = normalizeNavigationReferrer(targetURL, options.httpReferrer || tab.pendingHttpReferrer);
+  tab.pendingHttpReferrer = "";
   const liveURL = view.webContents.getURL();
   if (!liveURL || options.forceURL) {
     compactBrowserState(
@@ -3202,7 +3220,7 @@ function ensureRuntimeTabView(tab, options = {}) {
         if (tab.navigationTraceId) {
           navigationPerformanceTracer.mark(tab.navigationTraceId, "loadUrlCalledAt");
         }
-        return loadUrlAllowingRedirectAbort(navigationView.webContents, targetURL);
+        return loadUrlAllowingRedirectAbort(navigationView.webContents, targetURL, { httpReferrer });
       })
       .catch((error) => {
         if (tab.view !== navigationView || navigationView.webContents.isDestroyed()) return;
@@ -3374,6 +3392,7 @@ async function createRuntimeBrowserTab(workspace, input = {}) {
     createdAt: input.createdAt,
     lastActiveAt: input.lastActiveAt,
     favicon: input.favicon,
+    httpReferrer: input.httpReferrer,
   });
   rememberSapNavigation(tab, url);
   if (input.insertAfterTabId && workspace.tabs.has(String(input.insertAfterTabId))) {
@@ -3400,6 +3419,7 @@ async function openTransientBrowserTab(workspaceId, rawUrl, options = {}) {
   });
   const workspace = ensureWorkspaceBrowserContext(workspaceId, snapshot);
   const url = normalizeUrl(rawUrl);
+  const httpReferrer = normalizeNavigationReferrer(url, options.referrer);
   const existing = options.allowDuplicate === true
     ? null
     : findRuntimeTabByReliableContext(workspace, options.reliableContext) ||
@@ -3425,6 +3445,7 @@ async function openTransientBrowserTab(workspaceId, rawUrl, options = {}) {
     browserProfileId: options.browserProfileId || DEFAULT_BROWSER_PROFILE_ID,
     allowDuplicate: options.allowDuplicate === true,
     activate: options.background !== true,
+    httpReferrer,
   });
   if (options.background === true) {
     await ensureRuntimeTabView(tab, { url, forceURL: true });
@@ -5433,6 +5454,11 @@ async function initializeWeatherService() {
     },
   });
   weatherService.schedule();
+  const initialWeatherStatus = weatherService.status();
+  if (initialWeatherStatus.configured && !initialWeatherStatus.snapshot) {
+    void weatherService.refresh().catch(() => undefined);
+    emitWeatherStatus(weatherService.status());
+  }
   return weatherService;
 }
 
@@ -6220,8 +6246,9 @@ function registerIpc() {
     try {
       const runtime = (await initializeCompanionRuntime()).snapshot();
       if (action === "status") {
+        const weather = (await initializeWeatherService()).status();
         const ai = await getCompanionAIServices().ai.status();
-        return { ok: true, value: companionPageWidgetSnapshot(runtime, { ai }) };
+        return { ok: true, value: companionPageWidgetSnapshot(runtime, { weather, ai }) };
       }
       if (action === "weather.refresh") {
         const service = await initializeWeatherService();
@@ -7492,28 +7519,56 @@ function createMainWindow() {
           })()`);
           console.log(JSON.stringify({ contentTagProbe: result }));
           await new Promise((resolve) => setTimeout(resolve, 900));
-        } else if (["plan-week", "plan-month", "task-modal"].includes(CAPTURE_ROUTE)) {
-          await mainWindow.webContents.executeJavaScript(`(async () => {
+        } else if (["plan-week", "plan-month", "task-modal", "task-detail"].includes(CAPTURE_ROUTE)) {
+          const result = await mainWindow.webContents.executeJavaScript(`(async () => {
             const now = new Date();
-            const at = (days, hour) => {
+            const at = (days, hour, minute = 0) => {
               const value = new Date(now);
               value.setDate(value.getDate() + days);
-              value.setHours(hour, 0, 0, 0);
+              value.setHours(hour, minute, 0, 0);
               return value.toISOString();
             };
             const fixtures = [
-              { title: '回复采购退货单位工单', workspaceId: 'work', priority: 'urgent', dueAt: at(0, 11), reminderOffsets: [10] },
-              { title: '整理 Emma 知识检索结果', workspaceId: 'research', priority: 'high', status: 'doing', dueAt: at(1, 16), reminderOffsets: [30] },
-              { title: '复核本周客户跟进清单', workspaceId: 'work', priority: 'normal', dueAt: at(3, 17), reminderOffsets: [] },
-              { title: '阅读 Linux DO 收藏文章', workspaceId: 'personal', priority: 'low', dueAt: at(5, 20), reminderOffsets: [] },
+              { title: '客户交付窗口', notes: '核对交付范围并执行验收清单。', workspaceId: 'work', priority: 'urgent', color: '#ef6461', startAt: at(-1, 9), dueAt: at(8, 18), allDay: true, reminderOffsets: [1440] },
+              { title: '内部学习会议', notes: '准备议题、加入会议并记录结论。', workspaceId: 'work', priority: 'normal', color: '#23a783', startAt: at(0, 15, 30), dueAt: at(0, 16, 30), reminderOffsets: [15] },
+              { title: '整理 Emma 知识检索结果', workspaceId: 'research', priority: 'high', status: 'doing', color: '#8b5cf6', startAt: at(1, 15), dueAt: at(1, 16), reminderOffsets: [30] },
+              { title: '周五复盘', workspaceId: 'personal', priority: 'low', color: '#3b82f6', startAt: at(2, 17), dueAt: at(2, 17, 45), recurrence: { frequency: 'weekly', weekdays: [5] }, reminderOffsets: [] },
             ];
             for (const fixture of fixtures) await window.siteNest.addTask(fixture);
             await loadTasks();
             currentTaskView = ${JSON.stringify(CAPTURE_ROUTE === "plan-month" ? "month" : "week")};
             navigateTo('plan');
-            if (${JSON.stringify(CAPTURE_ROUTE)} === 'task-modal') openTaskModal(taskState.tasks[0]);
-            return { taskCount: taskState.tasks.length, view: currentTaskView };
+            const rangeTask = taskState.tasks.find((task) => task.title === '客户交付窗口') || taskState.tasks[0];
+            if (${JSON.stringify(CAPTURE_ROUTE)} === 'task-modal') openTaskModal(null, now);
+            if (${JSON.stringify(CAPTURE_ROUTE)} === 'task-detail') openTaskDetail(rangeTask);
+            let previewDateChange = null;
+            if (${JSON.stringify(CAPTURE_ROUTE)} === 'task-modal') {
+              const originalStart = taskStartDate.value;
+              const originalEnd = taskEndDate.value;
+              const beforeTitle = taskPreviewDateTitle.textContent;
+              taskStartDate.value = '2031-09-10';
+              taskEndDate.value = '2031-09-10';
+              taskStartDate.dispatchEvent(new Event('change', { bubbles: true }));
+              const afterTitle = taskPreviewDateTitle.textContent;
+              previewDateChange = { beforeTitle, afterTitle, draftVisible: Boolean(document.querySelector('.schedule-preview-event.is-draft, #taskPreviewAllDay:not([hidden])')) };
+              taskStartDate.value = originalStart;
+              taskEndDate.value = originalEnd;
+              taskStartDate.dispatchEvent(new Event('change', { bubbles: true }));
+              taskEndDate.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            return {
+              taskCount: taskState.tasks.length,
+              view: currentTaskView,
+              weekEntries: document.querySelectorAll('.task-agenda-item').length,
+              monthBars: document.querySelectorAll('.task-month-event').length,
+              selectedDaySidebarExists: Boolean(document.querySelector('.task-selected-day')),
+              modalOpen: document.getElementById('taskModal').classList.contains('is-open'),
+              previewHours: document.querySelectorAll('.schedule-preview-hour').length,
+              detailOpen: document.getElementById('taskDetailLayer').classList.contains('is-open'),
+              previewDateChange
+            };
           })()`);
+          console.log(JSON.stringify({ scheduleCapture: result }));
           await new Promise((resolve) => setTimeout(resolve, 900));
         } else if (CAPTURE_ROUTE === "sites") {
           await mainWindow.webContents.executeJavaScript("navigateTo('sites')");
@@ -8010,6 +8065,27 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
             url: originURL,
             name: "shared_session",
           });
+          const tabTargetURL = new URL("/popup-tab-target", TAB_PROBE_BASE_URL).toString();
+          openerTab.keepRunning = true;
+          await contents.executeJavaScript(`(() => {
+            const link = document.createElement('a');
+            link.href = ${JSON.stringify(new URL("/popup-tab-target", TAB_PROBE_BASE_URL).toString())};
+            link.target = '_blank';
+            link.textContent = 'Open article';
+            document.body.appendChild(link);
+            link.click();
+            return true;
+          })()`);
+          let targetTab = null;
+          for (let attempt = 0; attempt < 160; attempt += 1) {
+            targetTab = Array.from(workspace.tabs.values()).find((tab) => tab.tabId !== openerTab.tabId && tab.browserState.currentURL === tabTargetURL) || null;
+            if (targetTab?.view) {
+              await waitForRuntimeTabNavigation(targetTab);
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+          if (!targetTab?.view) throw new Error("target=_blank link did not become a managed tab");
           console.log(JSON.stringify({
             browserPopupProbe: {
               messages,
@@ -8020,6 +8096,10 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
               remainingManagedWindows: managedPopupService?.windows.size || 0,
               openerUrl: contents.getURL(),
               tabCount: workspace.tabs.size,
+              targetBlankTab: {
+                url: targetTab.view.webContents.getURL(),
+                partition: browserPartitionForProfile(targetTab.browserProfileId),
+              },
             },
           }));
         } else if (CAPTURE_ROUTE === "workspace-tabs-duplicate-probe") {

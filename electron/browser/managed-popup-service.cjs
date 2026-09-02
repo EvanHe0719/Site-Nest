@@ -12,6 +12,21 @@ function sanitizeNavigationUrl(rawUrl) {
   }
 }
 
+function normalizeNavigationReferrer(targetUrl, rawReferrer) {
+  try {
+    const target = new URL(String(targetUrl || ""));
+    const referrer = new URL(String(rawReferrer || ""));
+    if (!["http:", "https:"].includes(target.protocol) || target.origin !== referrer.origin) return "";
+    referrer.username = "";
+    referrer.password = "";
+    referrer.search = "";
+    referrer.hash = "";
+    return referrer.toString();
+  } catch {
+    return "";
+  }
+}
+
 class ManagedPopupService {
   constructor({
     BrowserWindow,
@@ -67,10 +82,12 @@ class ManagedPopupService {
         return { action: "deny" };
       }
       const decision = this.policyService.classify(details, webContents.getURL());
+      const referrer = normalizeNavigationReferrer(details.url, details.referrer?.url || webContents.getURL());
       if (decision.kind === "tab" || decision.kind === "background-tab") {
         setImmediate(() => void this.openTab(details.url, {
           background: decision.kind === "background-tab",
           context,
+          referrer,
         }));
         return { action: "deny" };
       }
@@ -91,7 +108,7 @@ class ManagedPopupService {
         return { action: "deny" };
       }
       if (decision.kind === "popup" && decision.preserveOpener === false && !details.postBody) {
-        setImmediate(() => void this.openTab(details.url, { context, source: "popup-policy" }));
+        setImmediate(() => void this.openTab(details.url, { context, source: "popup-policy", referrer }));
         return { action: "deny" };
       }
       return {
@@ -119,7 +136,7 @@ class ManagedPopupService {
     const moveToTab = async () => {
       const url = childWindow.webContents.getURL();
       if (!/^https?:\/\//i.test(url)) return;
-      await this.openTab(url, { context, source: "managed-popup" });
+      await this.openTab(url, { context, source: "managed-popup", referrer: normalizeNavigationReferrer(url, details.referrer?.url || details.url) });
       if (!childWindow.isDestroyed()) childWindow.close();
     };
     const popupMenu = this.Menu.buildFromTemplate([
@@ -215,4 +232,4 @@ class ManagedPopupService {
   }
 }
 
-module.exports = { ManagedPopupService, sanitizeNavigationUrl };
+module.exports = { ManagedPopupService, normalizeNavigationReferrer, sanitizeNavigationUrl };

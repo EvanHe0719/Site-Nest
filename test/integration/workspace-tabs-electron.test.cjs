@@ -87,7 +87,7 @@ test(
   async (t) => {
     const requests = [];
     const server = http.createServer((request, response) => {
-      requests.push({ method: request.method, url: request.url });
+      requests.push({ method: request.method, url: request.url, referer: request.headers.referer || "" });
       const requestUrl = new URL(request.url, "http://127.0.0.1");
       if (requestUrl.pathname === "/popup-oauth") {
         response.writeHead(302, { location: "/popup-oauth-redirect?session=fixture-session" });
@@ -117,6 +117,10 @@ test(
       }
       if (requestUrl.pathname === "/popup-download-page") {
         response.end('<!doctype html><title>Popup download</title><a id="popup-download-link" href="/popup-file.txt" download>Download</a>');
+        return;
+      }
+      if (requestUrl.pathname === "/popup-tab-target") {
+        response.end("<!doctype html><title>Managed article</title><main>managed article</main>");
         return;
       }
       const kind = requestUrl.pathname === "/popup-post"
@@ -157,11 +161,14 @@ test(
     assert.equal(probe.popupDownloadTriggered, true);
     assert.equal(probe.remainingManagedWindows, 0);
     assert.equal(probe.openerUrl, new URL("/popup-origin", baseURL).toString());
-    assert.equal(probe.tabCount, 1);
+    assert.equal(probe.tabCount, 2);
+    assert.equal(probe.targetBlankTab.url, new URL("/popup-tab-target", baseURL).toString());
+    assert.equal(probe.targetBlankTab.partition, "persist:qiye-sites");
     assert.ok(requests.some((item) => item.method === "POST" && item.url === "/popup-post"));
     assert.ok(requests.some((item) => item.url.startsWith("/popup-oauth-redirect")));
     assert.ok(requests.some((item) => item.url.startsWith("/popup-oauth-callback")));
     assert.ok(requests.some((item) => item.url === "/popup-file.txt"));
+    assert.ok(requests.some((item) => item.url === "/popup-tab-target" && item.referer === new URL("/popup-origin", baseURL).toString()));
     const auditText = JSON.stringify(probe.navigationAudits);
     assert.match(auditText, /popup-oauth-redirect/);
     assert.match(auditText, /popup-oauth-callback/);

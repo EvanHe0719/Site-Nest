@@ -49,6 +49,7 @@ class WeatherService {
     this.inflight = null;
     this.timer = null;
     this.sleeping = false;
+    this.lastError = null;
   }
 
   updateSettings(value = {}) {
@@ -57,6 +58,7 @@ class WeatherService {
     if (String(previousCity).trim().toLowerCase() !== String(this.settings.city).trim().toLowerCase()) {
       this.location = null;
       this.cache.clear();
+      this.lastError = null;
     }
     this.schedule();
   }
@@ -64,7 +66,12 @@ class WeatherService {
   status() {
     if (this.settings.enabled !== true || !String(this.settings.city || "").trim()) return { configured: false, status: "not-configured", snapshot: null, error: null };
     const snapshot = this.cache.get();
-    return { configured: true, status: this.inflight ? "refreshing" : snapshot ? snapshot.stale ? "stale" : "ready" : "idle", snapshot, error: null };
+    return {
+      configured: true,
+      status: this.inflight ? "refreshing" : snapshot ? snapshot.stale ? "stale" : "ready" : this.lastError ? "error" : "idle",
+      snapshot,
+      error: this.lastError ? { ...this.lastError } : null,
+    };
   }
 
   async refresh(options = {}) {
@@ -75,7 +82,15 @@ class WeatherService {
     }
     if (this.inflight) return this.inflight.promise;
     const controller = new AbortController();
-    const promise = this._refresh(controller.signal).finally(() => { if (this.inflight?.controller === controller) this.inflight = null; });
+    const promise = this._refresh(controller.signal)
+      .catch((error) => {
+        this.lastError = { code: String(error?.code || "WEATHER_ERROR"), message: String(error?.message || "天气获取失败").slice(0, 300) };
+        throw error;
+      })
+      .finally(() => {
+        if (this.inflight?.controller === controller) this.inflight = null;
+        this.onUpdate?.(this.status());
+      });
     this.inflight = { controller, promise };
     return promise;
   }
@@ -88,8 +103,8 @@ class WeatherService {
         const previous = this.cache.get();
         const snapshot = await this.provider.getForecast(this.location, signal);
         this.cache.set(snapshot);
+        this.lastError = null;
         const events = this.alerts.compare(previous, snapshot).filter((event) => this.deduplicator.accept(event));
-        this.onUpdate?.(this.status());
         for (const event of events) this.onAlert?.(event);
         return { snapshot, alerts: events, cached: false };
       } catch (error) {

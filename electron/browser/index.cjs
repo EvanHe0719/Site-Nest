@@ -11,7 +11,7 @@ const {
   WebViewPool,
   normalizeBrowserMemorySettings,
 } = require("./webview-lifecycle-manager.cjs");
-const { ManagedPopupService } = require("./managed-popup-service.cjs");
+const { ManagedPopupService, normalizeNavigationReferrer } = require("./managed-popup-service.cjs");
 const { resolveNavigationTarget, securityStateForUrl } = require("./navigation-target.cjs");
 const { WebContextMenuService } = require("./web-context-menu-service.cjs");
 const {
@@ -59,6 +59,7 @@ module.exports = {
   WebViewPool,
   normalizeBrowserMemorySettings,
   ManagedPopupService,
+  normalizeNavigationReferrer,
   WebContextMenuService,
   BrowserMediaCapabilityService,
   isSafeEmbeddedMediaPermission,
