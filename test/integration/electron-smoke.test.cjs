@@ -297,7 +297,10 @@ test(
     assert.equal(result.opened.tabCount, 0);
     assert.equal(result.opened.inputBoundary, "iframe");
     assert.equal(result.opened.messageAvatarCount, 0);
+    assert.equal(result.opened.featureLineCount, 0);
+    assert.equal(result.opened.footerCount, 0);
     assert.equal(result.opened.welcomeInConversation, true);
+    assert.doesNotMatch(result.opened.welcomeText, /天气、健康和提问都(?:在同一处|可以直接在这里)完成/);
     assert.equal(result.opened.panelOverflowY, "hidden");
     assert.equal(result.opened.conversationOverflowY, "auto");
     assert.equal(result.opened.nestedMessageScrollerCount, 0);

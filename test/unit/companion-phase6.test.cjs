@@ -136,6 +136,9 @@ test("in-page widget is isolated, interactive, reduced-motion aware and excludes
   assert.match(widget, /nestedMessageScrollerCount/);
   assert.doesNotMatch(widget, /role="tablist"|data-pane=/);
   assert.doesNotMatch(widget, /class="message-avatar"|class="result"/);
+  assert.doesNotMatch(widget, /class="feature-line"|class="foot"|class="privacy"|class="health"/);
+  assert.doesNotMatch(widget, /天气、健康和提问都(?:在同一处|可以直接在这里)完成/);
+  assert.doesNotMatch(widget, /AI 驱动 · 本地隐私保护|健康提醒待设置/);
   assert.doesNotMatch(widget, /\.result \{ max-height|overflow:hidden auto/);
   assert.match(widget, /event\.stopPropagation\(\)/);
   assert.match(widget, /ResizeObserver\(syncHostBox\)/);

@@ -134,11 +134,7 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
       .message.user { max-width:84%; align-self:flex-end; border-color:rgba(41,141,111,.18); border-radius:14px 14px 5px 14px; background:rgba(218,244,234,.82); color:#174d3d; }
       .message.notice { border-color:rgba(38,125,103,.18); background:rgba(235,250,244,.76); color:#31594d; }
       .message[hidden] { display:none; }
-      .feature-line { display:block; margin-top:5px; color:#678078; font-size:10px; }
       .composer-frame { display:block; width:100%; height:42px; border:0; border-radius:15px; background:transparent; }
-      .foot { display:flex; min-height:23px; align-items:center; justify-content:space-between; gap:8px; padding:0 14px 8px; color:#8a9792; font-size:9px; }
-      .privacy { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-      .health { flex:0 0 auto; color:#638078; }
       @keyframes open { from { transform:translateY(6px) scale(.97); opacity:0; } to { transform:none; opacity:1; } }
       @keyframes float { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-4px); } }
       @keyframes blink { 0%,96%,100% { transform:scaleY(1); } 98% { transform:scaleY(.1); } }
@@ -161,12 +157,11 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
         <div class="head"><div class="identity"><span class="mini" data-visual-state="idle" aria-hidden="true"><i class="face-eye"></i><i class="face-eye"></i><span class="mini-zzz">zZ</span></span><span><strong>小序</strong><small class="state">陪伴中</small></span></div><button class="weather-pill is-empty" type="button" aria-label="刷新天气">☁ 天气待更新</button><button class="close" type="button" aria-label="关闭">×</button></div>
         <div class="body">
           <div class="conversation" role="log" aria-label="小序对话" aria-live="polite">
-            <div class="message assistant welcome-message"><span class="welcome">我在这里，可以直接问我问题。</span><small class="feature-line">天气、健康和提问都在同一处完成。</small></div>
+            <div class="message assistant welcome-message"><span class="welcome">我在这里，可以直接问我问题。</span></div>
             <div class="message assistant notice" hidden></div>
           </div>
           <iframe class="composer-frame" title="小序输入框" aria-label="小序输入框"></iframe>
         </div>
-        <div class="foot"><span class="privacy">DeepSeek AI 驱动 · 本地隐私保护</span><span class="health">提醒待设置</span></div>
       </section>
       <button class="orb" type="button" aria-label="打开小序" aria-expanded="false"><span class="halo h1"></span><span class="halo h2"></span><span class="halo h3"></span><span class="halo h4"></span><span class="core"><i class="face-eye"></i><i class="face-eye"></i><span class="zzz">zZ</span></span></button>
     \`;
@@ -179,8 +174,6 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
     const stateText = shadow.querySelector('.state');
     const weatherPill = shadow.querySelector('.weather-pill');
     const welcome = shadow.querySelector('.welcome');
-    const healthText = shadow.querySelector('.health');
-    const privacyText = shadow.querySelector('.privacy');
     const composerFrame = shadow.querySelector('.composer-frame');
     let composerDoc = null;
     let askInput = null;
@@ -276,17 +269,13 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
         : '☁ 天气待设置';
       const wellness = snapshot.wellness || {};
       const enabledKinds = [wellness.eyeRest && '护眼', wellness.water && '喝水', wellness.movement && '活动'].filter(Boolean);
-      healthText.textContent = wellness.enabled && enabledKinds.length ? \`已设置 \${enabledKinds.join(' · ')}\` : '健康提醒待设置';
       const weatherSentence = weather.configured
         ? weather.temperature === null
           ? '天气功能已经开启，正在等待最新数据。'
           : \`\${weather.city || '当前城市'}现在\${weather.condition || '天气平稳'}，约 \${weather.temperature}℃。\`
         : '';
       const healthSentence = wellness.enabled && enabledKinds.length ? \`我会留意\${enabledKinds.join('、')}提醒。\` : '';
-      welcome.textContent = [\`\${greeting()}！我在这里。\`, weatherSentence, healthSentence, '天气、健康和提问都可以直接在这里完成。'].filter(Boolean).join(' ');
-      privacyText.textContent = snapshot.ai?.configured
-        ? \`\${snapshot.ai.providerName || 'DeepSeek'} AI 驱动 · 本地隐私保护\`
-        : 'DeepSeek 待配置 · 天气与健康仍可使用';
+      welcome.textContent = [\`\${greeting()}！我在这里。\`, weatherSentence, healthSentence].filter(Boolean).join(' ');
       syncHostBox();
     };
     const refreshStatus = async () => {
@@ -419,8 +408,11 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
           inputBoundary: 'iframe',
           tabCount: shadow.querySelectorAll('[role="tab"],.tab').length,
           messageAvatarCount: shadow.querySelectorAll('.message-avatar').length,
+          featureLineCount: shadow.querySelectorAll('.feature-line').length,
+          footerCount: shadow.querySelectorAll('.foot').length,
           conversationMessageCount: conversation.querySelectorAll('.message').length,
           welcomeInConversation: conversation.contains(welcome),
+          welcomeText: welcome.textContent || '',
           panelOverflowY: panelStyle.overflowY,
           conversationOverflowY: conversationStyle.overflowY,
           conversationClientHeight: conversation.clientHeight,
