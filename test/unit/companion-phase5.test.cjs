@@ -136,6 +136,10 @@ test("0.5.7 keeps inert companion icons without reopening the removed sidebar", 
   assert.doesNotMatch(renderer, /globalCompanionTrigger\.addEventListener\("click"/);
   assert.doesNotMatch(renderer, /companionDock\.addEventListener\("click"/);
   assert.match(renderer, /quietReason === "fullscreen" \|\| companionRuntime\.state === "focusedDocked"/);
+  assert.match(renderer, /function companionVisualState\(snapshot = companionRuntime\)/);
+  assert.match(renderer, /return "happy"/);
+  assert.match(renderer, /return "nap"/);
+  assert.match(renderer, /return "breathing"/);
 });
 
 test("desktop companion notification exposes open, acknowledge, snooze and dismiss actions", () => {

@@ -7447,14 +7447,30 @@ function createMainWindow() {
               panelExists: Boolean(panel),
               panelClassApplied: document.getElementById('browserContent')?.classList.contains('is-companion-panel-open'),
             };
+            appState.uiSettings.companion.enabled = true;
+            renderCompanionRuntime({ ...companionRuntime, state: 'idle', quietReason: null, reminder: null });
+            const idle = { visualState: dock.dataset.visualState, bubbleVisible: !document.getElementById('companionBubble').hidden };
+            renderCompanionRuntime({ ...companionRuntime, state: 'resting', quietReason: null, reminder: null });
+            const breathing = { visualState: dock.dataset.visualState };
             renderCompanionRuntime({ ...companionRuntime, state: 'focusedDocked', quietReason: null });
-            const focused = { visible: !rail.hidden, muted: rail.classList.contains('is-companion-muted'), state: dock.dataset.state };
+            const focused = { visible: !rail.hidden, muted: rail.classList.contains('is-companion-muted'), state: dock.dataset.state, visualState: dock.dataset.visualState };
+            const reminder = { kind: 'water', message: '休息一下，记得喝水' };
+            renderCompanionRuntime({ ...companionRuntime, state: 'bubbleTip', quietReason: null, reminder });
+            const happy = {
+              visualState: dock.dataset.visualState,
+              bubbleVisible: !document.getElementById('companionBubble').hidden,
+              reminderLayout: document.getElementById('browserContent').classList.contains('is-companion-reminding'),
+            };
             renderCompanionRuntime({ ...companionRuntime, state: 'silentHidden', quietReason: 'fullscreen' });
-            const fullscreen = { visible: !rail.hidden, muted: rail.classList.contains('is-companion-muted'), title: dock.title };
+            const fullscreen = { visible: !rail.hidden, muted: rail.classList.contains('is-companion-muted'), visualState: dock.dataset.visualState, title: dock.title };
+            renderCompanionRuntime({ ...companionRuntime, state: 'bubbleTip', quietReason: null, reminder });
             return {
               before,
               opened,
+              idle,
+              breathing,
               focused,
+              happy,
               fullscreen,
             };
           })()`);

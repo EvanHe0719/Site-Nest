@@ -269,9 +269,13 @@ test(
     assert.equal(result.before.titlebarDisabled, "true");
     assert.equal(result.opened.panelExists, false);
     assert.equal(result.opened.panelClassApplied, false);
-    assert.deepEqual(result.focused, { visible: true, muted: true, state: "focusedDocked" });
+    assert.deepEqual(result.idle, { visualState: "idle", bubbleVisible: false });
+    assert.deepEqual(result.breathing, { visualState: "breathing" });
+    assert.deepEqual(result.focused, { visible: true, muted: true, state: "focusedDocked", visualState: "nap" });
+    assert.deepEqual(result.happy, { visualState: "happy", bubbleVisible: true, reminderLayout: true });
     assert.equal(result.fullscreen.visible, true);
     assert.equal(result.fullscreen.muted, true);
+    assert.equal(result.fullscreen.visualState, "nap");
     assert.match(result.fullscreen.title, /全屏/);
     assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
   },

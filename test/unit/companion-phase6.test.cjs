@@ -83,7 +83,12 @@ test("shell status orb is single-instance, inert, reduced-motion aware and never
   assert.match(html, /aria-expanded="false"/);
   assert.doesNotMatch(html, /id="companionQuickAskForm"/);
   assert.doesNotMatch(html, /id="companionWeatherPill"/);
-  assert.match(styles, /xiaoxu-orb-pulse/);
+  assert.match(styles, /xiaoxu-orb-bright-pulse/);
+  assert.match(html, /orb-pulse-ring--outer/);
+  assert.match(html, /class="orb-zzz"/);
+  assert.match(styles, /data-visual-state="nap"/);
+  assert.match(styles, /data-visual-state="happy"/);
+  assert.match(styles, /data-visual-state="breathing"/);
   assert.match(styles, /prefers-reduced-motion:\s*reduce/);
   assert.doesNotMatch(renderer, /dom\.companionDock\.focus/);
   assert.doesNotMatch(summaryExtractionScript(15_000), /companion-dock|companion-panel/);

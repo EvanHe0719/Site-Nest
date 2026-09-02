@@ -636,6 +636,7 @@ let companionRuntime = { state: "silentHidden", reminder: null, quietReason: nul
 let companionWeather = { configured: false, status: "not-configured", snapshot: null, error: null };
 let companionAIRequestId = null;
 let companionAIResult = "";
+let companionTransientReminderTimer = 0;
 let pageActionRequestId = 0;
 let pageActionRefreshTimer = 0;
 let translationStatusCache = null;
@@ -8344,6 +8345,23 @@ function companionHardHidden() {
     || ["screen-sharing", "system-away"].includes(companionRuntime.quietReason);
 }
 
+function companionVisualState(snapshot = companionRuntime) {
+  if (snapshot.reminder && snapshot.state === "bubbleTip") return "happy";
+  if (snapshot.quietReason === "fullscreen" || snapshot.state === "focusedDocked") return "nap";
+  if (snapshot.state === "resting") return "breathing";
+  return "idle";
+}
+
+function setCompanionReminderPresentation(message = "") {
+  const visible = Boolean(message && companionEnabled() && !companionHardHidden());
+  dom.companionBubble.textContent = message;
+  dom.companionBubble.hidden = !visible;
+  dom.companionEdgeRail.classList.toggle("is-notifying", visible);
+  dom.browserContent.classList.toggle("is-companion-reminding", visible);
+  if (visible) dom.companionDock.dataset.visualState = "happy";
+  return visible;
+}
+
 function renderCompanionShell() {
   const enabled = companionEnabled();
   const browserVisible = dom.browserPage.classList.contains("is-visible");
@@ -8358,20 +8376,19 @@ function renderCompanionShell() {
   );
   dom.browserContent.classList.toggle("is-companion-enabled", visible);
   dom.companionDock.setAttribute("aria-expanded", "false");
-  dom.companionDock.title = companionRuntime.reminder?.message
-    || (companionRuntime.quietReason === "fullscreen" ? "视频全屏中，小序已变淡" : enabled ? "小序状态" : "小序尚未启用");
+  dom.companionDock.title = companionRuntime.quietReason === "fullscreen"
+    ? "视频全屏中，小序已变淡"
+    : companionRuntime.reminder?.message || (enabled ? "小序状态" : "小序尚未启用");
   requestAnimationFrame(() => requestAnimationFrame(syncBrowserBounds));
 }
 
 function renderCompanionRuntime(snapshot = companionRuntime) {
   companionRuntime = { ...companionRuntime, ...(snapshot || {}) };
   dom.companionDock.dataset.state = companionRuntime.state;
+  dom.companionDock.dataset.visualState = companionVisualState(companionRuntime);
   const reminder = companionRuntime.reminder;
-  dom.companionBubble.hidden = true;
-  dom.companionBubble.textContent = reminder?.message || "";
-  dom.companionEdgeRail.classList.toggle(
-    "is-notifying",
-    Boolean(reminder && companionRuntime.state === "bubbleTip" && companionEnabled()),
+  setCompanionReminderPresentation(
+    reminder && companionRuntime.state === "bubbleTip" ? reminder.message : "",
   );
   dom.companionDock.setAttribute(
     "aria-label",
@@ -10182,11 +10199,15 @@ function bindEvents() {
   window.siteNest?.onCompanionRuntime?.(renderCompanionRuntime);
   window.siteNest?.onCompanionWeather?.(renderCompanionWeather);
   window.siteNest?.onCompanionWeatherAlert?.((event) => {
-    dom.companionBubble.textContent = event?.message || "天气发生变化";
-    dom.companionBubble.hidden = true;
-    dom.companionEdgeRail.classList.toggle("is-notifying", companionEnabled());
-    dom.companionDock.title = event?.message || "天气发生变化";
-    showToast("天气提醒", event?.message || "天气发生变化");
+    const message = event?.message || "天气发生变化";
+    window.clearTimeout(companionTransientReminderTimer);
+    setCompanionReminderPresentation(message);
+    dom.companionDock.title = message;
+    companionTransientReminderTimer = window.setTimeout(() => {
+      companionTransientReminderTimer = 0;
+      renderCompanionRuntime(companionRuntime);
+    }, 12_000);
+    showToast("天气提醒", message);
   });
   window.siteNest?.onDataStatusUpdated?.((snapshot) => {
     mergeGoogleSyncState(snapshot);
