@@ -119,6 +119,8 @@ test("safe snapshot is an allowlist and excludes sessions, OAuth material, cooki
     "bookmarks",
     "browserProfiles",
     "browsingHistory",
+    "companionConversationEntries",
+    "companionMemoryFacts",
     "plans",
     "searchHistory",
     "settings",

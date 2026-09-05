@@ -54,7 +54,7 @@ function tab(tabId, url, overrides = {}) {
 }
 
 test("current schema adds no default tab groups and preserves legacy tab order with null group metadata", () => {
-  assert.equal(CURRENT_SCHEMA_VERSION, 18);
+  assert.equal(CURRENT_SCHEMA_VERSION, 19);
   const initial = createInitialState({ now: NOW });
   assert.deepEqual(initial.tabGroups, []);
 
@@ -73,7 +73,7 @@ test("current schema adds no default tab groups and preserves legacy tab order w
     },
   };
   const migrated = migrateState(raw, { now: NOW });
-  assert.equal(migrated.toVersion, 18);
+  assert.equal(migrated.toVersion, 19);
   assert.deepEqual(migrated.state.workspaceBrowserStates.work.tabs.map((item) => item.tabId), ["first", "second"]);
   assert.deepEqual(migrated.state.workspaceBrowserStates.work.tabs.map((item) => item.tabGroupId), [null, null]);
   assert.deepEqual(migrated.state.workspaceBrowserStates.work.tabs.map((item) => item.groupSortOrder), [0, 1]);

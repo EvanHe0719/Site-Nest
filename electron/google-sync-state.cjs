@@ -117,6 +117,7 @@ function applyRemoteEnvelopeToState(localState, remoteValue, options = {}) {
   const syncSearchHistory = syncOptions.searchHistory !== false;
   const syncBrowsingHistory = syncOptions.browsingHistory !== false;
   const syncUserScriptMetadata = syncOptions.userScriptMetadata !== false;
+  const syncCompanionMemory = syncOptions.companionMemory === true;
   const tombstones = snapshot.tombstones || [];
   const scripts = syncUserScriptMetadata
     ? mergeUserScriptMetadata(localState.userScripts, snapshot.userScriptMetadata)
@@ -153,6 +154,12 @@ function applyRemoteEnvelopeToState(localState, remoteValue, options = {}) {
     browsingHistory: syncBrowsingHistory
       ? (merge ? mergeRecordsById(localState.browsingHistory, snapshot.browsingHistory, tombstones, "browsingHistory") : cloneValue(snapshot.browsingHistory))
       : cloneValue(localState.browsingHistory),
+    companionConversationEntries: syncCompanionMemory
+      ? (merge ? mergeRecordsById(localState.companionConversationEntries, snapshot.companionConversationEntries, tombstones, "companionConversationEntries") : cloneValue(snapshot.companionConversationEntries))
+      : cloneValue(localState.companionConversationEntries),
+    companionMemoryFacts: syncCompanionMemory
+      ? (merge ? mergeRecordsById(localState.companionMemoryFacts, snapshot.companionMemoryFacts, tombstones, "companionMemoryFacts") : cloneValue(snapshot.companionMemoryFacts))
+      : cloneValue(localState.companionMemoryFacts),
     userScripts: scripts.scripts,
     updatedAt: envelope.updatedAt,
   };

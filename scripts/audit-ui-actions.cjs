@@ -26,6 +26,7 @@ const DEFAULT_CRITICAL_CONTROL_IDS = Object.freeze([
   "testTranslationButton",
   "clearTranslationKeyButton",
   "runNaixiAutomation",
+  "runNodeSeekAutomation",
   "importUserScriptFile",
   "openRemoteUserScript",
   "openPastedUserScript",

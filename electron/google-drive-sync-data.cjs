@@ -1,6 +1,7 @@
 const { createHash } = require("node:crypto");
 const { CURRENT_SCHEMA_VERSION } = require("./state-model.cjs");
-const { syncableCompanionSettings } = require("./companion/settings.cjs");
+const { normalizeCompanionSettings, syncableCompanionSettings } = require("./companion/settings.cjs");
+const { normalizeConversationMemory, normalizeMemoryFacts } = require("./companion/memory-model.cjs");
 
 const SYNC_ENVELOPE_KIND = "site-nest-google-drive-sync";
 const SYNC_ENVELOPE_VERSION = 1;
@@ -186,6 +187,7 @@ function normalizeSyncOptions(value) {
     browsingHistory: input.browsingHistory !== false,
     userScriptMetadata: input.userScriptMetadata !== false,
     notifications: input.notifications === true,
+    companionMemory: input.companionMemory === true,
   };
 }
 
@@ -560,6 +562,8 @@ function normalizeSnapshot(value) {
       "当前空间不在同步空间列表中",
     );
   }
+  const syncOptions = normalizeSyncOptions(input.syncOptions);
+  const companionSettings = normalizeCompanionSettings(input.settings?.companion);
   return {
     version,
     workspaces,
@@ -568,12 +572,18 @@ function normalizeSnapshot(value) {
     browserProfiles,
     assistantSettings: normalizeAssistantSettings(input.assistantSettings),
     automationSettings: normalizeAutomationSettings(input.automationSettings),
-    syncOptions: normalizeSyncOptions(input.syncOptions),
+    syncOptions,
     plans: normalizePlans(input.plans),
     settings: safeJsonValue(input.settings || {}),
     searchHistory: normalizeHistory(input.searchHistory, "searchHistory"),
     browsingHistory: normalizeHistory(input.browsingHistory, "browsingHistory"),
     userScriptMetadata: normalizeUserScriptMetadata(input.userScriptMetadata),
+    companionConversationEntries: syncOptions.companionMemory
+      ? normalizeConversationMemory(input.companionConversationEntries, { maxTurns: companionSettings.memory.maxTurns })
+      : [],
+    companionMemoryFacts: syncOptions.companionMemory
+      ? normalizeMemoryFacts(input.companionMemoryFacts)
+      : [],
     tombstones: normalizeTombstones(input.tombstones),
     activeWorkspaceId,
   };
@@ -683,7 +693,15 @@ function createSafeSnapshot(state, options = {}) {
     "INVALID_LOCAL_STATE",
     "本地数据必须是对象",
   );
-  const syncOptions = normalizeSyncOptions(options.syncOptions || input.uiSettings?.googleSync);
+  const companionSettings = normalizeCompanionSettings(input.uiSettings?.companion);
+  const requestedSyncOptions = options.syncOptions || input.uiSettings?.googleSync || {};
+  const hasExplicitMemoryOption = Object.hasOwn(requestedSyncOptions, "companionMemory");
+  const syncOptions = normalizeSyncOptions({
+    ...requestedSyncOptions,
+    companionMemory: hasExplicitMemoryOption
+      ? requestedSyncOptions.companionMemory === true
+      : companionSettings.memory.enabled && companionSettings.memory.syncEnabled,
+  });
   const userScriptMetadata = syncOptions.userScriptMetadata
     ? (Array.isArray(input.userScripts) ? input.userScripts : []).map((script) => ({
         id: script.id,
@@ -700,6 +718,7 @@ function createSafeSnapshot(state, options = {}) {
     if (item?.module === "plans") return syncOptions.plans;
     if (item?.module === "searchHistory") return syncOptions.searchHistory;
     if (item?.module === "browsingHistory") return syncOptions.browsingHistory;
+    if (["companionConversationEntries", "companionMemoryFacts"].includes(item?.module)) return syncOptions.companionMemory;
     return true;
   });
   const syncSettings = syncOptions.settings ? structuredClone(input.uiSettings || {}) : {};
@@ -718,6 +737,8 @@ function createSafeSnapshot(state, options = {}) {
     searchHistory: syncOptions.searchHistory ? input.searchHistory : [],
     browsingHistory: syncOptions.browsingHistory ? input.browsingHistory : [],
     userScriptMetadata,
+    companionConversationEntries: syncOptions.companionMemory ? input.companionConversationEntries : [],
+    companionMemoryFacts: syncOptions.companionMemory ? input.companionMemoryFacts : [],
     tombstones,
     activeWorkspaceId: input.activeWorkspaceId,
   });

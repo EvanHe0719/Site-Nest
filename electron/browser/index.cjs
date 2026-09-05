@@ -50,7 +50,9 @@ const {
 const {
   NODESEEK_BROWSER_PROFILE_ID,
   NODESEEK_SITE_PARTITION,
+  NODESEEK_ACCEPT_LANGUAGES,
   isNodeSeekUrl,
+  nodeSeekPageIssue,
 } = require("./nodeseek-session.cjs");
 
 module.exports = {
@@ -95,5 +97,7 @@ module.exports = {
   sapRetryUrl,
   NODESEEK_BROWSER_PROFILE_ID,
   NODESEEK_SITE_PARTITION,
+  NODESEEK_ACCEPT_LANGUAGES,
   isNodeSeekUrl,
+  nodeSeekPageIssue,
 };

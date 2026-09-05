@@ -9,10 +9,63 @@ function isoOrNull(value) {
   return Number.isNaN(date.valueOf()) ? null : date.toISOString();
 }
 
+function finiteNumberOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+const { clampTurns, normalizeConversationMemory } = require("./memory-model.cjs");
+
+function normalizeWeatherCache(value) {
+  const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const snapshot = input.snapshot && typeof input.snapshot === "object" && !Array.isArray(input.snapshot)
+    ? input.snapshot
+    : null;
+  const expiresAt = isoOrNull(input.expiresAt);
+  const city = String(snapshot?.city || "").trim().slice(0, 120);
+  const fetchedAt = isoOrNull(snapshot?.fetchedAt);
+  if (!snapshot || !expiresAt || !city || !fetchedAt) return null;
+  const nextHours = (Array.isArray(snapshot.nextHours) ? snapshot.nextHours : []).flatMap((candidate) => {
+    const time = isoOrNull(candidate?.time);
+    if (!time) return [];
+    return [{
+      time,
+      temperature: finiteNumberOrNull(candidate.temperature),
+      precipitationProbability: finiteNumberOrNull(candidate.precipitationProbability),
+    }];
+  }).slice(0, 6);
+  return {
+    expiresAt,
+    snapshot: {
+      city,
+      country: String(snapshot.country || "").trim().slice(0, 120),
+      timezone: String(snapshot.timezone || "").trim().slice(0, 120),
+      condition: String(snapshot.condition || "").trim().slice(0, 120),
+      weatherCode: finiteNumberOrNull(snapshot.weatherCode),
+      temperature: finiteNumberOrNull(snapshot.temperature),
+      apparentTemperature: finiteNumberOrNull(snapshot.apparentTemperature),
+      windSpeed: finiteNumberOrNull(snapshot.windSpeed),
+      todayHigh: finiteNumberOrNull(snapshot.todayHigh),
+      todayLow: finiteNumberOrNull(snapshot.todayLow),
+      todayDate: String(snapshot.todayDate || "").slice(0, 10),
+      todayCondition: String(snapshot.todayCondition || "").trim().slice(0, 120),
+      todayRainProbability: finiteNumberOrNull(snapshot.todayRainProbability),
+      tomorrowDate: String(snapshot.tomorrowDate || "").slice(0, 10),
+      tomorrowHigh: finiteNumberOrNull(snapshot.tomorrowHigh),
+      tomorrowLow: finiteNumberOrNull(snapshot.tomorrowLow),
+      tomorrowCondition: String(snapshot.tomorrowCondition || "").trim().slice(0, 120),
+      tomorrowRainProbability: finiteNumberOrNull(snapshot.tomorrowRainProbability),
+      nextHours,
+      fetchedAt,
+    },
+  };
+}
+
 function normalizeCompanionSettings(value = {}) {
   const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const wellness = input.wellness && typeof input.wellness === "object" ? input.wellness : {};
   const weather = input.weather && typeof input.weather === "object" ? input.weather : {};
+  const memory = input.memory && typeof input.memory === "object" ? input.memory : {};
   return {
     enabled: input.enabled === true,
     onboardingSeen: input.onboardingSeen === true,
@@ -44,6 +97,12 @@ function normalizeCompanionSettings(value = {}) {
       locationMode: weather.locationMode === "auto" ? "auto" : "manual",
       pollMinutes: clamp(weather.pollMinutes, 10, 180, 30),
     },
+    memory: {
+      enabled: memory.enabled !== false,
+      syncEnabled: memory.syncEnabled !== false,
+      maxTurns: clampTurns(memory.maxTurns),
+      autoCapture: memory.autoCapture !== false,
+    },
   };
 }
 
@@ -60,6 +119,7 @@ function normalizeCompanionRuntimeState(value = {}) {
     lastShownAt: timestamps(input.lastShownAt),
     acknowledgedAt: timestamps(input.acknowledgedAt),
     aiAllowedHosts: Array.from(new Set((Array.isArray(input.aiAllowedHosts) ? input.aiAllowedHosts : []).map((item) => String(item || "").trim().toLowerCase()).filter(Boolean))).slice(0, 200),
+    weatherCache: normalizeWeatherCache(input.weatherCache),
   };
 }
 
@@ -72,7 +132,14 @@ function syncableCompanionSettings(value = {}) {
     quietHours: settings.quietHours,
     wellness: settings.wellness,
     weather: { enabled: settings.weather.enabled, pollMinutes: settings.weather.pollMinutes },
+    memory: settings.memory,
   };
 }
 
-module.exports = { normalizeCompanionRuntimeState, normalizeCompanionSettings, syncableCompanionSettings };
+module.exports = {
+  normalizeCompanionRuntimeState,
+  normalizeCompanionSettings,
+  normalizeConversationMemory,
+  normalizeWeatherCache,
+  syncableCompanionSettings,
+};

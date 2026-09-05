@@ -32,6 +32,8 @@ const ARRAY_SPECS = Object.freeze({
   userScriptMetadata: { stateKey: "userScripts", id: (item) => item.id },
   shortcutProfile: { stateKey: "shortcutProfiles", id: (item) => item.id },
   shortcutBinding: { stateKey: "shortcutBindings", id: (item) => item.id },
+  companionConversationEntry: { stateKey: "companionConversationEntries", id: (item) => item.id },
+  companionMemoryFact: { stateKey: "companionMemoryFacts", id: (item) => item.id },
 });
 
 const MAP_SPECS = Object.freeze({
@@ -48,6 +50,7 @@ const SINGLETON_SPECS = Object.freeze({
     pick: (value) => ({
       search: value?.search || {},
       sitePopupPolicies: value?.sitePopupPolicies || {},
+      siteLibrary: value?.siteLibrary || { groups: [], assignments: {}, collapsed: [], view: "grid" },
       translation: value?.translation || {},
       companion: syncableCompanionSettings(value?.companion),
     }),
@@ -117,6 +120,10 @@ function entityUpdatedAt(payload, fallback) {
 
 function syncOptionEnabled(state, entityType) {
   const options = state?.uiSettings?.googleSync || {};
+  if (["companionConversationEntry", "companionMemoryFact"].includes(entityType)) {
+    const memory = state?.uiSettings?.companion?.memory || {};
+    return memory.enabled === true && memory.syncEnabled !== false;
+  }
   if (["site", "workspace", "bookmark"].includes(entityType)) return options.sites !== false;
   if (["task"].includes(entityType)) return options.plans !== false;
   if (["userScriptMetadata"].includes(entityType)) return options.userScriptMetadata !== false;
@@ -212,7 +219,7 @@ function applyEntityOperationToState(state, operation) {
         };
       }
       next.uiSettings = deleting
-        ? { ...(next.uiSettings || {}), search: {}, sitePopupPolicies: {}, translation: {} }
+        ? { ...(next.uiSettings || {}), search: {}, sitePopupPolicies: {}, translation: {}, siteLibrary: {} }
         : { ...(next.uiSettings || {}), ...incoming };
     } else {
       next[singletonSpec.stateKey] = deleting ? (Array.isArray(next[singletonSpec.stateKey]) ? [] : {}) : clone(operation.payload);

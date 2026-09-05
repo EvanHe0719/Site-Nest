@@ -7,12 +7,13 @@ const path = require("node:path");
 const test = require("node:test");
 
 const projectRoot = path.resolve(__dirname, "..", "..");
-const electronPath = require("electron");
+// Use the inner packaged executable; the portable launcher does not forward stdout.
+const electronPath = process.env.QIYE_TEST_PACKAGED_EXE || require("electron");
 
 function runElectron({ userData, route, width = 1060, height = 700, baseUrl = "" }) {
   const capturePath = path.join(userData, `capture-${route}.png`);
   return new Promise((resolve, reject) => {
-    const child = spawn(electronPath, [projectRoot], {
+    const child = spawn(electronPath, process.env.QIYE_TEST_PACKAGED_EXE ? [] : [projectRoot], {
       cwd: projectRoot,
       windowsHide: true,
       env: {
@@ -58,6 +59,40 @@ function runElectron({ userData, route, width = 1060, height = 700, baseUrl = ""
     });
   });
 }
+
+for (const width of [1480, 1060]) test(`site library groups and compact layouts persist without changing site URLs or sessions at ${width}px`, { timeout: 60_000 }, async (t) => {
+  const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-site-library-"));
+  t.after(() => fsp.rm(userData, { recursive: true, force: true }));
+  const result = await runElectron({ userData, route: "site-library-probe", width, height: 980 });
+  const line = result.stdout.split(/\r?\n/).find((entry) => entry.includes('"siteLibraryProbe"'));
+  assert.ok(line, result.stderr);
+  assert.deepEqual(JSON.parse(line).siteLibraryProbe, { filteredCount: 1, listMode: true, renamed: "常用社区", ungroupedAfterDelete: true, unchanged: true, groups: 3, overflow: false });
+  await runElectron({ userData, route: "state-probe" });
+  const stored = JSON.parse(await fsp.readFile(path.join(userData, "site-nest-data.json"), "utf8"));
+  assert.equal(stored.uiSettings.siteLibrary.groups.length, 3);
+  assert.equal(Object.keys(stored.uiSettings.siteLibrary.assignments).length, 1);
+});
+
+test("check-in card saves independent time and toggle through real IPC and runs the shared adapter", { timeout: 60_000 }, async (t) => {
+  const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "qiye-checkin-settings-"));
+  t.after(() => fsp.rm(userData, { recursive: true, force: true }));
+  const result = await runElectron({ userData, route: "checkin-settings-probe", width: 1480, height: 980 });
+  const line = result.stdout.split(/\r?\n/).find((entry) => entry.includes('"checkinSettingsProbe"'));
+  assert.ok(line, result.stderr);
+  const probe = JSON.parse(line).checkinSettingsProbe;
+  assert.equal(probe.time, "09:45");
+  assert.equal(probe.enabled, true);
+  assert.equal(probe.naixiEnabled, false);
+  assert.equal(probe.success, "success");
+  assert.equal(probe.runCount, 1);
+  assert.equal(probe.rate, "100%");
+  assert.match(probe.runLabel, /立即签到/);
+  await runElectron({ userData, route: "state-probe" });
+  const stored = JSON.parse(await fsp.readFile(path.join(userData, "site-nest-data.json"), "utf8"));
+  assert.equal(stored.automations.nodeseek.time, "09:45");
+  assert.equal(stored.automations.nodeseek.enabled, true);
+  assert.equal(stored.automations.nodeseek.runs.length, 1);
+});
 
 test(
   "v2 临时数据可迁移，空间可跨重启恢复，旧入口与通用助手可运行",
@@ -112,9 +147,9 @@ test(
     await fsp.writeFile(dataFile, JSON.stringify(v2Fixture, null, 2), "utf8");
 
     const first = await runElectron({ userData, route: "state-probe" });
-    assert.match(first.stdout, /"version":18/);
+    assert.match(first.stdout, /"version":19/);
     const migrated = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(migrated.version, 18);
+    assert.equal(migrated.version, 19);
     assert.equal(migrated.activeWorkspaceId, "personal");
     assert.deepEqual(
       migrated.workspaces.map((workspace) => workspace.id),
@@ -166,7 +201,7 @@ test(
 
     const dataFile = path.join(userData, "site-nest-data.json");
     const persisted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(persisted.version, 18);
+    assert.equal(persisted.version, 19);
     assert.equal(persisted.localTasks.length, 1);
     assert.equal(persisted.localTasks[0].title, "IPC 本地任务已更新");
     assert.equal(persisted.taskReminders.length, 1);
@@ -193,7 +228,7 @@ test(
     assert.equal(scheduleResult.previewDateChange.draftVisible, true);
     assert.equal(scheduleResult.previewBehavior.scrollable, true);
     assert.equal(scheduleResult.previewBehavior.overflowY, "auto");
-    assert.ok(scheduleResult.previewBehavior.autoScrollTop > scheduleResult.previewBehavior.initialScrollTop);
+    assert.equal(scheduleResult.previewBehavior.autoScrollTargetsDraft, true);
     assert.equal(scheduleResult.previewBehavior.manualScrollApplied, true);
     assert.equal(scheduleResult.previewBehavior.draftVisibleInViewport, true);
     assert.equal(scheduleResult.previewBehavior.draftGhost, true);
@@ -235,6 +270,12 @@ test(
     assert.equal(result.enabled, true);
     assert.equal(result.city, "上海");
     assert.equal(result.focusDockSeconds, 35);
+    assert.equal(result.memoryEnabled, true);
+    assert.equal(result.memorySyncEnabled, true);
+    assert.equal(result.memoryAutoCapture, true);
+    assert.equal(result.memoryMaxTurns, 100);
+    assert.equal(result.memoryStatus, "尚未保存对话或长期记忆");
+    assert.equal(result.clearMemoryDisabled, true);
     assert.equal(result.stateLabel, "已启用");
     assert.ok(["paused", "background"].includes(result.pauseReason));
     assert.equal(result.settingsVisible, true);
@@ -245,14 +286,18 @@ test(
 
     const dataFile = path.join(userData, "site-nest-data.json");
     const persisted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(persisted.version, 18);
+    assert.equal(persisted.version, 19);
     assert.equal(persisted.uiSettings.companion.weather.city, "上海");
+    assert.equal(persisted.uiSettings.companion.memory.enabled, true);
+    assert.equal(persisted.uiSettings.companion.memory.syncEnabled, true);
+    assert.equal(persisted.uiSettings.companion.memory.maxTurns, 100);
     assert.ok(Date.parse(persisted.companionRuntimeState.pausedUntil) > Date.now());
 
     await runElectron({ userData, route: "state-probe" });
     const restarted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
     assert.equal(restarted.uiSettings.companion.enabled, true);
     assert.equal(restarted.uiSettings.companion.weather.city, "上海");
+    assert.equal(restarted.uiSettings.companion.memory.enabled, true);
     assert.ok(restarted.companionRuntimeState.pausedUntil);
   },
 );
@@ -355,6 +400,9 @@ test(
     assert.equal(result.happy.visualState, "happy");
     assert.equal(result.happy.miniVisualState, "happy");
     assert.equal(result.finalOpen.panelOpen, true);
+    assert.equal(result.remembered.memoryMessageCount, 2);
+    assert.equal(result.remembered.latestUserText, "你记得我的偏好吗");
+    assert.equal(result.remembered.latestAssistantText, "记得，你喜欢简短回答。");
     assert.equal(result.conversationPreview.messageAvatarCount, 0);
     assert.ok(result.conversationPreview.conversationMessageCount >= 4);
     assert.equal(result.conversationPreview.latestUserAlignSelf, "flex-end");
@@ -408,6 +456,14 @@ test(
     assert.equal(result.personalNodeCount, 1);
     assert.equal(result.workOnly, true);
     assert.equal(result.personalOnly, true);
+    assert.deepEqual(result.personalDetail, { open: true, eyebrow: "个人记录", title: "IPC 个人成长", rows: 6 });
+    assert.equal(result.dayScope, "month");
+    assert.equal(result.selectedMonth, 8);
+    assert.equal(result.dayScaleActive, true);
+    assert.equal(result.dayLabels.length, 31);
+    assert.equal(result.dayLabels[0], "8/1");
+    assert.equal(result.dayLabels.at(-1), "8/31");
+    assert.equal(result.returnedToMonthScale, true);
     assert.match(result.workPath, /^M/);
     assert.equal(result.listRowCount, 2);
     assert.equal(result.draft.title, "转为时间轴草稿");
@@ -431,7 +487,7 @@ test(
     assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
 
     const persisted = JSON.parse(await fsp.readFile(path.join(userData, "site-nest-data.json"), "utf8"));
-    assert.equal(persisted.version, 18);
+    assert.equal(persisted.version, 19);
     assert.deepEqual(persisted.timelineTracks.map((track) => track.id), ["work", "personal"]);
     assert.equal(persisted.timelineEvents.filter((event) => !event.deletedAt).length, 3);
     assert.equal(persisted.timelineUiSettings.viewMode, "timeline");
@@ -458,7 +514,7 @@ test(
 
     const dataFile = path.join(userData, "site-nest-data.json");
     const persisted = JSON.parse(await fsp.readFile(dataFile, "utf8"));
-    assert.equal(persisted.version, 18);
+    assert.equal(persisted.version, 19);
     assert.equal(persisted.habits.length, 1);
     assert.equal(persisted.habitCheckIns.filter((item) => !item.deletedAt).length, 1);
     assert.equal(persisted.rewardLedger.filter((item) => !item.reversedAt).length, 1);
@@ -488,7 +544,7 @@ test(
     assert.ok((await fsp.stat(probe.capturePath)).size > 1000);
 
     const persisted = JSON.parse(await fsp.readFile(path.join(userData, "site-nest-data.json"), "utf8"));
-    assert.equal(persisted.version, 18);
+    assert.equal(persisted.version, 19);
     assert.equal(persisted.contentTagGroups.length, 1);
     assert.equal(persisted.contentTags.filter((item) => !item.deletedAt).length, 2);
     assert.equal(persisted.contentTagMergeRecords.length, 1);
@@ -509,8 +565,8 @@ test(
     const line = probe.stdout.split(/\r?\n/).find((item) => item.includes('"uiActionAuditProbe"'));
     assert.ok(line, probe.stdout);
     const result = JSON.parse(line).uiActionAuditProbe;
-    assert.equal(result.totalActions, 89);
-    assert.equal(result.registeredActions, 89);
+    assert.equal(result.totalActions, 90);
+    assert.equal(result.registeredActions, 90);
     assert.equal(result.missingHandlers, 0);
     assert.equal(result.invalidIpcChannels, 0);
     assert.equal(result.missingTests, 0);

@@ -1,5 +1,6 @@
 const { UIActionExecutionError } = require("./execution-service.cjs");
 const { UIActionRegistry } = require("./registry.cjs");
+const { CHECKIN_DEFINITIONS } = require("../automations/checkins.cjs");
 
 const UI_ACTION_CATALOG = Object.freeze([
   ["browser.back", "后退", "browsing"],
@@ -34,7 +35,7 @@ const UI_ACTION_CATALOG = Object.freeze([
   ["tab-group.merge", "合并页签组", "tab-groups"],
   ["search.open", "打开全局搜索", "search"],
   ["search.submit", "执行全局搜索", "search"],
-  ["automation.naixi.run", "执行奶昔签到", "automation"],
+  ...CHECKIN_DEFINITIONS.map(({ id, name }) => [`automation.${id}.run`, `执行${name}`, "automation"]),
   ["userscript.create", "新建网页脚本", "userscripts"],
   ["userscript.import-file", "导入本地网页脚本", "userscripts"],
   ["userscript.review-remote", "检查远程网页脚本", "userscripts"],

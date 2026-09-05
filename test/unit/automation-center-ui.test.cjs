@@ -32,14 +32,55 @@ test("automation metrics refresh from actual status and execution records", () =
   assert.match(renderer, /localDateKey\(automationExecutionTimestamp\(log\)\) === today/);
   assert.match(renderer, /successStatuses = new Set\(\["success", "completed"\]\)/);
   assert.match(renderer, /issueStatuses = new Set\(/);
-  assert.match(renderer, /renderAutomationMetrics\(naixi\)/);
+  assert.match(renderer, /completed\.length \/ enabled\.length/);
   assert.match(renderer, /renderAutomationMetrics\(\);\s*\n\s*dom\.executionLogList\.replaceChildren/);
   assert.match(renderer, /\["checkins", "logs"\]\.includes\(currentAutomationTab\)/);
 });
 
+test("execution logs expose local date filtering and pagination", () => {
+  for (const id of [
+    "executionLogStartDate",
+    "executionLogEndDate",
+    "clearExecutionLogDateFilter",
+    "executionLogPreviousPage",
+    "executionLogNextPage",
+    "executionLogPageInfo",
+  ]) assert.match(html, new RegExp(`id="${id}"`));
+  assert.match(renderer, /const EXECUTION_LOG_PAGE_SIZE = 10/);
+  assert.match(renderer, /localDateKey\(timestamp\)/);
+  assert.match(renderer, /executionLogStartDate/);
+  assert.match(renderer, /executionLogEndDate/);
+  assert.match(renderer, /filteredLogs\.slice\(/);
+  assert.match(renderer, /executionLogPreviousPage\.disabled/);
+});
+
 test("automation cards keep metadata icons bounded and expose direct site open actions", () => {
   assert.match(styles, /\.automation-meta-icon\s*\{[\s\S]*?width:\s*13px;[\s\S]*?height:\s*13px;/);
-  assert.match(html, /data-open-url="https:\/\/www\.nodeseek\.com\/categories\/info"/);
+  assert.match(html, /data-open-url="https:\/\/www\.nodeseek\.com\/board"/);
+  assert.match(html, /data-open-url="https:\/\/www\.nodeseek\.com\/progress"/);
+  assert.match(html, /NodeSeek · 每日签到/);
+  assert.match(html, /data-checkin-id="nodeseek"/);
+  assert.match(html, /aria-label="NodeSeek 自动签到时间" data-checkin-setting="time"/);
+  assert.match(renderer, /updateCheckin\(id,/);
+  assert.match(renderer, /runCheckin\(id\)/);
+  assert.doesNotMatch(html, /NodeSeek[\s\S]{0,400}未发现通用入口/);
   assert.match(html, /data-open-url="https:\/\/linux\.do\/"/);
   assert.match(renderer, /createIconElement\("clock", "automation-meta-icon"\)/);
+});
+
+test("automation center exposes local Chrome extension management and toolbar actions", () => {
+  assert.match(html, /data-automation-tab="extensions"/);
+  assert.match(html, /data-automation-panel="extensions"/);
+  for (const id of [
+    "browserExtensionProfile",
+    "browserExtensionList",
+    "importBrowserExtension",
+    "openBrowserExtensionsFolder",
+    "browserExtensionActions",
+  ]) assert.match(html, new RegExp(`id="${id}"`));
+  assert.match(html, /加载成功[^<]*不代表|“已加载”仅表示/);
+  assert.match(renderer, /function loadBrowserExtensions\(/);
+  assert.match(renderer, /function refreshBrowserExtensionActions\(/);
+  assert.match(renderer, /activateBrowserExtensionAction\(partition/);
+  assert.match(styles, /\.browser-extension-action\s*\{/);
 });

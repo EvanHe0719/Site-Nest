@@ -51,8 +51,16 @@ function normalizeForecast(payload, location, now = new Date()) {
     weatherCode: finite(current.weather_code),
     condition: weatherLabel(current.weather_code),
     windSpeed: finite(current.wind_speed_10m, 0),
+    todayDate: String(daily.time?.[0] || "").slice(0, 10),
     todayHigh: finite(daily.temperature_2m_max?.[0]),
     todayLow: finite(daily.temperature_2m_min?.[0]),
+    todayCondition: weatherLabel(daily.weather_code?.[0]),
+    todayRainProbability: finite(daily.precipitation_probability_max?.[0]),
+    tomorrowDate: String(daily.time?.[1] || "").slice(0, 10),
+    tomorrowHigh: finite(daily.temperature_2m_max?.[1]),
+    tomorrowLow: finite(daily.temperature_2m_min?.[1]),
+    tomorrowCondition: weatherLabel(daily.weather_code?.[1]),
+    tomorrowRainProbability: finite(daily.precipitation_probability_max?.[1]),
     nextHours: hourlyWindow(payload.hourly, current.time, 2),
     stale: false,
   };
@@ -113,7 +121,7 @@ class OpenMeteoWeatherProvider {
     url.searchParams.set("longitude", String(location.longitude));
     url.searchParams.set("current", "temperature_2m,apparent_temperature,weather_code,wind_speed_10m");
     url.searchParams.set("hourly", "temperature_2m,precipitation_probability");
-    url.searchParams.set("daily", "temperature_2m_max,temperature_2m_min");
+    url.searchParams.set("daily", "temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max");
     url.searchParams.set("forecast_days", "2");
     url.searchParams.set("timezone", "auto");
     return normalizeForecast(await this.requestJson(url, signal), location);

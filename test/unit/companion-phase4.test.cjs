@@ -35,10 +35,16 @@ test("companion AI reuses TranslationService provider and the same safe secret r
   const secretStore = { get: async (key) => { calls.push({ secretKey: key }); return { apiKey: "kept-in-main" }; } };
   const translation = new TranslationService({ registry, secretStore, getSettings: async () => ({ providerId: "openai-compatible", publicConfig: { baseUrl: "https://api.deepseek.com", model: "deepseek-chat" } }), saveSettings: async () => undefined });
   const service = new CompanionAIService({ translationService: translation });
-  const result = await service.run("ask-1", "ask", { question: "你好" });
+  const result = await service.run("ask-1", "ask", { question: "你好", memoryEnabled: true, history: [
+    { id: "1", role: "user", content: "记住我喜欢简短回答", createdAt: "2026-09-04T01:00:00.000Z" },
+    { id: "2", role: "assistant", content: "好的", createdAt: "2026-09-04T01:00:01.000Z" },
+  ] });
   assert.equal(result.answer, "简短回答");
   assert.ok(calls.some((item) => item.secretKey === "translation:openai-compatible:default"));
-  assert.equal(calls.find((item) => item.task === "ask").options.apiKey, "kept-in-main");
+  const askCall = calls.find((item) => item.task === "ask");
+  assert.equal(askCall.options.apiKey, "kept-in-main");
+  assert.deepEqual(askCall.input.history.map((item) => item.content), ["记住我喜欢简短回答", "好的"]);
+  assert.equal(askCall.input.memoryEnabled, true);
 });
 
 test("closing companion can cancel an in-flight AI request", async () => {

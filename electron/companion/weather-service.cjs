@@ -1,10 +1,20 @@
 const { OpenMeteoWeatherProvider, WeatherProviderError } = require("./open-meteo-provider.cjs");
 
 class WeatherCache {
-  constructor(ttlMs = 30 * 60_000) { this.ttlMs = ttlMs; this.value = null; }
+  constructor(ttlMs = 30 * 60_000, initialValue = null) { this.ttlMs = ttlMs; this.value = null; this.hydrate(initialValue); }
   set(value, at = Date.now()) { this.value = { snapshot: structuredClone(value), expiresAt: at + this.ttlMs }; return this.get(at); }
   get(at = Date.now()) { return this.value ? { ...structuredClone(this.value.snapshot), stale: at >= this.value.expiresAt } : null; }
   clear() { this.value = null; }
+  hydrate(value) {
+    const expiresAt = typeof value?.expiresAt === "number" ? value.expiresAt : Date.parse(value?.expiresAt || "");
+    if (!value?.snapshot || !Number.isFinite(expiresAt)) return false;
+    this.value = { snapshot: structuredClone(value.snapshot), expiresAt };
+    return true;
+  }
+  dump() {
+    if (!this.value) return null;
+    return { snapshot: structuredClone(this.value.snapshot), expiresAt: new Date(this.value.expiresAt).toISOString() };
+  }
 }
 
 class WeatherEventDeduplicator {
@@ -40,11 +50,12 @@ class WeatherService {
   constructor(options = {}) {
     this.provider = options.provider || new OpenMeteoWeatherProvider({ fetchFn: options.fetchFn });
     this.settings = { enabled: false, city: "", pollMinutes: 30, ...(options.settings || {}) };
-    this.cache = options.cache || new WeatherCache(Math.max(10, Number(this.settings.pollMinutes) || 30) * 60_000);
+    this.cache = options.cache || new WeatherCache(Math.max(10, Number(this.settings.pollMinutes) || 30) * 60_000, options.initialCache);
     this.alerts = options.alerts || new WeatherAlertEngine();
     this.deduplicator = options.deduplicator || new WeatherEventDeduplicator();
     this.onUpdate = typeof options.onUpdate === "function" ? options.onUpdate : null;
     this.onAlert = typeof options.onAlert === "function" ? options.onAlert : null;
+    this.onCacheChange = typeof options.onCacheChange === "function" ? options.onCacheChange : null;
     this.location = null;
     this.inflight = null;
     this.timer = null;
@@ -58,6 +69,7 @@ class WeatherService {
     if (String(previousCity).trim().toLowerCase() !== String(this.settings.city).trim().toLowerCase()) {
       this.location = null;
       this.cache.clear();
+      void Promise.resolve(this.onCacheChange?.(null)).catch(() => undefined);
       this.lastError = null;
     }
     this.schedule();
@@ -103,6 +115,7 @@ class WeatherService {
         const previous = this.cache.get();
         const snapshot = await this.provider.getForecast(this.location, signal);
         this.cache.set(snapshot);
+        await this.onCacheChange?.(this.cache.dump());
         this.lastError = null;
         const events = this.alerts.compare(previous, snapshot).filter((event) => this.deduplicator.accept(event));
         for (const event of events) this.onAlert?.(event);

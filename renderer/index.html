@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: crx:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>栖页</title>
@@ -22,7 +22,7 @@
             </svg>
           </div>
           <span class="brand-name">栖页</span>
-          <span class="brand-version" id="brandVersion">0.5.9 DEV</span>
+          <span class="brand-version" id="brandVersion">0.5.10 DEV</span>
         </div>
         <div class="browser-tabbar" id="browserTabBar" aria-label="当前空间标签组">
           <div class="browser-tab-list" id="browserTabList" role="tablist" aria-label="网页标签"></div>
@@ -178,7 +178,7 @@
                 <strong class="google-sync-error-title is-hidden" id="googleSyncErrorTitle"></strong>
                 <p class="google-sync-error is-hidden" id="googleSyncError" role="status"></p>
                 <p class="google-sync-notice">
-                  Google Drive 用于保存栖页自己的站点、日程、设置和历史数据，不会接管 Chrome 官方同步。
+                  Google Drive 用于保存栖页自己的站点、日程、设置、历史数据，以及小序保存的个人 AI 对话与记忆；不会接管 Chrome 官方同步。
                 </p>
                 <div class="google-sync-actions">
                   <button class="primary-button google-sync-action google-sync-action--wide" id="googleSignInButton" type="button" data-action-id="google.sign-in">
@@ -319,7 +319,7 @@
                     <span class="status-pill status-pill--safe">已启用</span>
                   </div>
                   <h3>签到自动化</h3>
-                  <p>奶昔论坛已启用每日自动签到；登录失效、验证码或页面变化时会安全停止。</p>
+                  <p>在签到卡片中设置每天的执行时间；登录失效、验证码或页面变化时会安全停止。</p>
                   <button class="text-button" type="button" data-route="automations">
                     打开自动化中心
                     <span data-icon="arrow-right"></span>
@@ -527,7 +527,8 @@
                   </div>
                   <div class="timeline-action-control">
                     <div class="timeline-view-switch" id="timelineViewSwitch" role="group" aria-label="时间轴视图"><button class="is-active" type="button" data-timeline-view="timeline">波形</button><button type="button" data-timeline-view="list">列表</button></div>
-                    <button class="secondary-button compact-button is-hidden" id="timelineBackToYear" type="button"><span data-icon="arrow-left"></span>返回年度</button>
+                    <div class="timeline-scale-switch" id="timelineScaleSwitch" role="group" aria-label="时间刻度"><button class="is-active" type="button" data-timeline-scale="month">月</button><button type="button" data-timeline-scale="day">日</button></div>
+                    <span class="timeline-zoom-hint" id="timelineZoomHint">图表内滚轮向上可放大到日</span>
                     <button class="secondary-button compact-button" type="button" data-open-content-tags><span data-icon="tag"></span>内容标签</button>
                     <button class="secondary-button compact-button" id="timelineReviewButton" type="button">年度回顾</button>
                     <button class="secondary-button compact-button" id="timelineExportMarkdown" type="button">导出 MD</button>
@@ -554,10 +555,13 @@
                   <h1>我的站点</h1>
                   <p>集中管理常去的网站。置顶站点会显示在侧栏，登录会话继续保存在栖页中。</p>
                 </div>
+                <div class="site-library-header-actions">
+                <button class="secondary-button" id="createSiteLibraryGroup" type="button"><span data-icon="folder"></span>新建分组</button>
                 <button class="primary-button" id="pageAddSiteButton" type="button">
                   <span data-icon="plus"></span>
                   添加网站
                 </button>
+                </div>
               </header>
 
               <div class="sites-toolbar">
@@ -590,7 +594,16 @@
                 <div class="site-library-total" id="siteLibraryTotal">0 个站点</div>
               </div>
 
-              <div class="site-library-grid" id="siteLibraryGrid"></div>
+              <div class="site-library-layout">
+                <aside class="site-library-sidebar" aria-label="站点分组">
+                  <div class="site-library-sidebar-heading">分组 <span id="siteLibraryGroupCount"></span></div>
+                  <nav id="siteLibraryGroups" aria-label="筛选站点分组"></nav>
+                </aside>
+                <div class="site-library-content">
+                  <div class="site-library-section-toolbar"><span id="siteLibrarySelection">全部站点</span><div class="site-library-view-switch" role="group" aria-label="站点布局"><button type="button" data-site-library-view="grid">卡片</button><button type="button" data-site-library-view="list">列表</button></div></div>
+                  <div class="site-library-grid" id="siteLibraryGrid"></div>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -616,6 +629,10 @@
                 <button class="automation-tab" type="button" data-automation-tab="scripts" aria-selected="false">
                   <span data-icon="code"></span>
                   网页脚本
+                </button>
+                <button class="automation-tab" type="button" data-automation-tab="extensions" aria-selected="false">
+                  <span data-icon="chrome"></span>
+                  浏览器扩展
                 </button>
                 <button class="automation-tab" type="button" data-automation-tab="assistants" aria-selected="false">
                   <span data-icon="spark"></span>
@@ -664,17 +681,17 @@
               </div>
 
               <div class="automation-list">
-                <article class="automation-card" data-managed-automation="true">
+                <article class="automation-card" data-managed-automation="true" data-checkin-id="naixi">
                   <div class="automation-site-logo" style="--site-color: #ec7a5c">奶</div>
                   <div class="automation-copy">
                     <div class="automation-title-row">
                       <h3>奶昔论坛 · 每日签到</h3>
-                      <span class="status-pill status-pill--ready" id="naixiAutomationBadge">等待检查</span>
+                      <span class="status-pill status-pill--ready" id="naixiAutomationBadge" data-checkin-field="badge">等待检查</span>
                     </div>
-                    <p id="naixiAutomationMessage">使用栖页中已保存的登录会话，自动判断并完成每日签到。</p>
+                    <p id="naixiAutomationMessage" data-checkin-field="message">使用栖页中已保存的登录会话，自动判断并完成每日签到。</p>
                   </div>
                   <div class="automation-actions">
-                    <button class="primary-button compact-button" id="runNaixiAutomation" type="button" data-action-id="automation.naixi.run">
+                    <button class="primary-button compact-button" id="runNaixiAutomation" type="button" data-action-id="automation.naixi.run" data-checkin-run="naixi">
                       <span data-icon="spark"></span>
                       立即签到
                     </button>
@@ -692,36 +709,54 @@
                     <label class="schedule-control">
                       <span class="automation-meta-icon" data-icon="clock" aria-hidden="true"></span>
                       每天
-                      <input id="naixiScheduleTime" type="time" value="08:30" aria-label="奶昔自动签到时间" />
+                      <input id="naixiScheduleTime" type="time" value="08:30" aria-label="奶昔自动签到时间" data-checkin-setting="time" />
                     </label>
                     <label class="toggle-control">
-                      <input id="naixiAutoEnabled" type="checkbox" checked />
+                      <input id="naixiAutoEnabled" type="checkbox" checked data-checkin-setting="enabled" />
                       <span class="toggle-track"><span></span></span>
                       自动执行
                     </label>
-                    <span id="naixiLastRun"><span class="automation-meta-icon" data-icon="clock" aria-hidden="true"></span> 尚未运行</span>
+                    <span id="naixiLastRun" data-checkin-field="lastRun"><span class="automation-meta-icon" data-icon="clock" aria-hidden="true"></span> 尚未运行</span>
                   </div>
                 </article>
 
-                <article class="automation-card automation-card--muted">
+                <article class="automation-card" data-managed-automation="true" data-checkin-id="nodeseek">
                   <div class="automation-site-logo" style="--site-color: #5b7cfa">NS</div>
                   <div class="automation-copy">
                     <div class="automation-title-row">
-                      <h3>NodeSeek</h3>
-                      <span class="status-pill">未发现通用入口</span>
+                      <h3>NodeSeek · 每日签到</h3>
+                      <span class="status-pill" data-checkin-field="badge">等待检查</span>
                     </div>
-                    <p>当前页面未显示固定签到入口，不会通过猜测接口执行账号操作。</p>
+                    <p data-checkin-field="message">使用 NodeSeek 专用登录会话检查签到；遇到登录失效或安全验证时停止。</p>
                   </div>
                   <div class="automation-actions">
+                    <button class="primary-button compact-button" type="button" id="runNodeSeekAutomation" data-action-id="automation.nodeseek.run" data-checkin-run="nodeseek"><span data-icon="spark"></span>立即签到</button>
                     <button
                       class="secondary-button compact-button"
                       type="button"
-                      data-open-url="https://www.nodeseek.com/categories/info"
-                      data-open-name="NodeSeek"
+                      data-open-url="https://www.nodeseek.com/board"
+                      data-open-name="NodeSeek · 每日签到"
                       data-open-color="#5b7cfa"
                     >
+                      <span data-icon="calendar"></span>
                       打开页面
                     </button>
+                    <button
+                      class="secondary-button compact-button"
+                      type="button"
+                      data-open-url="https://www.nodeseek.com/progress"
+                      data-open-name="NodeSeek · 签到进度"
+                      data-open-color="#5b7cfa"
+                    >
+                      查看进度
+                    </button>
+                  </div>
+                  <div class="automation-meta">
+                    <label class="schedule-control"><span class="automation-meta-icon" data-icon="clock" aria-hidden="true"></span>每天
+                      <input type="time" value="08:30" aria-label="NodeSeek 自动签到时间" data-checkin-setting="time" />
+                    </label>
+                    <label class="toggle-control"><input type="checkbox" data-checkin-setting="enabled" /><span class="toggle-track"><span></span></span>自动执行</label>
+                    <span data-checkin-field="lastRun"><span class="automation-meta-icon" data-icon="clock" aria-hidden="true"></span>尚未运行</span>
                   </div>
                 </article>
 
@@ -751,9 +786,9 @@
               <div class="notice-card">
                 <span class="notice-icon" data-icon="info"></span>
                 <div>
-                  <strong>自动签到只在栖页运行期间执行</strong>
+                  <strong>签到脚本统一按每天设定时间执行</strong>
                   <p>
-                    栖页会在启动时补查当天状态，并按设定时间运行；已签到不会重复请求。登录失效、验证码或页面改版时会停止操作并显示原因。
+                    仅在栖页运行期间执行；启动或唤醒后补查当天已到时间的任务，不补签历史日期。每个脚本每天自动尝试一次，失败后可手动重试；登录失效、验证码或页面变化时停止并显示原因。NodeSeek 需先在专用会话中登录，再开启自动执行。
                   </p>
                 </div>
               </div>
@@ -807,8 +842,8 @@
                   <span class="extension-empty-icon" data-icon="workflow"></span>
                   <div>
                     <span class="section-kicker">SCHEDULED AUTOMATION</span>
-                    <h2>定时任务尚未配置</h2>
-                    <p>本阶段只保留现有签到调度与本地提醒；通用定时网页脚本不会在后台静默运行。</p>
+                    <h2>签到时间在“签到任务”中设置</h2>
+                    <p>已适配的签到脚本统一提供每天时间与自动执行开关；本地提醒保持独立。任意导入的网页脚本不会自动成为后台定时任务。</p>
                     <span class="status-pill status-pill--preview">后续版本</span>
                   </div>
                 </div>
@@ -826,6 +861,23 @@
                     刷新记录
                   </button>
                 </div>
+                <div class="execution-log-toolbar" aria-label="执行记录筛选与分页">
+                  <label class="execution-log-date-field">
+                    <span>开始日期</span>
+                    <input id="executionLogStartDate" type="date" aria-label="执行记录开始日期">
+                  </label>
+                  <label class="execution-log-date-field">
+                    <span>结束日期</span>
+                    <input id="executionLogEndDate" type="date" aria-label="执行记录结束日期">
+                  </label>
+                  <button class="secondary-button compact-button" id="clearExecutionLogDateFilter" type="button">清除筛选</button>
+                  <span class="execution-log-result-count" id="executionLogResultCount" aria-live="polite"></span>
+                  <div class="execution-log-pagination" aria-label="执行记录分页">
+                    <button class="secondary-button compact-button" id="executionLogPreviousPage" type="button">上一页</button>
+                    <span id="executionLogPageInfo" aria-live="polite">第 1 / 1 页</span>
+                    <button class="secondary-button compact-button" id="executionLogNextPage" type="button">下一页</button>
+                  </div>
+                </div>
                 <div class="execution-log-list" id="executionLogList">
                   <div class="automation-empty-state">
                     <span data-icon="clock"></span>
@@ -835,14 +887,31 @@
                 </div>
               </section>
 
-              <section class="automation-tab-panel" id="automationExtensionPanel" data-automation-panel="extension" hidden>
-                <div class="extension-empty-state">
-                  <span class="extension-empty-icon" data-icon="chrome"></span>
+              <section class="automation-tab-panel" id="automationExtensionPanel" data-automation-panel="extensions" hidden>
+                <div class="automation-panel-heading browser-extension-heading">
                   <div>
-                    <span class="section-kicker">BROWSER EXTENSION</span>
-                    <h2>浏览器扩展尚未配置</h2>
-                    <p>后续的 Manifest V3 扩展将用于从 Chrome 保存当前网页、加入指定空间并调用页面快捷动作。本版本不会开放未认证的本地端口，也不会申请所有网站权限。</p>
-                    <span class="status-pill status-pill--preview">后续版本</span>
+                    <span class="section-kicker">CHROME EXTENSIONS</span>
+                    <h2>浏览器扩展</h2>
+                    <p>导入已解压的 Chrome 扩展目录；扩展按浏览身份隔离，代码和设置只保存在本机。</p>
+                  </div>
+                  <div class="browser-extension-heading-actions">
+                    <label class="browser-extension-profile-control">
+                      <span>安装到</span>
+                      <select id="browserExtensionProfile" aria-label="扩展使用的浏览身份"></select>
+                    </label>
+                    <button class="secondary-button compact-button" id="openBrowserExtensionsFolder" type="button"><span data-icon="folder"></span>本地目录</button>
+                    <button class="primary-button compact-button" id="importBrowserExtension" type="button"><span data-icon="plus"></span>导入扩展</button>
+                  </div>
+                </div>
+                <div class="userscript-security-note browser-extension-security-note">
+                  <span data-icon="shield"></span>
+                  <div><strong>扩展拥有它在清单中声明的网页权限</strong><small>导入前会显示权限并再次确认；“已加载”仅表示运行时接受该扩展，不保证每个 Chrome API 都兼容。SAP 身份属于敏感数据区，请谨慎启用。</small></div>
+                </div>
+                <div class="browser-extension-list" id="browserExtensionList">
+                  <div class="automation-empty-state">
+                    <span data-icon="chrome"></span>
+                    <strong>尚未导入扩展</strong>
+                    <small>先在 Chrome 安装需要的扩展，再选择其版本目录导入。</small>
                   </div>
                 </div>
               </section>
@@ -974,6 +1043,13 @@
                       <section><h4>小序</h4><div class="task-settings-grid">
                         <label class="settings-switch-row"><span><strong>启用小序</strong><small>旧用户默认关闭，可随时停用</small></span><input id="companionEnabledSetting" type="checkbox" /></label>
                         <label class="task-time-setting"><span>专注贴边阈值（秒）</span><input id="companionFocusSeconds" type="number" min="20" max="60" value="30" /></label>
+                        <label class="settings-switch-row"><span><strong>AI 对话与记忆</strong><small>默认开启，跨网站和下次打开小序时继续显示；只归属个人空间</small></span><input id="companionMemoryEnabled" type="checkbox" /></label>
+                        <label class="task-time-setting"><span>保留对话轮数</span><input id="companionMemoryMaxTurns" type="number" min="20" max="200" value="100" /></label>
+                        <label class="settings-switch-row"><span><strong>跨电脑同步</strong><small>通过你的 Google Drive 应用数据同步</small></span><input id="companionMemorySyncEnabled" type="checkbox" checked /></label>
+                        <label class="settings-switch-row"><span><strong>自动提取长期记忆</strong><small>仅稳定偏好、目标与持续背景；不会自动记录密码</small></span><input id="companionMemoryAutoCapture" type="checkbox" checked /></label>
+                        <div class="settings-switch-row companion-memory-summary"><span><strong id="companionMemoryStatus">尚未保存对话或长期记忆</strong><small>明确说“记住……”时会保存；敏感内容仅接受明确指令</small></span><button class="text-button text-button--quiet" id="clearCompanionMemory" type="button">全部清除</button></div>
+                        <div class="companion-memory-facts" id="companionMemoryFacts" aria-live="polite"></div>
+                        <small class="settings-inline-note companion-memory-risk">个人记忆不是密码保险箱。若你明确要求记住密码，它会保存在栖页个人数据、随 Google Drive 同步，并在相关提问时发送给已配置的 DeepSeek；请只在接受此风险时使用。</small>
                       </div></section>
                       <section><h4>天气</h4><div class="task-settings-grid">
                         <label class="settings-switch-row"><span><strong>启用天气感知</strong><small>仅主进程访问 Open-Meteo</small></span><input id="companionWeatherEnabled" type="checkbox" /></label>
@@ -994,7 +1070,7 @@
                         <label class="task-time-setting"><span>结束</span><input id="companionQuietEnd" type="time" value="07:00" /></label>
                       </div></section>
                     </div>
-                    <div class="translation-form-actions"><button class="primary-button compact-button" id="saveCompanionSettings" type="button" data-action-id="companion.settings.save">保存小序设置</button><span class="settings-inline-note">DeepSeek 密钥继续使用“翻译与 DeepSeek”的安全配置。</span></div>
+                    <div class="translation-form-actions"><button class="primary-button compact-button" id="saveCompanionSettings" type="button" data-action-id="companion.settings.save">保存小序设置</button><span class="settings-inline-note">对话记忆、天气快照和 DeepSeek 密钥仅存本机。</span></div>
                   </div>
                 </article>
 
@@ -1303,7 +1379,7 @@
                     </div>
                     <ol class="roadmap-list">
                       <li><span>1</span><div><strong>配套 Chrome 扩展</strong><small>通过 chrome.bookmarks API 实现真实双向同步</small></div></li>
-                      <li><span>2</span><div><strong>扩展更多签到站点</strong><small>奶昔已接入；其他站点仍需逐站验证登录、验证码与成功提示</small></div></li>
+                      <li><span>2</span><div><strong>扩展更多签到站点</strong><small>新增适配复用统一定时设置；每个站点仍需验证登录、验证码与成功提示</small></div></li>
                       <li><span>3</span><div><strong>后台常驻与失败通知</strong><small>在程序关闭时继续调度，并提供可配置的失败处理</small></div></li>
                     </ol>
                   </div>
@@ -1364,6 +1440,7 @@
               </div>
 
               <div class="browser-tools">
+                <div class="browser-extension-actions" id="browserExtensionActions" aria-label="浏览器扩展" hidden></div>
                 <button class="toolbar-button" id="translatePageButton" type="button" title="翻译本页">
                   <span data-icon="language"></span>
                 </button>
@@ -1419,6 +1496,7 @@
               <strong id="browserSiteName">NodeSeek 情报</strong>
               <small id="browserSiteStatus">正在连接</small>
             </div>
+            <div class="browser-site-notice" id="browserSiteNotice" role="status" hidden></div>
             <div class="browser-content" id="browserContent">
               <div class="webview-frame" id="webviewFrame">
                 <div class="webview-placeholder" id="webviewPlaceholder">
@@ -1631,6 +1709,14 @@
         <header><div class="task-detail-toolbar"><small>日程详情</small><div class="task-detail-actions"><button id="taskDetailEdit" type="button" aria-label="修改日程" title="修改日程"><span data-icon="edit"></span></button><button id="taskDetailDelete" type="button" aria-label="删除日程" title="删除日程"><span data-icon="trash"></span></button><button id="taskDetailClose" type="button" aria-label="关闭" title="关闭"><span data-icon="close"></span></button></div></div><div class="task-detail-heading"><span id="taskDetailColor"></span><div><h2 id="taskDetailTitle"></h2><p id="taskDetailWhen"></p></div></div></header>
         <div class="task-detail-content" id="taskDetailContent"></div>
         <footer><button class="secondary-button" id="taskDetailTimeline" type="button">记录到时间轴</button><button class="primary-button" id="taskDetailStatusAction" type="button">标记完成</button></footer>
+      </aside>
+    </div>
+
+    <div class="task-detail-layer timeline-detail-layer" id="timelineDetailLayer" aria-hidden="true">
+      <button class="task-detail-scrim" id="timelineDetailScrim" type="button" aria-label="关闭记录详情"></button>
+      <aside class="task-detail-card timeline-detail-card" id="timelineDetailCard" role="dialog" aria-modal="false" aria-labelledby="timelineDetailTitle">
+        <header><div class="task-detail-toolbar"><small id="timelineDetailEyebrow">个人记录</small><div class="task-detail-actions"><button id="timelineDetailEdit" type="button" aria-label="修改记录" title="修改记录"><span data-icon="edit"></span></button><button id="timelineDetailDelete" type="button" aria-label="删除记录" title="删除记录"><span data-icon="trash"></span></button><button id="timelineDetailClose" type="button" aria-label="关闭" title="关闭"><span data-icon="close"></span></button></div></div><div class="task-detail-heading"><span id="timelineDetailColor"></span><div><h2 id="timelineDetailTitle"></h2><p id="timelineDetailWhen"></p></div></div></header>
+        <div class="task-detail-content" id="timelineDetailContent"></div>
       </aside>
     </div>
 
@@ -1953,6 +2039,17 @@
     </div>
 
     <div class="app-context-menu" id="appContextMenu" role="menu" aria-label="页签操作" hidden></div>
+
+    <div class="modal-backdrop" id="siteLibraryGroupModal" role="dialog" aria-modal="true" aria-labelledby="siteLibraryGroupTitle">
+      <div class="modal-card compact-modal-card">
+        <div class="modal-header"><h2 id="siteLibraryGroupTitle">新建分组</h2><button class="icon-button" type="button" data-close-modal="siteLibraryGroupModal" aria-label="关闭"><span data-icon="close"></span></button></div>
+        <form id="siteLibraryGroupForm">
+          <label class="form-field"><span>分组名称</span><input id="siteLibraryGroupName" required maxlength="40" placeholder="例如：社区、工作工具、学习" /></label>
+          <p class="form-hint">分组用于整理站点，不会改变站点所属空间或登录会话。</p>
+          <div class="modal-actions"><button class="secondary-button" type="button" data-close-modal="siteLibraryGroupModal">取消</button><button class="primary-button" type="submit">保存</button></div>
+        </form>
+      </div>
+    </div>
 
     <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 

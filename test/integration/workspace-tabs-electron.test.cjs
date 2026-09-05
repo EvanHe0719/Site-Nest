@@ -341,7 +341,7 @@ test(
     assert.ok((await fsp.stat(result.capturePath)).size > 1000);
 
     const persisted = JSON.parse(await fsp.readFile(path.join(userData, "site-nest-data.json"), "utf8"));
-    assert.equal(persisted.version, 18);
+    assert.equal(persisted.version, 19);
     assert.equal(persisted.workspaceBrowserStates.personal.tabs.length, 2);
     assert.ok(persisted.workspaceBrowserStates.personal.tabs.every((tab) => tab.tabGroupId === probe.targetGroupId));
     assert.equal(persisted.tabGroups.find((group) => group.id === probe.sourceGroupId).deletedAt !== null, true);

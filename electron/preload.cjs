@@ -1,5 +1,17 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+const BROWSER_EXTENSION_PARTITIONS = new Set([
+  "persist:qiye-sites",
+  "persist:qiye-nodeseek",
+  "persist:qiye-sap-support",
+]);
+
+function checkedExtensionPartition(value) {
+  const partition = String(value || "");
+  if (!BROWSER_EXTENSION_PARTITIONS.has(partition)) throw new Error("不支持的浏览身份");
+  return partition;
+}
+
 contextBridge.exposeInMainWorld("siteNest", {
   getState: () => ipcRenderer.invoke("state:get"),
   getUIActions: () => ipcRenderer.invoke("ui-actions:list"),
@@ -16,12 +28,21 @@ contextBridge.exposeInMainWorld("siteNest", {
   cancelCompanionWeather: () => ipcRenderer.invoke("companion:cancel-weather"),
   getCompanionAIStatus: () => ipcRenderer.invoke("companion:ai-status"),
   askCompanion: (requestId, question) => ipcRenderer.invoke("companion:ask", { requestId, question }),
+  getCompanionMemory: () => ipcRenderer.invoke("companion:get-memory"),
+  clearCompanionMemory: () => ipcRenderer.invoke("companion:clear-memory"),
+  deleteCompanionMemoryFact: (memoryId) => ipcRenderer.invoke("companion:delete-memory-fact", memoryId),
+  onCompanionMemoryUpdated: (callback) => {
+    const listener = (_event, memory) => callback(memory);
+    ipcRenderer.on("companion:memory-updated", listener);
+    return () => ipcRenderer.removeListener("companion:memory-updated", listener);
+  },
   summarizeCompanionPage: (requestId) => ipcRenderer.invoke("companion:summarize-page", { requestId }),
   explainCompanionSelection: () => ipcRenderer.invoke("companion:explain-selection"),
   cancelCompanionAI: (requestId) => ipcRenderer.invoke("companion:cancel-ai", requestId),
   setActiveWorkspace: (workspaceId) =>
     ipcRenderer.invoke("workspace:set-active", workspaceId),
   updateUiSettings: (patch) => ipcRenderer.invoke("settings:update-ui", patch),
+  organizeSites: (input) => ipcRenderer.invoke("sites:organize", input),
   getSearchState: () => ipcRenderer.invoke("search:get-state"),
   resolveSearchInput: (input, engineId) =>
     ipcRenderer.invoke("search:resolve-input", { input, engineId }),
@@ -68,6 +89,39 @@ contextBridge.exposeInMainWorld("siteNest", {
   getSystemInfo: () => ipcRenderer.invoke("system:info"),
   openDataFolder: () => ipcRenderer.invoke("system:open-data-folder"),
   openExternal: (url) => ipcRenderer.invoke("system:open-external", url),
+  listBrowserExtensions: (profileId) => ipcRenderer.invoke("browser-extensions:list", profileId),
+  importBrowserExtension: (profileId) => ipcRenderer.invoke("browser-extensions:import", profileId),
+  setBrowserExtensionEnabled: (profileId, extensionId, enabled) =>
+    ipcRenderer.invoke("browser-extensions:set-enabled", { profileId, extensionId, enabled }),
+  removeBrowserExtension: (profileId, extensionId) =>
+    ipcRenderer.invoke("browser-extensions:remove", { profileId, extensionId }),
+  openBrowserExtensionsFolder: () => ipcRenderer.invoke("browser-extensions:open-folder"),
+  getBrowserExtensionActions: (partition) =>
+    ipcRenderer.invoke("browser-extensions:actions-state", checkedExtensionPartition(partition)),
+  observeBrowserExtensionActions: (partition) =>
+    ipcRenderer.invoke("browser-extensions:observe-actions", checkedExtensionPartition(partition)),
+  activateBrowserExtensionAction: (partition, details = {}) => {
+    const extensionId = String(details.extensionId || "");
+    if (!/^[a-p]{32}$/.test(extensionId)) throw new Error("扩展 ID 无效");
+    const tabId = Number(details.tabId);
+    const rect = details.anchorRect || {};
+    return ipcRenderer.invoke(
+      "browser-extensions:activate-action",
+      {
+        partition: checkedExtensionPartition(partition),
+        eventType: details.eventType === "contextmenu" ? "contextmenu" : "click",
+        extensionId,
+        tabId: Number.isInteger(tabId) ? tabId : -1,
+        alignment: "bottom right",
+        anchorRect: {
+          x: Math.max(0, Number(rect.x) || 0),
+          y: Math.max(0, Number(rect.y) || 0),
+          width: Math.max(1, Math.min(100, Number(rect.width) || 32)),
+          height: Math.max(1, Math.min(100, Number(rect.height) || 32)),
+        },
+      },
+    );
+  },
   showBrowser: (payload) => ipcRenderer.invoke("browser:show", payload),
   openSearchInput: (payload) => ipcRenderer.invoke("browser:open-input", payload),
   hideBrowser: () => ipcRenderer.send("browser:hide"),
@@ -200,6 +254,8 @@ contextBridge.exposeInMainWorld("siteNest", {
   getExecutionLogs: () => ipcRenderer.invoke("assistants:logs"),
   getAutomationStatus: () => ipcRenderer.invoke("automation:get"),
   runNaixiCheckin: () => ipcRenderer.invoke("automation:run-naixi"),
+  runCheckin: (id) => ipcRenderer.invoke("automation:run-checkin", id),
+  updateCheckin: (id, settings) => ipcRenderer.invoke("automation:update-checkin", id, settings),
   updateNaixiAutomation: (settings) =>
     ipcRenderer.invoke("automation:update-naixi", settings),
   onBrowserState: (callback) => {
@@ -221,6 +277,11 @@ contextBridge.exposeInMainWorld("siteNest", {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on("browser:notice", listener);
     return () => ipcRenderer.removeListener("browser:notice", listener);
+  },
+  onBrowserExtensionActionsUpdated: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("browserAction.update", listener);
+    return () => ipcRenderer.removeListener("browserAction.update", listener);
   },
   onBrowserLifecycle: (callback) => {
     const listener = (_event, value) => callback(value);

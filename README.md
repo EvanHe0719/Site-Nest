@@ -22,6 +22,7 @@
 - 单字、词语和成语可按配置优先显示本地带声调拼音、多音字备选读音，并支持朗读与复制拼音。短词处理可选择“拼音＋DeepSeek 释义”“仅本地拼音”或关闭；仅本地模式不会上传选词或调用 DeepSeek。
 - 翻译与划词查询默认使用 DeepSeek 的 OpenAI-compatible API；API Key 与连接器凭据共用 Electron `safeStorage` 加密文件，正文、选中文字与结果只在本次运行内存和当前网页 DOM 中短暂存在。整页翻译继续支持双语、仅译文、恢复原文、动态 DOM 与同源 iframe。
 - 本地“日程”支持本周、本月、全部日程与已完成视图。本周以紧凑的颜色、时间和主题条目展示；本月使用全宽日历，并把跨日安排连续铺在日期范围内。日程支持开始/结束日期与时间、全天、重复、颜色、空间、优先级、待办状态、标签、备注和本地提醒；创建或编辑时右侧按所选日期实时显示当天 24 小时时间轴及冲突日程，点击已有条目可打开详情抽屉修改或删除。
+- 工作与个人时间轴支持波形和列表视图；记录点击后显示就近悬浮详情卡。波形可在全年“月刻度”和单月“日刻度”之间切换，也可在图表上通过滚轮按指针所在月份完成月→日→月缩放。
 - OAuth、SSO 和 POST 登录窗口使用受控窗口，继承原浏览身份、Cookie 与 opener；站点级策略可在“设置与数据 → 新窗口与登录弹窗”中调整。
 - SAP Support、SAP for Me 与 SAP ID 使用独立的持久浏览身份，避免共享 Cookie 污染登录跳转；若仍检测到认证状态损坏，会显示“修复 SAP 登录”，用户确认后只清理该 SAP 身份并重新打开原搜索或 Note 目标，不影响外部 Chrome 与非 SAP 网站。
 - 左侧导航可收纳为 72px 图标栏并记住偏好；浏览器不再显示“已连接/正在加载”信息条，切换空间提示约 1.4 秒后消失。
@@ -33,15 +34,15 @@
 - 内置 Zoho Desk 只读连接器：安全 Desktop OAuth、当前 Agent、有限分页工单、最近公开线程、五项分诊指标、缓存、手动刷新和当前工单右侧上下文助手。
 - 未配置的 Emma、B1 运维台、Gitee、Customer Ops 和回复草稿连接器明确显示“未配置/未关联”，不会模拟成功，也不会执行写入。
 - Chrome 导入只读扫描本机 `Bookmarks` 与 `AccountBookmarks`，不会读取密码、历史、Cookie 或标签页。
-- 左下角 Google 入口将账号身份与 Drive 授权分开显示；Desktop OAuth 使用同一账号申请最小 `drive.appdata` Scope，可同步站点、日程、设置、栖页搜索/浏览历史和用户脚本元数据；这不是 Chrome 书签或 Chrome 历史同步。
+- 左下角 Google 入口将账号身份与 Drive 授权分开显示；Desktop OAuth 使用同一账号申请最小 `drive.appdata` Scope，可同步站点、日程、设置、栖页搜索/浏览历史、用户脚本元数据，以及小序保存的个人 AI 对话与记忆；这不是 Chrome 书签或 Chrome 历史同步。
 - “设置与数据”改为分类导航和当前分类独立滚动；只挂载当前分类，Zoho 详细表单在用户点击配置后才创建。设置搜索来自已实现的设置注册表，旧书签、Zoho、翻译、日程、内存和弹窗入口继续定位到新分类。
-- 0.5.7 的可选“小序”伴随助手直接悬浮在当前内嵌网页右下角，不占独立侧栏，也不创建额外 BrowserWindow/Renderer。组件使用独立 isolated world 与 closed Shadow DOM，并通过受控 IPC 提供天气、健康状态和仅发送手动输入文字的 DeepSeek 问答；不会自动读取网页正文、表单、Cookie、Token 或把本机密钥注入网页。顶部小序图标仍是后续功能占位；专注、休息、护眼、喝水和活动判断只使用低频前台/空闲状态，天气由主进程按需访问 Open-Meteo。
+- 0.5.7 的可选“小序”伴随助手直接悬浮在当前内嵌网页右下角，不占独立侧栏，也不创建额外 BrowserWindow/Renderer。组件使用独立 isolated world 与 closed Shadow DOM，并通过受控 IPC 提供天气、健康状态和仅发送手动输入文字的 DeepSeek 问答；不会自动读取网页正文、表单、Cookie、Token 或把本机密钥注入网页。0.5.13 将启用后的对话默认保留 100 轮并同步到用户自己的 Google Drive 应用数据，明确“记住”会建立长期记忆，稳定偏好、长期目标和持续背景可经 AI 判断后自动保存。密码类内容只接受明确记忆指令，相关提问时才会选入模型上下文；个人记忆不是密码保险箱。天气真实快照仍只在本机跨重启缓存，过期后后台刷新。
 
 ## 本地数据与迁移
 
 应用状态保存在 Electron 的 Windows `userData` 目录中的 `site-nest-data.json`。
 
-0.5.9 继续使用 schema v18；保留 0.5.8 的 NodeSeek 系统浏览身份与日程行为，本次自动化界面调整不新增数据字段，也不删除书签、站点、固定数据或浏览分区 Cookie。v2 至 v17 升级时：
+0.5.13 使用 schema v19。旧 `companionRuntimeState.conversationMemory` 会一次性迁移到 `companionConversationEntries`；长期记忆存于 `companionMemoryFacts`。两类记录都固定归属个人空间，只有在记忆和跨电脑同步同时开启时才进入 Google Drive。天气缓存、提醒运行态、敏感站点确认、API Key、网页会话和 Cookie 仍只留在本机。升级不会删除书签、站点、日程、时间轴、固定数据或浏览分区 Cookie。v2 至 v18 升级时：
 
 - 旧站点和固定项进入个人空间；原 ID、URL、书签、最近访问和奶昔状态保留。
 - 旧站点补齐 `workspaceId: personal`、`siteKind: normal`、`openMode: internal`、`browserProfileId: default` 和空助手绑定。
@@ -55,7 +56,8 @@
 - v8 缺失的 `uiSettings.browserMemory` 会补齐为标准模式/15 分钟，页签 `keepRunning` 默认关闭；不创建新分区或清理浏览存储。
 - v9 增加系统浏览身份 `sap-support`；现有 SAP Support、SAP for Me、SAP ID 和认证链页签会迁移到 `persist:qiye-sap-support`，非 SAP 页签继续使用原 `persist:qiye-sites`。原分区数据不会被删除。
 - v10 增加 `uiSettings.search` 与 `searchHistory`；默认 Google、保存历史、100 条上限和最后设置分类。旧数据缺少字段时只补默认值，不重置 Google/Zoho OAuth、站点、书签、会话、BrowserProfile 或 Partition。
-- v18 增加 `uiSettings.companion` 与 `companionRuntimeState`；旧用户默认关闭，不创建假天气、假提醒或 AI 对话。暂停、延后和敏感站点确认保留在本机；Google Drive 只同步可移植的非敏感偏好，不同步城市、天气缓存、运行态或页面内容。
+- v18 增加 `uiSettings.companion` 与 `companionRuntimeState`；旧用户默认关闭，不创建假天气、假提醒或 AI 对话。0.5.12 在同一兼容结构中增加可选的最近对话与真实天气快照。
+- v19 将最近对话迁移为个人空间同步记录，并增加可查看、逐条删除的长期记忆。默认上限为 100 轮，可设为 20–200 轮；密码等敏感内容不会自动记录，但明确要求时允许保存并标记为敏感。
 - v3 首次升级也创建版本备份；连接器与界面默认项可重复归一化，不重复创建默认连接。
 
 ## 登录会话边界
@@ -85,6 +87,8 @@ Google 同步是可选功能。新电脑首次打开时可在 Google 同步卡�
 Google Drive API 不能访问 Chrome Sync 的书签树。栖页中的收藏书签是导入副本；要真正回写 Chrome 账号书签，仍需要 Manifest V3 扩展通过 `chrome.bookmarks` 修改当前 Chrome 配置，再由 Chrome 按账号设置同步。
 
 SAP 登录链与 NodeSeek 分别使用系统管理的独立持久身份；个人/工作空间中的其他网站仍不按空间隔离 Cookie，避免让既有站点集体退出登录。自 0.5.8 起，已有 NodeSeek 站点和页签会自动改用 `persist:qiye-nodeseek`，旧默认身份数据不会删除，但新身份首次使用可能需要重新登录 NodeSeek。NodeSeek 会话重置和 SAP 身份清理仍只有用户点击并确认后才执行；若站点返回 Cloudflare 验证，栖页只保留会话并提示用户完成站点验证，不绕过网站安全机制。
+
+0.5.10 在应用启动时统一网页与 Service Worker 的浏览器标识，修复后台请求接管刷新后回退到应用标记而出现 403 的问题。升级需完全退出旧进程并重新启动；不需要为本次修复重置 NodeSeek 或删除其登录数据。HTTP 403 与网站验证页分别提示，不保证网站自身的账号权限、验证码或后续防护策略始终放行。
 
 ## 助手安全边界
 

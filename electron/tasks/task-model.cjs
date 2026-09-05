@@ -6,6 +6,7 @@ const REMINDER_STATES = new Set(["pending", "fired", "snoozed", "dismissed"]);
 const TASK_RECURRENCE_FREQUENCIES = new Set(["none", "daily", "weekly", "weekdays", "monthly-date", "monthly-weekday", "yearly", "custom"]);
 const TASK_RECURRENCE_UNITS = new Set(["day", "week", "month"]);
 const DEFAULT_TASK_COLOR = "#23a783";
+const TASK_REMINDER_LATE_GRACE_MS = 15 * 60_000;
 
 function isoOrNull(value) {
   if (!value) return null;
@@ -153,7 +154,18 @@ function normalizeTaskSettings(value = {}) {
   };
 }
 
-function buildTaskReminders(task, existing = []) {
+function isTaskReminderExpired(task, reminder, now = Date.now()) {
+  if (!task || !reminder || !["pending", "snoozed"].includes(reminder.state)) return false;
+  const nowMs = typeof now === "number" ? now : Date.parse(now);
+  if (!Number.isFinite(nowMs)) return false;
+  const occurrenceAt = Date.parse(task.startAt || task.dueAt || "");
+  if (!Number.isFinite(occurrenceAt)) return false;
+  const snoozedUntil = reminder.state === "snoozed" ? Date.parse(reminder.snoozedUntil || "") : NaN;
+  const relevantAt = Number.isFinite(snoozedUntil) ? Math.max(occurrenceAt, snoozedUntil) : occurrenceAt;
+  return nowMs > relevantAt + TASK_REMINDER_LATE_GRACE_MS;
+}
+
+function buildTaskReminders(task, existing = [], options = {}) {
   const reminderBase = task?.startAt || task?.dueAt;
   if (!reminderBase || !Array.isArray(task.reminderOffsets) || ["done", "cancelled"].includes(task.status)) return [];
   const due = Date.parse(reminderBase);
@@ -164,7 +176,7 @@ function buildTaskReminders(task, existing = []) {
     const remindAt = new Date(due - offset * 60_000).toISOString();
     const previous = byId.get(id);
     const unchanged = previous?.remindAt === remindAt;
-    return {
+    const reminder = {
       id,
       taskId: task.id,
       remindAt,
@@ -173,6 +185,11 @@ function buildTaskReminders(task, existing = []) {
       snoozedUntil: unchanged ? previous.snoozedUntil || null : null,
       notificationKey: id,
     };
+    if (options.now && isTaskReminderExpired(task, reminder, options.now)) {
+      reminder.state = "dismissed";
+      reminder.snoozedUntil = null;
+    }
+    return reminder;
   });
 }
 
@@ -180,12 +197,12 @@ function cloneState(state) {
   return typeof structuredClone === "function" ? structuredClone(state) : JSON.parse(JSON.stringify(state));
 }
 
-function refreshTaskReminders(state, taskId) {
+function refreshTaskReminders(state, taskId, options = {}) {
   const task = state.localTasks.find((item) => item.id === taskId);
   const existing = state.taskReminders.filter((item) => item.taskId === taskId);
   state.taskReminders = [
     ...state.taskReminders.filter((item) => item.taskId !== taskId),
-    ...(task ? buildTaskReminders(task, existing) : []),
+    ...(task ? buildTaskReminders(task, existing, options) : []),
   ];
 }
 
@@ -200,7 +217,7 @@ function addTaskToState(state, input, options = {}) {
   });
   if (!workspaceIds.has(task.workspaceId)) throw new Error("日程所属空间不存在");
   next.localTasks.push(task);
-  refreshTaskReminders(next, task.id);
+  refreshTaskReminders(next, task.id, { now });
   next.updatedAt = now;
   return { state: next, task };
 }
@@ -214,7 +231,7 @@ function updateTaskInState(state, input, options = {}) {
   const task = normalizeLocalTask({ ...next.localTasks[index], ...input, id, updatedAt: now }, { now, timeZone: next.timeZone });
   if (!next.workspaces.some((item) => item.id === task.workspaceId)) throw new Error("日程所属空间不存在");
   next.localTasks[index] = task;
-  refreshTaskReminders(next, id);
+  refreshTaskReminders(next, id, { now });
   next.updatedAt = now;
   return { state: next, task };
 }
@@ -254,6 +271,7 @@ function updateReminderInState(state, reminderId, patch, options = {}) {
 
 module.exports = {
   DEFAULT_TASK_COLOR,
+  TASK_REMINDER_LATE_GRACE_MS,
   TASK_PRIORITIES,
   TASK_RECURRENCE_FREQUENCIES,
   TASK_STATUSES,
@@ -261,6 +279,7 @@ module.exports = {
   buildTaskReminders,
   deleteTaskFromState,
   deviceTimeZone,
+  isTaskReminderExpired,
   normalizeLocalTask,
   normalizeLocalTasks,
   normalizeReminderOffsets,

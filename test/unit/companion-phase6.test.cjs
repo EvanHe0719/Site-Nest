@@ -88,9 +88,13 @@ test("in-page widget is isolated, interactive, reduced-motion aware and excludes
     runtime: { state: "idle", secret: "runtime-secret" },
   });
   const normalized = normalizeCompanionWidgetSnapshot({
-    settings: { enabled: true, apiKey: "must-not-leak" },
+    settings: { enabled: true, memory: { enabled: true }, apiKey: "must-not-leak" },
     runtime: { state: "idle", secret: "runtime-secret" },
     weather: { snapshot: { city: "上海", temperature: 26, token: "weather-secret" } },
+    memory: { enabled: true, revision: "2:last", messages: [
+      { id: "first", role: "user", content: "记住简短回答", extra: "drop-me" },
+      { id: "last", role: "assistant", content: "好的" },
+    ] },
   });
   const recentlyFocused = normalizeCompanionWidgetSnapshot({
     settings: { enabled: true },
@@ -131,6 +135,8 @@ test("in-page widget is isolated, interactive, reduced-motion aware and excludes
   assert.match(widget, /role="log" aria-label="小序对话"/);
   assert.equal((widget.match(/class="face-eye"/g) || []).length, 4);
   assert.match(widget, /appendMessage\('user', question\)/);
+  assert.match(widget, /const syncMemory = \(memory = \{\}\)/);
+  assert.match(widget, /response\.value\?\.memory\?\.enabled/);
   assert.match(widget, /showTemporaryExpression\('happy'\)/);
   assert.match(widget, /conversationOverflowY/);
   assert.match(widget, /nestedMessageScrollerCount/);
@@ -154,6 +160,10 @@ test("in-page widget is isolated, interactive, reduced-motion aware and excludes
   assert.doesNotMatch(widget, /document\.cookie|localStorage|sessionStorage|innerText/);
   assert.doesNotMatch(widget, /must-not-leak|runtime-secret|weather-secret/);
   assert.doesNotMatch(JSON.stringify(normalized), /must-not-leak|runtime-secret|weather-secret/);
+  assert.deepEqual(normalized.memory.messages, [
+    { id: "first", role: "user", content: "记住简短回答" },
+    { id: "last", role: "assistant", content: "好的" },
+  ]);
   assert.equal(recentlyFocused.visualState, "idle");
   assert.equal(recentlyFocused.muted, false);
   assert.equal(longFocused.visualState, "nap");
@@ -163,15 +173,16 @@ test("in-page widget is isolated, interactive, reduced-motion aware and excludes
   assert.match(preload, /exposeInIsolatedWorld\(COMPANION_WIDGET_WORLD_ID, "qiyeCompanionHost"/);
   assert.match(main, /runtimeTabForWebContentsId\(event\.sender\.id\)/);
   assert.match(main, /companion:page-widget-action/);
+  assert.match(main, /const memory = await appendCompanionConversation\(question, value\.answer\);[\s\S]*broadcastCompanionPageWidget\(companionRuntimeService\?\.snapshot\(\), \{ memory \}\);/);
 });
 
-test("production lifecycle stops companion, weather and AI in the 0.5.9 release", () => {
+test("production lifecycle stops companion, weather and AI in the 0.5.17 release", () => {
   const main = fs.readFileSync(path.join(ROOT, "electron", "main.cjs"), "utf8");
   const packageJson = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
   assert.match(main, /companionRuntimeService\?\.stop\(\)/);
   assert.match(main, /weatherService\?\.stop\(\)/);
   assert.match(main, /companionAIService\?\.cancelAll\(\)/);
-  assert.equal(packageJson.version, "0.5.9");
+  assert.equal(packageJson.version, "0.5.17");
   assert.equal(packageJson.build.appId, "local.qiye.sitehub");
   assert.doesNotMatch(main, /new BrowserWindow\([^)]*companion/is);
 });

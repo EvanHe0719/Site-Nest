@@ -10,6 +10,7 @@ const {
   TrayService,
   addTaskToState,
   buildTaskReminders,
+  isTaskReminderExpired,
   isWithinDoNotDisturb,
   nextDoNotDisturbEnd,
   normalizeTaskSettings,
@@ -75,6 +76,40 @@ test("schedule reminders are based on the start time while legacy due-only tasks
   assert.equal(scheduled.state.taskReminders[0].remindAt, "2026-09-04T07:15:00.000Z");
   const legacy = addTaskToState(initialState(), { title: "旧截止任务", dueAt: DUE, reminderOffsets: [15] }, { now: NOW });
   assert.equal(legacy.state.taskReminders[0].remindAt, "2026-08-30T03:45:00.000Z");
+});
+
+test("past schedule reminders expire after a short grace window instead of firing days later", () => {
+  const task = {
+    id: "past-schedule",
+    status: "todo",
+    startAt: "2026-09-02T07:30:00.000Z",
+    dueAt: "2026-09-02T08:30:00.000Z",
+    reminderOffsets: [15],
+  };
+  const reminder = buildTaskReminders(task)[0];
+  assert.equal(isTaskReminderExpired(task, reminder, "2026-09-02T07:44:59.999Z"), false);
+  assert.equal(isTaskReminderExpired(task, reminder, "2026-09-02T07:45:00.001Z"), true);
+  assert.equal(isTaskReminderExpired(task, reminder, "2026-09-05T00:00:00.000Z"), true);
+
+  const normalized = buildTaskReminders(task, [reminder], { now: "2026-09-05T00:00:00.000Z" });
+  assert.equal(normalized[0].state, "dismissed");
+});
+
+test("an explicit snooze remains valid until its own grace window expires", () => {
+  const task = {
+    id: "snoozed-schedule",
+    status: "todo",
+    startAt: "2026-09-02T07:30:00.000Z",
+    dueAt: "2026-09-02T08:30:00.000Z",
+    reminderOffsets: [15],
+  };
+  const reminder = {
+    ...buildTaskReminders(task)[0],
+    state: "snoozed",
+    snoozedUntil: "2026-09-02T08:00:00.000Z",
+  };
+  assert.equal(isTaskReminderExpired(task, reminder, "2026-09-02T08:10:00.000Z"), false);
+  assert.equal(isTaskReminderExpired(task, reminder, "2026-09-02T08:16:00.000Z"), true);
 });
 
 test("an unchanged reminder keeps its fired state across normalization and restart", () => {

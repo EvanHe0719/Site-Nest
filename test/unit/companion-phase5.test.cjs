@@ -7,6 +7,7 @@ const test = require("node:test");
 const {
   CompanionRuntimeService,
   companionWidgetInstallScript,
+  normalizeConversationMemory,
   normalizeCompanionRuntimeState,
   normalizeCompanionSettings,
   syncableCompanionSettings,
@@ -21,7 +22,7 @@ const { UI_ACTION_IDS } = require("../../electron/ui-actions/catalog.cjs");
 
 const NOW = "2026-09-02T04:00:00.000Z";
 
-test("schema v18 adds companion settings safely while preserving existing sites and defaulting old users off", () => {
+test("schema v19 preserves companion settings and safely adds synced personal memory collections", () => {
   const old = createInitialState({ now: NOW });
   old.version = 17;
   old.sites.push({
@@ -33,11 +34,13 @@ test("schema v18 adds companion settings safely while preserving existing sites 
   delete old.companionRuntimeState;
 
   const migration = migrateState(old, { now: NOW });
-  assert.equal(CURRENT_SCHEMA_VERSION, 18);
-  assert.equal(migration.state.version, 18);
+  assert.equal(CURRENT_SCHEMA_VERSION, 19);
+  assert.equal(migration.state.version, 19);
   assert.equal(migration.state.uiSettings.companion.enabled, false);
   assert.equal(migration.state.sites.some((site) => site.id === "kept-site"), true);
   assert.deepEqual(migration.state.companionRuntimeState.aiAllowedHosts, []);
+  assert.deepEqual(migration.state.companionConversationEntries, []);
+  assert.deepEqual(migration.state.companionMemoryFacts, []);
   assert.deepEqual(migrateState(migration.state, { now: NOW }).state, migration.state);
 });
 
@@ -48,6 +51,7 @@ test("companion settings and persisted runtime enforce bounded, sanitized values
     idleThresholdSeconds: 1,
     silentSites: [" EXAMPLE.COM ", "example.com", ""],
     weather: { enabled: true, city: " 上海 ", pollMinutes: 2 },
+    memory: { enabled: true, maxTurns: 100, syncEnabled: true, autoCapture: true },
     wellness: { intervalsMinutes: { water: 999 } },
   });
   assert.equal(settings.focusDockSeconds, 60);
@@ -55,33 +59,72 @@ test("companion settings and persisted runtime enforce bounded, sanitized values
   assert.deepEqual(settings.silentSites, ["example.com"]);
   assert.equal(settings.weather.city, "上海");
   assert.equal(settings.weather.pollMinutes, 10);
+  assert.equal(settings.memory.enabled, true);
+  assert.equal(settings.memory.maxTurns, 100);
+  assert.equal(settings.memory.syncEnabled, true);
+  assert.equal(settings.memory.autoCapture, true);
   assert.equal(settings.wellness.intervalsMinutes.water, 240);
 
   const runtime = normalizeCompanionRuntimeState({
     pausedUntil: "2026-09-02T05:00:00Z",
     snoozedUntil: { water: "2026-09-02T05:10:00Z", unknown: "2026-09-02T05:10:00Z" },
     aiAllowedHosts: [" Desk.Zoho.com.cn ", "desk.zoho.com.cn"],
+    weatherCache: {
+      expiresAt: "2026-09-02T05:30:00Z",
+      snapshot: { city: "上海", fetchedAt: "2026-09-02T05:00:00Z", temperature: 28, latitude: 31.2 },
+    },
   });
   assert.equal(runtime.pausedUntil, "2026-09-02T05:00:00.000Z");
   assert.deepEqual(Object.keys(runtime.snoozedUntil), ["water"]);
   assert.deepEqual(runtime.aiAllowedHosts, ["desk.zoho.com.cn"]);
+  assert.equal(runtime.weatherCache.snapshot.temperature, 28);
+  assert.equal(Object.hasOwn(runtime.weatherCache.snapshot, "latitude"), false);
+  assert.equal(Object.hasOwn(runtime, "conversationMemory"), false);
+  const conversation = normalizeConversationMemory(Array.from({ length: 230 }, (_, index) => ({
+    id: `message-${index}`,
+    role: index % 2 ? "assistant" : "user",
+    content: `内容 ${index}`,
+    createdAt: "2026-09-02T05:00:00Z",
+  })), { maxTurns: 100 });
+  assert.equal(conversation.length, 200);
+  assert.equal(conversation[0].id, "message-30");
+  assert.equal(conversation.every((item) => item.workspaceId === "personal"), true);
 });
 
-test("Google sync only carries portable companion preferences, never city, weather cache or runtime state", () => {
+test("companion conversation memory is enabled by default for cross-site continuity", () => {
+  const settings = normalizeCompanionSettings();
+  assert.equal(settings.memory.enabled, true);
+  assert.equal(settings.memory.syncEnabled, true);
+  assert.equal(normalizeCompanionSettings({ memory: { enabled: false } }).memory.enabled, false);
+});
+
+test("Google sync carries enabled personal AI memory separately, while city and runtime state stay local", () => {
   const state = createInitialState({ now: NOW });
-  state.uiSettings.companion = normalizeCompanionSettings({ enabled: true, weather: { enabled: true, city: "上海", pollMinutes: 45 } });
-  state.companionRuntimeState = normalizeCompanionRuntimeState({ pausedUntil: "2026-09-02T05:00:00Z", aiAllowedHosts: ["desk.zoho.com.cn"] });
+  state.uiSettings.companion = normalizeCompanionSettings({ enabled: true, memory: { enabled: true }, weather: { enabled: true, city: "上海", pollMinutes: 45 } });
+  state.companionRuntimeState = normalizeCompanionRuntimeState({
+    pausedUntil: "2026-09-02T05:00:00Z",
+    aiAllowedHosts: ["desk.zoho.com.cn"],
+    weatherCache: { expiresAt: "2026-09-02T05:30:00Z", snapshot: { city: "上海", fetchedAt: NOW, temperature: 28 } },
+  });
+  state.companionConversationEntries = [{ id: "question", workspaceId: "personal", role: "user", content: "跨电脑继续这句话", createdAt: NOW, updatedAt: NOW }];
+  state.companionMemoryFacts = [{ id: "secret", workspaceId: "personal", content: "测试站密码是 alpha-123", source: "explicit", sensitive: true, createdAt: NOW, updatedAt: NOW }];
 
   const expected = syncableCompanionSettings(state.uiSettings.companion);
   assert.equal(Object.hasOwn(expected.weather, "city"), false);
+  assert.equal(expected.memory.maxTurns, 100);
   const snapshot = createSafeSnapshot(state);
   assert.deepEqual(snapshot.settings.companion, expected);
   assert.equal(Object.hasOwn(snapshot, "companionRuntimeState"), false);
+  assert.equal(snapshot.syncOptions.companionMemory, true);
+  assert.equal(snapshot.companionConversationEntries[0].content, "跨电脑继续这句话");
+  assert.equal(snapshot.companionMemoryFacts[0].content, "测试站密码是 alpha-123");
 
   const entity = buildSyncEntities(state).get("applicationSetting:shared");
   assert.deepEqual(entity.payload.companion, expected);
   assert.equal(JSON.stringify(entity.payload).includes("上海"), false);
   assert.equal(JSON.stringify(entity.payload).includes("desk.zoho.com.cn"), false);
+  assert.equal(buildSyncEntities(state).get("companionConversationEntry:question").payload.workspaceId, "personal");
+  assert.equal(buildSyncEntities(state).get("companionMemoryFact:secret").payload.content, "测试站密码是 alpha-123");
 
   const local = structuredClone(state);
   const applied = applyEntityOperationToState(local, {
@@ -124,9 +167,15 @@ test("companion background actions and settings remain registered while the pane
   assert.ok(shortcuts.every((item) => item.accelerator === ""));
 
   const html = fs.readFileSync(path.join(__dirname, "..", "..", "renderer", "index.html"), "utf8");
+  const preload = fs.readFileSync(path.join(__dirname, "..", "..", "electron", "preload.cjs"), "utf8");
+  const main = fs.readFileSync(path.join(__dirname, "..", "..", "electron", "main.cjs"), "utf8");
   assert.match(html, /id="companionSettingsCard"/);
+  assert.match(html, /id="companionMemoryEnabled"/);
+  assert.match(html, /id="clearCompanionMemory"/);
   assert.match(html, /data-action-id="companion\.settings\.save"/);
   assert.doesNotMatch(html, /data-action-id="companion\.expand"/);
+  assert.match(preload, /clearCompanionMemory: \(\) => ipcRenderer\.invoke\("companion:clear-memory"\)/);
+  assert.match(main, /ipcMain\.handle\("companion:clear-memory"/);
 });
 
 test("0.5.9 keeps the titlebar icon inert while the in-page orb is interactive", () => {

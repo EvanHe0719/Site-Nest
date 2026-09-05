@@ -27,6 +27,16 @@ function normalizeCompanionWidgetSnapshot(input = {}) {
     || (runtime.state === "focusedDocked" && Number.isFinite(activeSince) && now - activeSince >= LONG_FOCUS_MS);
   const enabled = settings.enabled === true;
   const wellnessEnabled = settings.wellness?.enabled !== false;
+  const memoryInput = input.memory && typeof input.memory === "object" ? input.memory : {};
+  const memoryEnabled = settings.memory?.enabled === true && memoryInput.enabled === true;
+  const memoryMessages = memoryEnabled && Array.isArray(memoryInput.messages)
+    ? memoryInput.messages.flatMap((candidate) => {
+        const role = candidate?.role === "assistant" ? "assistant" : candidate?.role === "user" ? "user" : "";
+        const content = text(candidate?.content, 3_000);
+        if (!role || !content) return [];
+        return [{ id: text(candidate?.id, 120), role, content }];
+      }).slice(-200)
+    : [];
   return {
     visible: !hardHidden,
     enabled,
@@ -46,6 +56,10 @@ function normalizeCompanionWidgetSnapshot(input = {}) {
       temperature: Number.isFinite(Number(forecast?.temperature)) ? Math.round(Number(forecast.temperature)) : null,
       apparentTemperature: Number.isFinite(Number(forecast?.apparentTemperature)) ? Math.round(Number(forecast.apparentTemperature)) : null,
       stale: forecast?.stale === true,
+      tomorrowDate: text(forecast?.tomorrowDate, 20),
+      tomorrowHigh: Number.isFinite(Number(forecast?.tomorrowHigh)) ? Math.round(Number(forecast.tomorrowHigh)) : null,
+      tomorrowLow: Number.isFinite(Number(forecast?.tomorrowLow)) ? Math.round(Number(forecast.tomorrowLow)) : null,
+      tomorrowCondition: text(forecast?.tomorrowCondition, 80),
     },
     wellness: {
       enabled: wellnessEnabled,
@@ -56,6 +70,12 @@ function normalizeCompanionWidgetSnapshot(input = {}) {
     ai: {
       configured: input.ai?.configured === true,
       providerName: text(input.ai?.providerName, 80),
+    },
+    memory: {
+      enabled: memoryEnabled,
+      count: Math.max(memoryMessages.length, Number(memoryInput.count) || 0),
+      revision: memoryEnabled ? text(memoryInput.revision || `${memoryMessages.length}:memory`, 160) : "disabled",
+      messages: memoryMessages,
     },
   };
 }
@@ -189,6 +209,7 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
       .send:disabled { opacity:.48; cursor:wait; }
     \`;
     let snapshot = initial;
+    let memoryRevision = '';
     let rippleTimer = null;
     let expressionTimer = null;
     const greeting = () => {
@@ -235,16 +256,27 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
       conversation.scrollTop = conversation.scrollHeight;
       syncHostBox();
     });
-    const appendMessage = (role, content) => {
+    const appendMessage = (role, content, options = {}) => {
       const bubble = document.createElement('div');
       bubble.className = \`message \${role === 'user' ? 'user' : 'assistant'}\`;
       bubble.setAttribute('aria-label', role === 'user' ? '你' : '小序');
       bubble.textContent = String(content || '');
+      if (options.memoryId) bubble.dataset.memoryId = String(options.memoryId);
       conversation.append(bubble);
       const history = [...conversation.querySelectorAll('.message:not(.welcome-message):not(.notice)')];
       while (history.length > 24) history.shift()?.remove();
-      scrollConversationToEnd();
+      if (options.scroll !== false) scrollConversationToEnd();
       return bubble;
+    };
+    const syncMemory = (memory = {}) => {
+      const revision = String(memory.revision || (memory.enabled ? 'enabled' : 'disabled'));
+      if (revision === memoryRevision) return;
+      memoryRevision = revision;
+      for (const bubble of conversation.querySelectorAll('.message:not(.welcome-message):not(.notice)')) bubble.remove();
+      if (memory.enabled === true) {
+        for (const entry of memory.messages || []) appendMessage(entry.role, entry.content, { memoryId:entry.id, scroll:false });
+      }
+      scrollConversationToEnd();
     };
     const mount = () => {
       const fullscreen = document.fullscreenElement;
@@ -276,6 +308,7 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
         : '';
       const healthSentence = wellness.enabled && enabledKinds.length ? \`我会留意\${enabledKinds.join('、')}提醒。\` : '';
       welcome.textContent = [\`\${greeting()}！我在这里。\`, weatherSentence, healthSentence].filter(Boolean).join(' ');
+      syncMemory(snapshot.memory || {});
       syncHostBox();
     };
     const refreshStatus = async () => {
@@ -299,6 +332,7 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
       }
       askSend.disabled = false;
       reply.textContent = response?.ok ? (response.value?.answer || '已完成') : (response?.error?.message || '请求未完成');
+      if (response?.ok && response.value?.memory?.enabled) syncMemory(response.value.memory);
       if (response?.ok) showTemporaryExpression('happy'); else applyVisualState(snapshot.visualState || 'idle');
       focusComposer();
       triggerRipple(); scrollConversationToEnd();
@@ -420,6 +454,9 @@ function companionWidgetInstallScript(initialSnapshot = {}) {
           nestedMessageScrollerCount: messageScrollers.length,
           latestUserAlignSelf: latestUserMessage ? getComputedStyle(latestUserMessage).alignSelf : '',
           latestAssistantAlignSelf: latestAssistantMessage ? getComputedStyle(latestAssistantMessage).alignSelf : '',
+          memoryMessageCount: conversation.querySelectorAll('.message[data-memory-id]').length,
+          latestUserText: latestUserMessage?.textContent || '',
+          latestAssistantText: latestAssistantMessage?.textContent || '',
           orbEyeCount: orb.querySelectorAll('.face-eye').length,
           miniEyeCount: mini.querySelectorAll('.face-eye').length,
           panelOpen: !panel.hidden,

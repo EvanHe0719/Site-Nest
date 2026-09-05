@@ -1,12 +1,43 @@
 # 栖页浏览器扩展架构边界
 
-## 目标与本轮范围
+## 当前实现
 
-后续 Chrome 扩展计划使用 Manifest V3，让用户从浏览器把当前页面保存到栖页、加入指定空间、搜索或打开栖页，并在用户主动操作时展示通用页面动作和 Zoho Desk 工单入口。
+栖页现在提供通用的本地 Chrome 扩展组件，而不是为 Bitwarden、Dark Reader 等产品分别重写功能：
 
-本轮只建立桌面端的声明式站点助手协议和设计边界，不创建不可构建的空扩展项目，不注册 Native Messaging Host，不开放本地端口，也不改变现有网页会话。
+- 从自动化中心选择包含 `manifest.json` 的已解压扩展目录，审阅清单权限后导入。
+- 扩展复制到栖页 `userData/browser-extensions`，不依赖 Chrome 原目录，也不进入 Google Drive 同步。
+- 普通网页、NodeSeek、SAP 三个持久浏览身份分别安装、启停和卸载；扩展只能访问安装它的身份所持有的网页和 Cookie。
+- 当前标签的扩展动作显示在地址栏右侧，支持工具栏图标、角标、点击弹窗和右键菜单。
+- 兼容层补充 Electron 原生缺少的 action、tabs、windows、webNavigation、cookies、contextMenus、notifications、permissions、runtime、storage 等常见桥接；仍不等同于完整 Chrome。
 
-扩展不是远程脚本载体。桌面端和扩展端都只能执行各自构建产物中注册的动作类型；不得下载 manifest 后直接执行 JavaScript，也不得接受用户粘贴任意脚本执行。
+在线 Chrome Web Store 安装没有接入。评估过的 `electron-chrome-web-store@0.13.0` 依赖存在尚无修复版本的高危 ZIP 解压漏洞，因此本版本只允许用户通过系统目录选择器导入本地目录，不接受 Renderer 传入任意路径或远程 `.crx`。
+
+导入过程拒绝符号链接和特殊文件，限制最多 20,000 个文件、250 MB；卸载只允许删除栖页扩展根目录内的精确目标。扩展首次导入、动态申请新权限和 SAP 身份使用都会给出可见提醒。
+
+## 内嵌第三方扩展与 Chrome 配套扩展不是一回事
+
+本文原有方案描述的是“安装在 Chrome 中、与栖页通信的配套扩展”；当前新增的是另一条路径：把用户选择的第三方扩展副本加载进 Electron 的 `WebContentsView`。两者不能混为一谈。
+
+Electron 44 只能按持久 `Session` 加载已解压扩展目录，不能安装 `.crx`，也不保证兼容 Chrome 商店中的任意扩展。加载成功只表示清单被接受，不能证明后台脚本、工具栏弹窗或内容脚本可工作。
+
+2026-09-05 在原生 Electron 能力上使用本机 Bitwarden Password Manager 2026.7.0 做了第一轮隔离探针：
+
+- 扩展清单可以被 `session.extensions.loadExtension` 读取。
+- `contextMenus`、`sidePanel`、`webNavigation`、`notifications` 和 `privacy` 等权限被 Electron 报告为未知。
+- 后台 Service Worker 因 `chrome.webNavigation.onCommitted` 不存在而注册失败。
+- 手动打开 `popup/index.html` 时又因 `chrome.tabs.getCurrent` 不存在而保持空白。
+
+接入兼容层后的第二轮探针已经确认：Bitwarden 可被导入、工具栏动作可出现、点击可以创建扩展弹窗；但 Chromium 仍报告若干未知权限，后台出现消息接收端不存在的运行错误。尚未完成真实账号解锁、登录框识别、自动填充、锁定、重启恢复和三个浏览身份隔离验收，因此只能标记为“已加载、兼容性待验证”，不能宣称 Bitwarden 自动填充已经可用。需要可靠填充时仍可用“在默认浏览器打开”交给 Chrome。
+
+仓库使用 `electron-chrome-extensions@4.9.0` 的 GPL-3.0 许可路径。个人本机开发可以继续；如果以后分发闭源版本，必须在发布前选择符合 GPL 的发行方式、购买上游 Patron 专有许可，或移除/替换该依赖。测试和源码通过不代表已经解决发行许可。
+
+## 使用方式
+
+1. 在 Chrome 安装需要的扩展。
+2. 进入 Chrome 的扩展目录，选择扩展 ID 下具体的版本目录；该目录内应直接存在 `manifest.json`。
+3. 在栖页“自动化中心 → 浏览器扩展”选择浏览身份并点击“导入扩展”。
+4. 审阅权限后确认。打开或重新载入网页，地址栏右侧会出现该扩展声明的工具栏动作。
+5. “已加载”只代表清单和运行时已接受；需要在目标网站逐项验证扩展的核心功能。
 
 ## Manifest V3 最小权限
 
@@ -90,9 +121,9 @@ Zoho 自定义映射域无法仅凭 hostname 可靠识别，只有用户在站�
 - 通过 `WebContentsView.webContents` 取得实时 URL 和标题。
 - 通过主进程 IPC 执行剪贴板、系统浏览器和本地数据写入。
 - 使用栖页本地 JSON 数据、空间模型和执行日志。
-- 继续使用 `persist:qiye-sites` 保存现有网页会话；扩展不能直接复用该 Cookie 容器。
+- 内嵌第三方扩展按用户选择加载到 `persist:qiye-sites`、`persist:qiye-nodeseek` 或 `persist:qiye-sap-support`；不同身份之间不共享扩展实例、Cookie 或标签页。
 
-### Chrome 扩展
+### Chrome 配套扩展（后续独立项目）
 
 - Service worker 处理菜单、Native Messaging 生命周期和扩展设置。
 - Side Panel 渲染扩展 UI。
@@ -104,13 +135,14 @@ Zoho 自定义映射域无法仅凭 hostname 可靠识别，只有用户在站�
 ## 数据与安全边界
 
 - 本地优先；未经用户明确许可，不向云端上传站点、空间、日志或页面上下文。
+- 导入的扩展代码、扩展清单、扩展状态和每个浏览身份的安装关系不进入 Google Drive 同步。
 - 默认不读取或保存完整页面正文。
 - 不记录 Cookie、登录令牌、Authorization Header、密码、页面正文或用户凭据。
 - 执行日志只保存助手、动作、hostname、状态和固定摘要，URL 查询参数与 fragment 不入日志。
 - 未配置的连接器应隐藏或显示“未配置连接器”，不能模拟成功。
 - 任何从扩展、网页、自定义协议或本地通信层收到的消息都按不可信输入处理，并由桌面主进程重新检查当前页面、助手启用状态和权限。
 
-## 后续实施顺序
+## Chrome 配套扩展的后续实施顺序
 
 1. 固化并版本化助手 JSON schema 与正反 fixtures。
 2. 确定安装版和 Native Messaging Host 的签名、注册、升级方案。

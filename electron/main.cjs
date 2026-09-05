@@ -20,6 +20,10 @@ const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
+const { ElectronChromeExtensions } = require("electron-chrome-extensions");
+const { CHECKIN_DEFINITIONS, DailyCheckinScheduler } = require("./automations/checkins.cjs");
+const { runNodeSeekCheckin } = require("./automations/nodeseek.cjs");
+const { changeSiteLibrary } = require("./site-library.cjs");
 const {
   DEFAULT_BROWSER_PROFILE_ID,
   CURRENT_SCHEMA_VERSION,
@@ -98,8 +102,11 @@ const {
   sapRetryUrl,
   NODESEEK_BROWSER_PROFILE_ID,
   NODESEEK_SITE_PARTITION,
+  NODESEEK_ACCEPT_LANGUAGES,
+  nodeSeekPageIssue,
   tabCloseDecision,
 } = require("./browser/index.cjs");
+const { BrowserExtensionManager } = require("./browser/extension-manager.cjs");
 const {
   GlobalSearchService,
   normalizeSearchHistory,
@@ -138,6 +145,7 @@ const {
   TrayService,
   addTaskToState,
   deleteTaskFromState,
+  isTaskReminderExpired,
   nextDoNotDisturbEnd,
   updateReminderInState,
   updateTaskInState,
@@ -216,20 +224,32 @@ const {
   classifyPageForAI,
   companionWidgetInstallScript,
   companionWidgetUpdateScript,
+  extractExplicitMemory,
+  isPotentialAutoMemory,
+  isSensitiveMemoryText,
+  normalizeConversationMemory,
+  normalizeMemoryFacts,
   normalizeCompanionRuntimeState,
   normalizeCompanionSettings,
   normalizeCompanionWidgetSnapshot,
+  selectMemoryFactsForQuestion,
 } = require("./companion/index.cjs");
 
 const APP_ID = "local.qiye.sitehub";
 const SITE_PARTITION = "persist:qiye-sites";
 const SAP_SITE_PARTITION = "persist:qiye-sap-support";
+const BROWSER_EXTENSION_PROFILES = Object.freeze([
+  { id: DEFAULT_BROWSER_PROFILE_ID, name: "普通网页", partition: SITE_PARTITION },
+  { id: NODESEEK_BROWSER_PROFILE_ID, name: "NodeSeek", partition: NODESEEK_SITE_PARTITION },
+  { id: SAP_BROWSER_PROFILE_ID, name: "SAP", partition: SAP_SITE_PARTITION, sensitive: true },
+]);
 const DETACHED_HEADER_HEIGHT = 56;
 const MAIN_TITLE_TAB_ROW_HEIGHT = 38;
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 const CAPTURE_PATH = process.env.QIYE_CAPTURE_PATH;
 const CAPTURE_ROUTE = process.env.QIYE_CAPTURE_ROUTE || "home";
 const TAB_PROBE_BASE_URL = process.env.QIYE_TAB_PROBE_BASE_URL || "";
+const EXTENSION_PROBE_PATH = process.env.QIYE_EXTENSION_PROBE_PATH || "";
 const uiActionRegistry = createUIActionRegistry();
 const shortcutRegistry = new ShortcutRegistry(uiActionRegistry, { platform: process.platform });
 const shortcutDispatcher = new ShortcutDispatcher(shortcutRegistry, uiActionRegistry);
@@ -278,6 +298,9 @@ if (TEST_USER_DATA) {
 }
 
 app.enableSandbox();
+// Service Worker fetches can use the application fallback instead of the session UA.
+// Set it before any sessions/views exist so navigation and background requests agree.
+app.userAgentFallback = standardChromiumUserAgent(app.userAgentFallback);
 
 const DEFAULT_SITES = [
   {
@@ -313,6 +336,9 @@ let mainWindow;
 let siteView;
 let persistentSiteSession;
 const browserSessions = new Map();
+let browserExtensionManager;
+const browserExtensionTabRemovalNotifications = new WeakSet();
+const browserExtensionTabSelectionNotifications = new WeakSet();
 let siteViewAttached = false;
 let siteViewBounds = { x: 288, y: 112, width: 1000, height: 700 };
 let currentHomeUrl = "";
@@ -329,8 +355,8 @@ let recordSyncStore;
 let writeQueue = Promise.resolve();
 let assistantRegistry;
 let assistantExecutionService;
-let automationTimer;
-let automationRunPromise;
+let checkinScheduler;
+let nodeSeekCheckinWindow;
 let automationWindow;
 let googleDriveSyncService;
 let googleSyncMeta;
@@ -362,6 +388,9 @@ let companionSystemSleeping = false;
 let lastCompanionNotificationKey = "";
 let companionWidgetAlertTimer;
 let companionWidgetAlertMessage = "";
+let companionRuntimeWriteQueue = Promise.resolve();
+let companionMemoryWriteQueue = Promise.resolve();
+let companionMemoryEpoch = 0;
 let selectionActionService;
 let pageTranslationController;
 const translationSessionAllowedHosts = new Set();
@@ -703,6 +732,11 @@ function tabSummary(tab, activeTabId) {
     workspaceId: tab.workspaceId,
     siteId: tab.currentSiteId || null,
     browserProfileId: tab.browserProfileId || DEFAULT_BROWSER_PROFILE_ID,
+    partition: browserPartitionForProfile(tab.browserProfileId || DEFAULT_BROWSER_PROFILE_ID),
+    webContentsId:
+      tab.view && !tab.view.webContents.isDestroyed()
+        ? tab.view.webContents.id
+        : null,
     title:
       (tab.view && !tab.view.webContents.isDestroyed()
         ? tab.view.webContents.getTitle()
@@ -945,6 +979,171 @@ function browserOwnerWindow(context) {
     return context.detachedWindow;
   }
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+}
+
+function findRuntimeTabByWebContents(targetContents) {
+  if (!targetContents) return null;
+  for (const workspace of workspaceBrowserContexts.values()) {
+    for (const tab of workspace.tabs.values()) {
+      if (tab.view?.webContents === targetContents) return { workspace, tab };
+    }
+  }
+  return null;
+}
+
+function getBrowserExtensionManager() {
+  if (!browserExtensionManager) {
+    browserExtensionManager = new BrowserExtensionManager({
+      rootDirectory: path.join(app.getPath("userData"), "browser-extensions"),
+      allowedProfileIds: BROWSER_EXTENSION_PROFILES.map((profile) => profile.id),
+    });
+  }
+  return browserExtensionManager;
+}
+
+function createBrowserExtensionCompatibilityLayer(profileId, targetSession) {
+  return new ElectronChromeExtensions({
+    license: "GPL-3.0",
+    session: targetSession,
+    async createTab(details = {}) {
+      const rawUrl = Array.isArray(details.url) ? details.url[0] : details.url;
+      if (!isSafeWebUrl(rawUrl)) throw new Error("扩展只能在栖页中创建 HTTP 或 HTTPS 标签");
+      const state = await getState();
+      const workspaceId = activeBrowserWorkspaceId || state.activeWorkspaceId;
+      const snapshot = getWorkspaceBrowserState(state, workspaceId, { defaultSites: DEFAULT_SITES });
+      const workspace = ensureWorkspaceBrowserContext(workspaceId, snapshot);
+      const tab = await createRuntimeBrowserTab(workspace, {
+        url: rawUrl,
+        homeURL: rawUrl,
+        browserProfileId: profileId,
+        allowDuplicate: true,
+        activate: details.active !== false,
+      });
+      await ensureRuntimeTabView(tab, { url: rawUrl, forceURL: true });
+      if (details.active !== false && workspaceId === activeBrowserWorkspaceId) {
+        await selectBrowserTab({ tabId: tab.tabId, bounds: siteViewBounds });
+      }
+      return [tab.view.webContents, browserOwnerWindow(tab)];
+    },
+    selectTab(targetContents) {
+      if (browserExtensionTabSelectionNotifications.has(targetContents)) return;
+      const found = findRuntimeTabByWebContents(targetContents);
+      if (found) void selectBrowserTab({ tabId: found.tab.tabId, bounds: siteViewBounds });
+    },
+    removeTab(targetContents) {
+      if (browserExtensionTabRemovalNotifications.has(targetContents)) return;
+      const found = findRuntimeTabByWebContents(targetContents);
+      if (found) void closeBrowserTab({ tabId: found.tab.tabId, userInitiated: false });
+    },
+    assignTabDetails(details, targetContents) {
+      const found = findRuntimeTabByWebContents(targetContents);
+      if (!found) return;
+      details.active = found.workspace.activeTabId === found.tab.tabId;
+      details.discarded = !found.tab.view;
+      details.groupId = -1;
+    },
+    async requestPermissions(extension, permissions = {}) {
+      const requested = [
+        ...(Array.isArray(permissions.permissions) ? permissions.permissions : []),
+        ...(Array.isArray(permissions.origins) ? permissions.origins : []),
+      ];
+      const owner = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+      const options = {
+        type: "warning",
+        title: "扩展申请新权限",
+        message: `${extension?.name || "这个扩展"} 申请新的页面权限`,
+        detail: requested.length ? requested.slice(0, 30).join("\n") : "扩展没有提供可显示的权限明细。",
+        buttons: ["允许", "拒绝"],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      };
+      const result = owner
+        ? await dialog.showMessageBox(owner, options)
+        : await dialog.showMessageBox(options);
+      return result.response === 0;
+    },
+  });
+}
+
+function ensureBrowserExtensionSession(profileId, targetSession) {
+  const manager = getBrowserExtensionManager();
+  const existing = ElectronChromeExtensions.fromSession(targetSession);
+  const layer = existing || createBrowserExtensionCompatibilityLayer(profileId, targetSession);
+  return manager.attachSession(profileId, targetSession, layer);
+}
+
+function browserExtensionProfile(profileId) {
+  const id = String(profileId || DEFAULT_BROWSER_PROFILE_ID);
+  const profile = BROWSER_EXTENSION_PROFILES.find((item) => item.id === id);
+  if (!profile) throw new Error("当前浏览身份不支持扩展");
+  return profile;
+}
+
+function browserExtensionProfileForPartition(partition) {
+  const value = String(partition || "");
+  const profile = BROWSER_EXTENSION_PROFILES.find((item) => item.partition === value);
+  if (!profile) throw new Error("当前浏览身份不支持扩展");
+  return profile;
+}
+
+async function browserExtensionActionApi(partition) {
+  const profile = browserExtensionProfileForPartition(partition);
+  const targetSession = getBrowserSession(profile.id);
+  await targetSession.readyPromise;
+  const layer = ElectronChromeExtensions.fromSession(targetSession);
+  const api = layer?.api?.browserAction;
+  if (!api) throw new Error("扩展工具栏尚未初始化");
+  return { api, profile, layer };
+}
+
+async function browserExtensionSnapshot(profileId) {
+  const profile = browserExtensionProfile(profileId);
+  const targetSession = getBrowserSession(profile.id);
+  await targetSession.readyPromise;
+  return {
+    profiles: BROWSER_EXTENSION_PROFILES,
+    profile: { ...profile },
+    ...(await getBrowserExtensionManager().snapshot(profile.id)),
+  };
+}
+
+async function importBrowserExtension(profileId) {
+  const profile = browserExtensionProfile(profileId);
+  const targetSession = getBrowserSession(profile.id);
+  await targetSession.readyPromise;
+  const chromeExtensionsPath = path.join(
+    process.env.LOCALAPPDATA || app.getPath("home"),
+    "Google", "Chrome", "User Data", "Default", "Extensions",
+  );
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: `为“${profile.name}”导入解压的 Chrome 扩展`,
+    defaultPath: fs.existsSync(chromeExtensionsPath) ? chromeExtensionsPath : app.getPath("home"),
+    properties: ["openDirectory"],
+    buttonLabel: "检查此扩展",
+  });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true, ...(await browserExtensionSnapshot(profile.id)) };
+  const review = await getBrowserExtensionManager().inspect(result.filePaths[0]);
+  const permissionText = review.permissions.length
+    ? review.permissions.slice(0, 40).join("\n")
+    : "该清单未声明额外权限。";
+  const sensitiveWarning = profile.sensitive
+    ? "\n\n这是 SAP 敏感身份；启用后扩展可能读取该身份可访问的网页数据。"
+    : "";
+  const confirmation = await dialog.showMessageBox(mainWindow, {
+    type: "warning",
+    title: "确认导入浏览器扩展",
+    message: `${review.name} ${review.version}`,
+    detail: `将安装到“${profile.name}”浏览身份。加载成功不代表所有 Chrome API 都兼容。\n\n声明的权限：\n${permissionText}${sensitiveWarning}`,
+    buttons: ["导入并启用", "取消"],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  if (confirmation.response !== 0) return { canceled: true, ...(await browserExtensionSnapshot(profile.id)) };
+  const snapshot = await getBrowserExtensionManager().importDirectory(profile.id, review.sourceRealPath);
+  emitBrowserNotice(`${review.name} 已导入“${profile.name}”身份；建议重新载入相关网页`, "info");
+  return { canceled: false, profiles: BROWSER_EXTENSION_PROFILES, profile: { ...profile }, ...snapshot };
 }
 
 function emitBrowserNotice(message, tone = "info") {
@@ -2376,6 +2575,7 @@ function attachSiteView(context = activeBrowserContext()) {
   mainWindow.contentView.addChildView(context.view);
   context.attached = true;
   context.viewOwner = "main";
+  getBrowserExtensionManager().selectTab(context.browserProfileId, context.view.webContents);
   context.runtimeState?.transition("active", "selected");
   if (context.navigationTraceId) {
     navigationPerformanceTracer.update(context.navigationTraceId, {
@@ -2443,6 +2643,9 @@ function detachSiteViewFromOwner(context) {
 function destroySiteView(context = activeBrowserContext(), options = {}) {
   if (!context?.view) return;
   const contents = context.view.webContents;
+  browserExtensionTabRemovalNotifications.add(contents);
+  getBrowserExtensionManager().removeTab(context.browserProfileId, contents);
+  browserExtensionTabRemovalNotifications.delete(contents);
   userScriptEngine?.cleanup(contents);
   if (pageTranslationController) pageTranslationController.clear(context);
   if (selectionActionService) selectionActionService.clear(contents);
@@ -2573,14 +2776,17 @@ function getBrowserSession(profileId = DEFAULT_BROWSER_PROFILE_ID) {
     ));
   const browserUserAgent = standardChromiumUserAgent(targetSession.getUserAgent());
   if (profileId === NODESEEK_BROWSER_PROFILE_ID) {
-    targetSession.setUserAgent(browserUserAgent, "zh-CN,zh;q=0.9,en;q=0.8");
+    targetSession.setUserAgent(browserUserAgent, NODESEEK_ACCEPT_LANGUAGES);
   } else {
     targetSession.setUserAgent(browserUserAgent);
   }
   getBrowserServices().downloads.attach(targetSession);
-  targetSession.readyPromise = targetSession
+  const proxyReady = targetSession
     .setProxy({ mode: "system" })
     .catch((error) => console.warn("Unable to apply system proxy:", error.message));
+  const extensionsReady = ensureBrowserExtensionSession(profileId, targetSession)
+    .catch((error) => console.warn(`Unable to restore browser extensions (${profileId}):`, error.message));
+  targetSession.readyPromise = Promise.all([proxyReady, extensionsReady]);
   browserSessions.set(profileId, targetSession);
   if (profileId === DEFAULT_BROWSER_PROFILE_ID) persistentSiteSession = targetSession;
   return targetSession;
@@ -2603,6 +2809,7 @@ async function waitForPersistentSiteSession() {
 async function inspectKnownSiteIssue(context = activeBrowserContext()) {
   if (!context?.view || context.view.webContents.isDestroyed()) return;
   const contents = context.view.webContents;
+  const documentId = context.navigationDocumentId || 0;
   const currentUrl = contents.getURL();
   const isNodeSeek = hasExpectedHost(currentUrl, "nodeseek.com");
   const isSapSession = isSapSessionUrl(currentUrl);
@@ -2614,6 +2821,8 @@ async function inspectKnownSiteIssue(context = activeBrowserContext()) {
   const body = await contents
     .executeJavaScript("document.body?.innerText?.slice(0, 1400) || ''")
     .catch(() => "");
+  if (contents.isDestroyed() || context.view?.webContents !== contents
+    || (context.navigationDocumentId || 0) !== documentId || contents.getURL() !== currentUrl) return;
   if (isSapSession) {
     const hasRejectedAuthState = hasSapLoginRejection(title, body);
     compactBrowserState({
@@ -2624,32 +2833,27 @@ async function inspectKnownSiteIssue(context = activeBrowserContext()) {
     }, context);
     return;
   }
-  const hasNetworkPage =
-    /Network Error/i.test(title) || /Oops!\s*Network Error/i.test(body);
-  const hasCloudflareChallenge =
-    /(?:403|Just a moment|Attention Required|Cloudflare)/i.test(title)
-    || /(?:403 Forbidden|cf-chl-|Cloudflare Ray ID|Performing security verification)/i.test(body);
-  if (hasCloudflareChallenge) {
+  const issue = nodeSeekPageIssue({
+    url: currentUrl, title, body,
+    statusCode: context.mainFrameResponse?.url === currentUrl ? context.mainFrameResponse.statusCode : 0,
+  });
+  if (!issue) {
+    context.nodeSeekAutoRetryUsed = false;
     compactBrowserState({
-      siteIssue: "nodeseek-challenge",
-      error: "NodeSeek 返回 Cloudflare 防护页；可点击“重置 NodeSeek 防护状态”后在当前页面重试",
+      siteIssue: "",
+      ...(context.browserState.siteIssue?.startsWith("nodeseek-") ? { error: "" } : {}),
     }, context);
     return;
   }
-  if (!hasNetworkPage) {
-    context.nodeSeekAutoRetryUsed = false;
-    compactBrowserState({ siteIssue: "" }, context);
-    return;
-  }
-  compactBrowserState({
-    siteIssue: "nodeseek-network",
-    error: "NodeSeek 返回 Network Error；可能与站点防护状态或代理出口有关",
-  }, context);
+  compactBrowserState(issue, context);
+  if (issue.siteIssue !== "nodeseek-network") return;
   if (!context.nodeSeekAutoRetryUsed) {
     context.nodeSeekAutoRetryUsed = true;
     setTimeout(() => {
-      if (context.view && !context.view.webContents.isDestroyed()) {
-        context.view.webContents.reloadIgnoringCache();
+      if (!contents.isDestroyed() && context.view?.webContents === contents
+        && (context.navigationDocumentId || 0) === documentId
+        && context.browserState.siteIssue === "nodeseek-network") {
+        contents.reloadIgnoringCache();
       }
     }, 900);
   }
@@ -2738,8 +2942,9 @@ async function resetNodeSeekSession(context = activeBrowserContext()) {
   await siteSession.setProxy({ mode: "system" });
   siteSession.setUserAgent(
     standardChromiumUserAgent(siteSession.getUserAgent()),
-    "zh-CN,zh;q=0.9,en;q=0.8",
+    NODESEEK_ACCEPT_LANGUAGES,
   );
+  contents.setUserAgent(siteSession.getUserAgent());
   await siteSession.closeAllConnections();
   await Promise.all([
     siteSession.clearHostResolverCache(),
@@ -2914,6 +3119,9 @@ function ensureSiteView(context = activeBrowserContext()) {
     void browserServices.externalProtocol.open(url, browserOwnerWindow(context));
   });
   const contents = view.webContents;
+  browserExtensionTabSelectionNotifications.add(contents);
+  getBrowserExtensionManager().addTab(context.browserProfileId, contents, browserOwnerWindow(context));
+  browserExtensionTabSelectionNotifications.delete(contents);
   const emitAudioState = () => compactBrowserState(
     readWebContentsAudioState(contents),
     context,
@@ -3010,14 +3218,20 @@ function ensureSiteView(context = activeBrowserContext()) {
       },
     ]);
   });
-  view.webContents.on("did-navigate", (_event, url) => {
+  view.webContents.on("did-navigate", (_event, url, statusCode) => {
+    context.mainFrameResponse = { url, statusCode };
     rememberSapNavigation(context, url);
-    compactBrowserState({ url, securityState: securityStateForUrl(url), error: "" }, context);
+    compactBrowserState({
+      url, securityState: securityStateForUrl(url), error: "",
+      ...(nodeSeekPageIssue({ url, statusCode }) || {}),
+    }, context);
     persistWorkspaceBrowserContext(context, { currentURL: url });
     void maybeOfferUserScriptInstall(context, url);
   });
   view.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
     if (!isMainFrame || isInPlace) return;
+    context.navigationDocumentId = (context.navigationDocumentId || 0) + 1;
+    context.mainFrameResponse = null;
     pageCapabilityOrchestrator.cancel(context.tabId);
     userScriptEngine?.cleanup(view.webContents);
     pageResourceService?.clear(view.webContents);
@@ -4433,6 +4647,7 @@ function attachSiteViewToDetached(tab) {
   tab.viewOwner = "detached";
   tab.attached = true;
   tab.detached = true;
+  getBrowserExtensionManager().selectTab(tab.browserProfileId, tab.view.webContents);
   tab.runtimeState?.transition("active", "detached-window");
   applyDetachedViewBounds(tab);
   void installCompanionPageWidget(tab);
@@ -4768,6 +4983,24 @@ function sendAutomationStatus(naixi) {
   mainWindow?.webContents.send("automation:status", { naixi });
 }
 
+function getCheckinScheduler() {
+  if (!checkinScheduler) checkinScheduler = new DailyCheckinScheduler({
+    runners: {
+      naixi: performNaixiCheckin,
+      nodeseek: async () => runNodeSeekCheckin({
+        BrowserWindow,
+        siteSession: await waitForBrowserSession(NODESEEK_BROWSER_PROFILE_ID),
+        onWindow: (win) => { nodeSeekCheckinWindow = win; },
+      }),
+    },
+    getState,
+    save: persistState,
+    publish: (id, config) => mainWindow?.webContents.send("automation:status", { [id]: config }),
+    onActive: (active) => usageTracker?.setBackgroundAutomation(active),
+  });
+  return checkinScheduler;
+}
+
 async function updateNaixiStatus(patch) {
   const state = await getState();
   state.automations.naixi = {
@@ -4967,62 +5200,15 @@ async function performNaixiCheckin({ manual = false, source = "manual" } = {}) {
 }
 
 function runNaixiCheckin(options) {
-  if (automationRunPromise) return automationRunPromise;
-  usageTracker?.setBackgroundAutomation(true);
-  automationRunPromise = performNaixiCheckin(options).finally(() => {
-    usageTracker?.setBackgroundAutomation(false);
-    automationRunPromise = undefined;
-  });
-  return automationRunPromise;
+  return getCheckinScheduler().run("naixi", options);
 }
 
-async function scheduleNaixiAutomation(forceTomorrow = false) {
-  if (automationTimer) clearTimeout(automationTimer);
-  automationTimer = undefined;
-  const state = await getState();
-  const config = state.automations.naixi;
-  if (!config.enabled) return;
-
-  const now = new Date();
-  const [hour, minute] = config.time.split(":").map(Number);
-  const target = new Date(now);
-  target.setHours(hour, minute, 0, 0);
-  const successfulToday = config.lastSuccessDate === localDateKey(now);
-  let runSource = "scheduled";
-  if (forceTomorrow || successfulToday) {
-    target.setDate(target.getDate() + 1);
-  } else if (target <= now) {
-    target.setTime(now.getTime() + 8000);
-    runSource = "startup";
-  }
-
-  const delay = Math.max(1000, target.getTime() - now.getTime());
-  automationTimer = setTimeout(async () => {
-    try {
-      await runNaixiCheckin({ manual: false, source: runSource });
-    } finally {
-      void scheduleNaixiAutomation(true);
-    }
-  }, delay);
+async function scheduleCheckinAutomations() {
+  getCheckinScheduler().start();
 }
 
 async function updateNaixiAutomationSettings(input) {
-  const state = await getState();
-  const next = { ...state.automations.naixi };
-  if (typeof input?.enabled === "boolean") next.enabled = input.enabled;
-  if (typeof input?.time === "string") {
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.time)) {
-      throw new Error("签到时间格式无效");
-    }
-    next.time = input.time;
-  }
-  next.status = next.enabled ? (next.status === "disabled" ? "idle" : next.status) : "disabled";
-  next.message = next.enabled ? "自动签到已开启" : "自动签到已关闭";
-  state.automations.naixi = next;
-  await persistState();
-  sendAutomationStatus(next);
-  await scheduleNaixiAutomation();
-  return next;
+  return getCheckinScheduler().update("naixi", input);
 }
 
 async function markSiteOpened(siteId) {
@@ -5322,7 +5508,7 @@ function companionRuntimeContext() {
     sleeping: companionSystemSleeping,
     fullscreen: Boolean(mainWindow?.isFullScreen?.() || context?.htmlFullscreenActive),
     screenSharing: Boolean(context?.screenSharingActive),
-    backgroundAutomation: Boolean(automationRunPromise || googleSyncMeta?.status === "syncing"),
+    backgroundAutomation: Boolean(checkinScheduler?.active.size || googleSyncMeta?.status === "syncing"),
     hostname,
   };
 }
@@ -5333,8 +5519,145 @@ function companionPageWidgetSnapshot(runtime = companionRuntimeService?.snapshot
     settings: cachedState?.uiSettings?.companion || {},
     weather: options.weather || weatherService?.status?.() || {},
     ai: options.ai || {},
+    memory: options.memory || companionMemorySnapshot(),
     alertMessage: options.alertMessage || companionWidgetAlertMessage,
   });
+}
+
+function companionMemorySnapshot(state = cachedState) {
+  const settings = normalizeCompanionSettings(state?.uiSettings?.companion);
+  const messages = settings.memory.enabled
+    ? normalizeConversationMemory(state?.companionConversationEntries, { maxTurns: settings.memory.maxTurns })
+    : [];
+  const facts = settings.memory.enabled ? normalizeMemoryFacts(state?.companionMemoryFacts) : [];
+  const last = messages.at(-1);
+  const lastFact = facts.at(-1);
+  return {
+    enabled: settings.memory.enabled,
+    syncEnabled: settings.memory.syncEnabled,
+    autoCapture: settings.memory.autoCapture,
+    maxTurns: settings.memory.maxTurns,
+    count: messages.length,
+    factCount: facts.length,
+    revision: settings.memory.enabled ? `${messages.length}:${last?.id || last?.createdAt || "empty"}:${facts.length}:${lastFact?.id || "empty"}` : "disabled",
+    messages: messages.slice(-200),
+    facts,
+  };
+}
+
+async function persistCompanionRuntimePatch(patch = {}) {
+  companionRuntimeWriteQueue = companionRuntimeWriteQueue
+    .catch(() => undefined)
+    .then(async () => {
+      const state = await getState();
+      const companionRuntimeState = normalizeCompanionRuntimeState({
+        ...(state.companionRuntimeState || {}),
+        ...(patch && typeof patch === "object" ? patch : {}),
+      });
+      return commitStateCandidate({ ...state, companionRuntimeState });
+    });
+  return companionRuntimeWriteQueue;
+}
+
+async function appendCompanionConversation(question, answer) {
+  companionMemoryWriteQueue = companionMemoryWriteQueue.catch(() => undefined).then(async () => {
+    const state = await getState();
+    const settings = normalizeCompanionSettings(state.uiSettings?.companion);
+    if (!settings.memory.enabled) return state;
+    const now = new Date().toISOString();
+    const companionConversationEntries = normalizeConversationMemory([
+      ...(state.companionConversationEntries || []),
+      { id: randomUUID(), workspaceId: "personal", role: "user", content: String(question || "").trim(), createdAt: now, updatedAt: now },
+      { id: randomUUID(), workspaceId: "personal", role: "assistant", content: String(answer || "").trim(), createdAt: now, updatedAt: now },
+    ], { maxTurns: settings.memory.maxTurns });
+    return commitStateCandidate({ ...state, companionConversationEntries });
+  });
+  return companionMemorySnapshot(await companionMemoryWriteQueue);
+}
+
+async function upsertCompanionMemoryFact(content, source = "explicit") {
+  const normalizedContent = String(content || "").trim().slice(0, 1_000);
+  if (!normalizedContent) return companionMemorySnapshot(await getState());
+  companionMemoryWriteQueue = companionMemoryWriteQueue.catch(() => undefined).then(async () => {
+    const state = await getState();
+    const settings = normalizeCompanionSettings(state.uiSettings?.companion);
+    if (!settings.memory.enabled) return state;
+    const now = new Date().toISOString();
+    const key = normalizedContent.replace(/\s+/g, " ").toLocaleLowerCase("zh-CN");
+    const previous = normalizeMemoryFacts(state.companionMemoryFacts);
+    const existing = previous.find((fact) => fact.content.replace(/\s+/g, " ").toLocaleLowerCase("zh-CN") === key);
+    const fact = {
+      id: existing?.id || randomUUID(),
+      workspaceId: "personal",
+      content: normalizedContent,
+      source: source === "automatic" ? "automatic" : "explicit",
+      sensitive: source !== "automatic" && isSensitiveMemoryText(normalizedContent),
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+    const companionMemoryFacts = normalizeMemoryFacts([...previous.filter((item) => item.id !== fact.id), fact]);
+    return commitStateCandidate({ ...state, companionMemoryFacts });
+  });
+  return companionMemorySnapshot(await companionMemoryWriteQueue);
+}
+
+async function captureAutomaticCompanionMemory(requestId, question, answer) {
+  const state = await getState();
+  const settings = normalizeCompanionSettings(state.uiSettings?.companion);
+  if (!settings.memory.enabled || !settings.memory.autoCapture || !isPotentialAutoMemory(question)) return;
+  const epoch = companionMemoryEpoch;
+  try {
+    const result = await getCompanionAIServices().ai.run(`${String(requestId || "ask").slice(0, 90)}-memory`, "memory", { question, answer });
+    if (epoch !== companionMemoryEpoch) return;
+    const fact = String(result?.memory || "").trim();
+    if (!fact || isSensitiveMemoryText(fact)) return;
+    const memory = await upsertCompanionMemoryFact(fact, "automatic");
+    broadcastCompanionPageWidget(companionRuntimeService?.snapshot(), { memory });
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("companion:memory-updated", memory);
+  } catch (error) {
+    console.warn("Companion automatic memory capture skipped:", error?.message || error);
+  }
+}
+
+async function runCompanionAsk(requestId, question) {
+  let state = await getState();
+  let settings = normalizeCompanionSettings(state.uiSettings?.companion);
+  const explicitMemory = settings.memory.enabled ? extractExplicitMemory(question) : "";
+  if (explicitMemory) {
+    await upsertCompanionMemoryFact(explicitMemory, "explicit");
+    state = await getState();
+    settings = normalizeCompanionSettings(state.uiSettings?.companion);
+  }
+  const memoryEnabled = settings.memory.enabled;
+  const history = memoryEnabled ? state.companionConversationEntries : [];
+  const memoryFacts = memoryEnabled ? selectMemoryFactsForQuestion(state.companionMemoryFacts, question) : [];
+  const weather = (await initializeWeatherService()).status();
+  const weatherContext = weather.configured && weather.snapshot
+    ? {
+        city: weather.snapshot.city,
+        observedAt: weather.snapshot.observedAt,
+        current: { temperature: weather.snapshot.temperature, condition: weather.snapshot.condition },
+        today: { date: weather.snapshot.todayDate, high: weather.snapshot.todayHigh, low: weather.snapshot.todayLow, condition: weather.snapshot.todayCondition, rainProbability: weather.snapshot.todayRainProbability },
+        tomorrow: { date: weather.snapshot.tomorrowDate, high: weather.snapshot.tomorrowHigh, low: weather.snapshot.tomorrowLow, condition: weather.snapshot.tomorrowCondition, rainProbability: weather.snapshot.tomorrowRainProbability },
+        stale: weather.snapshot.stale === true,
+      }
+    : null;
+  const value = await getCompanionAIServices().ai.run(requestId, "ask", {
+    question,
+    history,
+    memoryFacts,
+    memoryEnabled,
+    memorySyncEnabled: settings.memory.syncEnabled,
+    maxTurns: settings.memory.maxTurns,
+    weatherContext,
+  });
+  const memory = await appendCompanionConversation(question, value.answer);
+  broadcastCompanionPageWidget(companionRuntimeService?.snapshot(), { memory });
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("companion:memory-updated", memory);
+  if (!explicitMemory && settings.memory.autoCapture && isPotentialAutoMemory(question)) {
+    void captureAutomaticCompanionMemory(requestId, question, value.answer);
+  }
+  return { ...value, memory };
 }
 
 async function installCompanionPageWidget(context, options = {}) {
@@ -5421,8 +5744,10 @@ async function initializeCompanionRuntime() {
 
 async function persistCompanionRuntimeState() {
   if (!companionRuntimeService) return;
-  const state = await getState();
-  await commitStateCandidate({ ...state, companionRuntimeState: normalizeCompanionRuntimeState({ ...companionRuntimeService.runtimeState(), aiAllowedHosts: Array.from(companionSensitiveSiteApprovals) }) });
+  await persistCompanionRuntimePatch({
+    ...companionRuntimeService.runtimeState(),
+    aiAllowedHosts: Array.from(companionSensitiveSiteApprovals),
+  });
 }
 
 async function performCompanionRuntimeAction(action, input = {}) {
@@ -5458,6 +5783,8 @@ async function initializeWeatherService() {
   weatherService = new WeatherService({
     fetchFn: (...args) => net.fetch(...args),
     settings: state.uiSettings?.companion?.weather,
+    initialCache: state.companionRuntimeState?.weatherCache,
+    onCacheChange: (weatherCache) => persistCompanionRuntimePatch({ weatherCache }),
     onUpdate: emitWeatherStatus,
     onAlert: (event) => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -5870,22 +6197,36 @@ async function fireHabitReminder(reminderId) {
 async function pendingReminders() {
   const state = await getState();
   if (!state.taskSettings.remindersEnabled) return [];
-  const openTaskIds = new Set(state.localTasks
+  const openTasks = new Map(state.localTasks
     .filter((task) => !["done", "cancelled"].includes(task.status))
-    .map((task) => task.id));
-  const taskReminders = state.taskReminders.filter((reminder) => (
-    ["pending", "snoozed"].includes(reminder.state) && openTaskIds.has(reminder.taskId)
-  ));
+    .map((task) => [task.id, task]));
+  const now = new Date().toISOString();
+  let candidate = state;
+  const taskReminders = state.taskReminders.map((reminder) => {
+    const task = openTasks.get(reminder.taskId);
+    if (!["pending", "snoozed"].includes(reminder.state) || !task || !isTaskReminderExpired(task, reminder, now)) {
+      return reminder;
+    }
+    return { ...reminder, state: "dismissed", snoozedUntil: null };
+  });
+  if (JSON.stringify(taskReminders) !== JSON.stringify(state.taskReminders || [])) {
+    candidate = { ...candidate, taskReminders, updatedAt: now };
+  }
   const habitReminders = buildHabitReminders(
-    state.habits,
-    state.habitCheckIns,
-    state.habitReminders,
+    candidate.habits,
+    candidate.habitCheckIns,
+    candidate.habitReminders,
   );
-  if (JSON.stringify(habitReminders) !== JSON.stringify(state.habitReminders || [])) {
-    await commitStateCandidate({ ...state, habitReminders });
+  if (JSON.stringify(habitReminders) !== JSON.stringify(candidate.habitReminders || [])) {
+    candidate = { ...candidate, habitReminders };
+  }
+  if (candidate !== state) {
+    await commitStateCandidate(candidate);
   }
   return [
-    ...taskReminders.map((reminder) => ({ ...reminder, kind: "task" })),
+    ...taskReminders
+      .filter((reminder) => ["pending", "snoozed"].includes(reminder.state) && openTasks.has(reminder.taskId))
+      .map((reminder) => ({ ...reminder, kind: "task" })),
     ...habitReminders.filter((reminder) => ["pending", "snoozed"].includes(reminder.state)),
   ];
 }
@@ -5905,6 +6246,14 @@ async function fireTaskReminder(reminderId) {
   const settings = state.taskSettings;
   if (!settings.remindersEnabled) return false;
   const now = new Date();
+  if (isTaskReminderExpired(task, reminder, now.valueOf())) {
+    cachedState = updateReminderInState(state, reminder.id, {
+      state: "dismissed",
+      snoozedUntil: null,
+    }, { now: now.toISOString() }).state;
+    await persistState();
+    return false;
+  }
   const pausedUntil = Date.parse(settings.pausedUntil || 0);
   const dndUntil = nextDoNotDisturbEnd(settings, now);
   const deferUntil = Number.isFinite(pausedUntil) && pausedUntil > now.valueOf()
@@ -6280,7 +6629,7 @@ function registerIpc() {
         const question = String(request?.payload?.question || "").trim().slice(0, 4_000);
         if (!question) return { ok: false, error: { code: "INVALID_INPUT", message: "请输入想问小序的问题" } };
         const requestId = `page-widget-${event.sender.id}-${Date.now()}`;
-        const value = await getCompanionAIServices().ai.run(requestId, "ask", { question });
+        const value = await runCompanionAsk(requestId, question);
         return { ok: true, value };
       }
       return { ok: false, error: { code: "WIDGET_ACTION_UNSUPPORTED", message: "当前小序操作尚未开放" } };
@@ -6293,8 +6642,43 @@ function registerIpc() {
   });
   ipcMain.handle("companion:ask", async (_event, payload) => {
     try {
-      return { ok: true, value: await getCompanionAIServices().ai.run(payload?.requestId, "ask", { question: payload?.question }) };
+      return { ok: true, value: await runCompanionAsk(payload?.requestId, payload?.question) };
     } catch (error) { return { ok: false, error: publicCompanionAIError(error) }; }
+  });
+  ipcMain.handle("companion:get-memory", async () => companionMemorySnapshot(await getState()));
+  ipcMain.handle("companion:clear-memory", async () => {
+    companionMemoryEpoch += 1;
+    const before = await getState();
+    const conversationIds = (before.companionConversationEntries || []).map((item) => item.id).filter(Boolean);
+    const factIds = (before.companionMemoryFacts || []).map((item) => item.id).filter(Boolean);
+    companionMemoryWriteQueue = companionMemoryWriteQueue.catch(() => undefined).then(async () => {
+      const current = await getState();
+      return commitStateCandidate({ ...current, companionConversationEntries: [], companionMemoryFacts: [] });
+    });
+    const state = await companionMemoryWriteQueue;
+    await Promise.all([
+      appendGoogleTombstones("companionConversationEntries", conversationIds),
+      appendGoogleTombstones("companionMemoryFacts", factIds),
+    ]);
+    const memory = companionMemorySnapshot(state);
+    broadcastCompanionPageWidget(companionRuntimeService?.snapshot(), { memory });
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("companion:memory-updated", memory);
+    return { ok: true, state, memory };
+  });
+  ipcMain.handle("companion:delete-memory-fact", async (_event, memoryId) => {
+    const id = String(memoryId || "").trim().slice(0, 120);
+    if (!id) return { ok: false, error: { code: "INVALID_INPUT", message: "记忆编号无效" } };
+    companionMemoryWriteQueue = companionMemoryWriteQueue.catch(() => undefined).then(async () => {
+      const current = await getState();
+      const companionMemoryFacts = normalizeMemoryFacts(current.companionMemoryFacts).filter((fact) => fact.id !== id);
+      return commitStateCandidate({ ...current, companionMemoryFacts });
+    });
+    const state = await companionMemoryWriteQueue;
+    await appendGoogleTombstones("companionMemoryFacts", id);
+    const memory = companionMemorySnapshot(state);
+    broadcastCompanionPageWidget(companionRuntimeService?.snapshot(), { memory });
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("companion:memory-updated", memory);
+    return { ok: true, state, memory };
   });
   ipcMain.handle("companion:summarize-page", async (_event, payload) => {
     const context = activeBrowserContext();
@@ -6335,17 +6719,35 @@ function registerIpc() {
       defaultSites: DEFAULT_SITES,
     });
     cachedState = result.state;
+    const companionSettings = Object.hasOwn(patch || {}, "companion")
+      ? normalizeCompanionSettings(result.uiSettings.companion)
+      : null;
+    if (companionSettings) {
+      cachedState.companionConversationEntries = normalizeConversationMemory(
+        cachedState.companionConversationEntries,
+        { maxTurns: companionSettings.memory.maxTurns },
+      );
+    }
     await persistState();
     if (Object.hasOwn(patch || {}, "browserMemory")) {
       await getWebViewLifecycleManager().updateSettings(result.uiSettings.browserMemory);
     }
-    if (Object.hasOwn(patch || {}, "companion")) {
-      const settings = normalizeCompanionSettings(result.uiSettings.companion);
-      companionRuntimeService?.updateSettings(settings);
-      weatherService?.updateSettings(settings.weather);
-      broadcastCompanionPageWidget(companionRuntimeService?.snapshot());
+    if (companionSettings) {
+      companionRuntimeService?.updateSettings(companionSettings);
+      weatherService?.updateSettings(companionSettings.weather);
+      const memory = companionMemorySnapshot(cachedState);
+      broadcastCompanionPageWidget(companionRuntimeService?.snapshot(), { memory });
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("companion:memory-updated", memory);
     }
     return { state: cachedState, uiSettings: result.uiSettings };
+  });
+  ipcMain.handle("sites:organize", async (_event, input) => {
+    const state = await getState();
+    const siteLibrary = changeSiteLibrary(state, input);
+    const result = updateUiSettingsInState(state, { siteLibrary }, { defaultSites: DEFAULT_SITES });
+    cachedState = result.state;
+    await persistState();
+    return { state: cachedState, siteLibrary };
   });
   ipcMain.handle("search:get-state", async () => {
     const state = await getState();
@@ -6628,6 +7030,84 @@ function registerIpc() {
     const url = normalizeUrl(rawUrl);
     await shell.openExternal(url);
     return true;
+  });
+  ipcMain.handle("browser-extensions:list", (_event, profileId) =>
+    browserExtensionSnapshot(profileId),
+  );
+  ipcMain.handle("browser-extensions:import", (_event, profileId) =>
+    importBrowserExtension(profileId),
+  );
+  ipcMain.handle("browser-extensions:set-enabled", async (_event, payload) => {
+    const profile = browserExtensionProfile(payload?.profileId);
+    const targetSession = getBrowserSession(profile.id);
+    await targetSession.readyPromise;
+    const snapshot = await getBrowserExtensionManager().setEnabled(
+      profile.id,
+      payload?.extensionId,
+      payload?.enabled === true,
+    );
+    return { profiles: BROWSER_EXTENSION_PROFILES, profile: { ...profile }, ...snapshot };
+  });
+  ipcMain.handle("browser-extensions:remove", async (_event, payload) => {
+    const profile = browserExtensionProfile(payload?.profileId);
+    const current = await browserExtensionSnapshot(profile.id);
+    const extension = current.extensions.find((item) => item.id === String(payload?.extensionId || ""));
+    if (!extension) throw new Error("找不到这个扩展");
+    const confirmation = await dialog.showMessageBox(mainWindow, {
+      type: "warning",
+      title: "卸载浏览器扩展",
+      message: `确定从“${profile.name}”身份卸载 ${extension.name}？`,
+      detail: "扩展复制到栖页的数据目录会被删除；Chrome 中原有的扩展不会受影响。",
+      buttons: ["卸载", "取消"],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (confirmation.response !== 0) return { canceled: true, ...current };
+    const snapshot = await getBrowserExtensionManager().remove(profile.id, extension.id);
+    return { canceled: false, profiles: BROWSER_EXTENSION_PROFILES, profile: { ...profile }, ...snapshot };
+  });
+  ipcMain.handle("browser-extensions:open-folder", async () => {
+    const extensionRoot = path.join(app.getPath("userData"), "browser-extensions");
+    await fsp.mkdir(extensionRoot, { recursive: true });
+    const error = await shell.openPath(extensionRoot);
+    if (error) throw new Error(error);
+    return { ok: true };
+  });
+  ipcMain.handle("browser-extensions:actions-state", async (_event, partition) => {
+    const { api } = await browserExtensionActionApi(partition);
+    return api.getState();
+  });
+  ipcMain.handle("browser-extensions:observe-actions", async (event, partition) => {
+    const { api } = await browserExtensionActionApi(partition);
+    api.observers.add(event.sender);
+    event.sender.once("destroyed", () => api.observers.delete(event.sender));
+    return { ok: true };
+  });
+  ipcMain.handle("browser-extensions:activate-action", async (event, payload = {}) => {
+    const extensionId = String(payload.extensionId || "");
+    if (!/^[a-p]{32}$/.test(extensionId)) throw new Error("扩展 ID 无效");
+    const { api, profile } = await browserExtensionActionApi(payload.partition);
+    const targetSession = getBrowserSession(profile.id);
+    if (!targetSession.extensions.getExtension(extensionId)) throw new Error("扩展未在当前浏览身份中加载");
+    const tabId = Number(payload.tabId);
+    const rect = payload.anchorRect || {};
+    api.activate(
+      { type: "frame", sender: event.sender },
+      {
+        eventType: payload.eventType === "contextmenu" ? "contextmenu" : "click",
+        extensionId,
+        tabId: Number.isInteger(tabId) ? tabId : -1,
+        alignment: "bottom right",
+        anchorRect: {
+          x: Math.max(0, Number(rect.x) || 0),
+          y: Math.max(0, Number(rect.y) || 0),
+          width: Math.max(1, Math.min(100, Number(rect.width) || 32)),
+          height: Math.max(1, Math.min(100, Number(rect.height) || 32)),
+        },
+      },
+    );
+    return { ok: true };
   });
   ipcMain.handle("browser:show", async (_event, payload) => {
     if (payload?.siteId) await markSiteOpened(payload.siteId);
@@ -7187,14 +7667,14 @@ function registerIpc() {
       ? state.assistantExecutionLogs
       : [];
     return {
-      logs: [...assistantLogs, ...userScriptLogs]
+      logs: [...assistantLogs, ...userScriptLogs, ...CHECKIN_DEFINITIONS.flatMap(({ id }) => state.automations[id]?.runs || [])]
         .sort((left, right) => Date.parse(right.timestamp || right.createdAt || 0) - Date.parse(left.timestamp || left.createdAt || 0))
         .slice(0, 500),
     };
   });
   ipcMain.handle("automation:get", async () => {
     const state = await getState();
-    return { naixi: state.automations.naixi };
+    return { ...Object.fromEntries(CHECKIN_DEFINITIONS.map(({ id }) => [id, state.automations[id]])), definitions: CHECKIN_DEFINITIONS };
   });
   ipcMain.handle("automation:run-naixi", () =>
     runNaixiCheckin({ manual: true, source: "manual" }),
@@ -7202,6 +7682,8 @@ function registerIpc() {
   ipcMain.handle("automation:update-naixi", (_event, settings) =>
     updateNaixiAutomationSettings(settings),
   );
+  ipcMain.handle("automation:run-checkin", (_event, id) => getCheckinScheduler().run(id, { manual: true }));
+  ipcMain.handle("automation:update-checkin", (_event, id, settings) => getCheckinScheduler().update(id, settings));
 }
 
 function createMainWindow() {
@@ -7280,6 +7762,105 @@ function createMainWindow() {
             "showSite(appState.sites[0])",
           );
           await new Promise((resolve) => setTimeout(resolve, 4500));
+        } else if (["nodeseek-refresh-probe", "nodeseek-forbidden-probe"].includes(CAPTURE_ROUTE)) {
+          if (!TEST_USER_DATA) throw new Error("NodeSeek 刷新回归必须使用隔离测试数据");
+          await mainWindow.webContents.executeJavaScript("appInitialization");
+          await mainWindow.webContents.executeJavaScript("window.siteNest.setActiveWorkspace(activeWorkspaceId())");
+          const fixture = CAPTURE_ROUTE === "nodeseek-forbidden-probe";
+          const probe = { version: app.getVersion(), packaged: app.isPackaged, fixture, requests: [], navigations: [], phases: [] };
+          let phase = "initial";
+          const probeSession = await waitForBrowserSession(NODESEEK_BROWSER_PROFILE_ID);
+          if (fixture) {
+            probeSession.protocol.handle("https", (request) => {
+              if (!isNodeSeekUrl(request.url)) return new Response("Not found", { status: 404 });
+              const allowed = phase === "toolbar-refresh-again";
+              return new Response(allowed ? "<!doctype html><title>NodeSeek fixture</title><p>Ready</p>" : "403", {
+                status: allowed ? 200 : 403,
+                headers: { "Content-Type": "text/html", "Cache-Control": "no-store" },
+              });
+            });
+          }
+          probeSession.webRequest.onBeforeSendHeaders((details, callback) => {
+            if (isNodeSeekUrl(details.url) && (details.resourceType === "mainFrame" || new URL(details.url).pathname === "/")) {
+              const header = (name) => Object.entries(details.requestHeaders)
+                .find(([key]) => key.toLowerCase() === name)?.[1] || "";
+              probe.requests.push({
+                phase, resourceType: details.resourceType,
+                url: new URL(details.url).origin + new URL(details.url).pathname,
+                userAgent: header("user-agent"),
+                acceptLanguage: header("accept-language"),
+                cacheControl: header("cache-control"),
+              });
+            }
+            callback({ requestHeaders: details.requestHeaders });
+          });
+          const observe = (_event, contents) => {
+            contents.on("did-navigate", (_navigationEvent, url, statusCode) => {
+              if (isNodeSeekUrl(url)) probe.navigations.push({ phase, url: new URL(url).origin + new URL(url).pathname, statusCode });
+            });
+          };
+          app.on("web-contents-created", observe);
+          const capturePhase = async () => {
+            const contents = activeBrowserContext()?.view?.webContents;
+            if (!contents) throw new Error("没有建立 NodeSeek 测试页签");
+            await new Promise((resolve) => {
+              const done = () => {
+                clearTimeout(timeout);
+                contents.removeListener("did-stop-loading", done);
+                resolve();
+              };
+              const timeout = setTimeout(done, 20000);
+              contents.once("did-stop-loading", done);
+              if (!contents.isLoading()) done();
+            });
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            const page = await contents.executeJavaScript(`({
+              title: document.title,
+              navigationType: performance.getEntriesByType("navigation")[0]?.type,
+              postCount: document.querySelectorAll('a[href*="/post-"]').length,
+              serviceWorker: navigator.serviceWorker?.controller?.scriptURL || "",
+              shortErrorBody: document.body?.innerText?.length < 100 ? document.body.innerText : ""
+            })`);
+            const context = activeBrowserContext();
+            const notice = await mainWindow.webContents.executeJavaScript(`(() => {
+              const notice = dom.browserSiteNotice;
+              return {
+                hidden: notice.hidden, text: notice.textContent,
+                pageClass: dom.browserPage.className, route: currentRoute,
+                display: getComputedStyle(dom.browserPage).display,
+                bottom: notice.getBoundingClientRect().bottom,
+                frameTop: dom.webviewFrame.getBoundingClientRect().top
+              };
+            })()`);
+            probe.phases.push({
+              phase, page, notice, nativeTop: context.view.getBounds().y, browserProfileId: context.browserProfileId,
+              webContentsId: contents.id, statusCode: context.mainFrameResponse?.statusCode,
+              siteIssue: context.browserState.siteIssue,
+              error: context.browserState.error,
+            });
+            if (fixture && phase === "initial") {
+              await fsp.mkdir(path.dirname(path.resolve(CAPTURE_PATH)), { recursive: true });
+              await fsp.writeFile(`${path.resolve(CAPTURE_PATH)}.warning.png`, (await mainWindow.webContents.capturePage()).toPNG());
+            }
+          };
+          try {
+            await mainWindow.webContents.executeJavaScript("showSite({ ...appState.sites[0], url: 'https://www.nodeseek.com/' })");
+            await capturePhase();
+            for (const nextPhase of ["toolbar-refresh", "toolbar-refresh-again"]) {
+              phase = nextPhase;
+              await mainWindow.webContents.executeJavaScript("dom.browserReload.click()");
+              await new Promise((resolve) => setTimeout(resolve, 300));
+              await capturePhase();
+              if (!fixture && activeBrowserContext()?.browserState.siteIssue) break;
+            }
+          } finally {
+            app.removeListener("web-contents-created", observe);
+            probeSession.webRequest.onBeforeSendHeaders(null);
+            if (fixture) probeSession.protocol.unhandle("https");
+            await fsp.mkdir(path.dirname(path.resolve(CAPTURE_PATH)), { recursive: true });
+            await fsp.writeFile(`${path.resolve(CAPTURE_PATH)}.json`, JSON.stringify(probe, null, 2));
+            console.log(JSON.stringify({ nodeSeekRefreshProbe: probe }));
+          }
         } else if (
           CAPTURE_ROUTE === "nodeseek-login" ||
           CAPTURE_ROUTE === "nodeseek-reset"
@@ -7435,6 +8016,7 @@ function createMainWindow() {
                 enabled: true,
                 onboardingSeen: true,
                 focusDockSeconds: 35,
+                memory: { enabled: true, syncEnabled: true, maxTurns: 100, autoCapture: true },
                 weather: { ...(current.weather || {}), enabled: false, city: '上海', locationMode: 'manual', pollMinutes: 45 },
                 quietHours: { enabled: true, start: '22:30', end: '07:15' }
               }});
@@ -7451,6 +8033,12 @@ function createMainWindow() {
                 enabled: appState.uiSettings.companion.enabled,
                 city: appState.uiSettings.companion.weather.city,
                 focusDockSeconds: appState.uiSettings.companion.focusDockSeconds,
+                memoryEnabled: document.getElementById('companionMemoryEnabled')?.checked === true,
+                memorySyncEnabled: document.getElementById('companionMemorySyncEnabled')?.checked === true,
+                memoryAutoCapture: document.getElementById('companionMemoryAutoCapture')?.checked === true,
+                memoryMaxTurns: Number(document.getElementById('companionMemoryMaxTurns')?.value || 0),
+                memoryStatus: document.getElementById('companionMemoryStatus')?.textContent || '',
+                clearMemoryDisabled: document.getElementById('clearCompanionMemory')?.disabled === true,
                 stateLabel: document.getElementById('companionSettingsStatus')?.textContent,
                 pauseReason: paused.quietReason,
                 settingsVisible: !document.getElementById('companionSettingsCard')?.hidden,
@@ -7600,6 +8188,8 @@ function createMainWindow() {
               const draftStyle = draft ? getComputedStyle(draft) : null;
               const draftTop = draft ? Number.parseFloat(draft.style.top) : -1;
               const autoScrollTop = previewScroll.scrollTop;
+              const expectedLead = Math.min(2 * 46, Math.max(46, previewScroll.clientHeight * .22));
+              const expectedAutoScrollTop = Math.max(0, Math.min(previewScroll.scrollHeight - previewScroll.clientHeight, draftTop - expectedLead));
               const manualScrollTop = Math.min(previewScroll.scrollHeight - previewScroll.clientHeight, autoScrollTop + 46);
               previewScroll.scrollTop = manualScrollTop;
               previewBehavior = {
@@ -7607,6 +8197,7 @@ function createMainWindow() {
                 overflowY: getComputedStyle(previewScroll).overflowY,
                 initialScrollTop,
                 autoScrollTop,
+                autoScrollTargetsDraft: Math.abs(autoScrollTop - expectedAutoScrollTop) < 2,
                 manualScrollApplied: Math.abs(previewScroll.scrollTop - manualScrollTop) < 2,
                 draftVisibleInViewport: draftTop >= autoScrollTop && draftTop <= autoScrollTop + previewScroll.clientHeight,
                 draftGhost: Boolean(draftStyle && draftStyle.borderTopStyle === 'dashed' && Number(draftStyle.opacity) < 1),
@@ -7699,7 +8290,7 @@ function createMainWindow() {
           };
           await probeWidget("open");
           const opened = await inspectWidget();
-          const settings = { enabled: true, wellness: { enabled: true, kinds: { "eye-rest": true, water: true, movement: true } } };
+          const settings = { enabled: true, memory: { enabled: true }, wellness: { enabled: true, kinds: { "eye-rest": true, water: true, movement: true } } };
           const readState = async (runtime, options = {}) => {
             await context.view.webContents.executeJavaScriptInIsolatedWorld(
               COMPANION_WIDGET_WORLD_ID,
@@ -7715,6 +8306,13 @@ function createMainWindow() {
           const happy = await readState({ state: "bubbleTip", reminder: { kind: "water", message: "休息一下，记得喝水" } });
           await probeWidget("open");
           const finalOpen = await readState({ state: "bubbleTip", reminder: { kind: "water", message: "休息一下，记得喝水" } });
+          const remembered = await readState(
+            { state: "idle" },
+            { memory: { enabled: true, revision: "2:remembered-answer", messages: [
+              { id: "remembered-question", role: "user", content: "你记得我的偏好吗" },
+              { id: "remembered-answer", role: "assistant", content: "记得，你喜欢简短回答。" }
+            ] } }
+          );
           const longPreviewAnswer = Array.from(
             { length: 80 },
             (_value, index) => `第 ${index + 1} 行用于验证整段对话只使用一个主滚动区。`,
@@ -7750,7 +8348,7 @@ function createMainWindow() {
             pageSearchValue: document.getElementById('pageSearch')?.value || '',
             activeElementId: document.activeElement?.id || ''
           })`, true);
-          const companionResult = { shell, before, opened, idle, breathing, focused, fullscreen, happy, finalOpen, conversationPreview, askPane, typed, hitTargets, pageEvents };
+          const companionResult = { shell, before, opened, idle, breathing, focused, fullscreen, happy, finalOpen, remembered, conversationPreview, askPane, typed, hitTargets, pageEvents };
           console.log(JSON.stringify({ companionDiscoverabilityProbe: companionResult }));
           await new Promise((resolve) => setTimeout(resolve, 100));
         } else if (CAPTURE_ROUTE === "browser-toolbar") {
@@ -7796,6 +8394,18 @@ function createMainWindow() {
               selectReturnMs: Math.max(0, returnedAt - startedAt),
               trace: tab.lastNavigationTrace,
             });
+            // First paint is measured above, but cleanup must honor the normal loading close guard.
+            const measuredContents = tab.view?.webContents;
+            if (measuredContents && !measuredContents.isDestroyed() && measuredContents.isLoading()) {
+              await new Promise((resolve, reject) => {
+                const stopped = () => { clearTimeout(timer); resolve(); };
+                const timer = setTimeout(() => {
+                  measuredContents.removeListener("did-stop-loading", stopped);
+                  reject(new Error("导航性能测试页面尚未停止加载，无法安全清理"));
+                }, 5000);
+                measuredContents.once("did-stop-loading", stopped);
+              });
+            }
             await closeBrowserTab({ tabId: tab.tabId, bounds: siteViewBounds });
           }
           console.log(`QIYE_NAVIGATION_PERFORMANCE=${JSON.stringify({ samples, summary: navigationPerformanceTracer.summary() })}`);
@@ -8516,6 +9126,8 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
             currentTaskView = 'timeline';
             navigateTo('plan');
             await loadTimelineYear(2026, { force: true });
+            const workEventCount = timelineState.events.length;
+            const reviewTotal = timelineState.review.stats.total;
             const workNodeCount = document.querySelectorAll('.timeline-waveform-node[data-timeline-event-id]').length;
             const workOnly = timelineState.events.every((item) => item.trackId === 'work');
             const workPath = document.querySelector('.timeline-waveform-path')?.getAttribute('d') || '';
@@ -8528,6 +9140,34 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
             renderTimeline();
             const personalNodeCount = document.querySelectorAll('.timeline-waveform-node[data-timeline-event-id]').length;
             const personalOnly = timelineState.events.every((item) => item.trackId === 'personal');
+            const personalNode = document.querySelector('.timeline-waveform-node[data-timeline-event-id]');
+            personalNode?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            const personalDetail = {
+              open: document.getElementById('timelineDetailLayer').classList.contains('is-open'),
+              eyebrow: document.getElementById('timelineDetailEyebrow').textContent,
+              title: document.getElementById('timelineDetailTitle').textContent,
+              rows: document.querySelectorAll('#timelineDetailContent .task-detail-row').length
+            };
+            closeTimelineDetail();
+            const waitForTimelineScope = async (expected) => {
+              for (let attempt = 0; attempt < 30; attempt += 1) {
+                if (timelineTrackView().scope === expected) return true;
+                await new Promise((resolve) => setTimeout(resolve, 30));
+              }
+              return false;
+            };
+            const monthScroller = document.querySelector('.timeline-waveform-scroll');
+            const monthRect = monthScroller.getBoundingClientRect();
+            monthScroller.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -120, clientX: monthRect.left + monthRect.width * .65 }));
+            await waitForTimelineScope('month');
+            const dayScope = timelineTrackView().scope;
+            const selectedMonth = timelineTrackView().selectedMonth;
+            const dayLabels = Array.from(document.querySelectorAll('.timeline-waveform-label--day')).map((item) => item.textContent);
+            const dayScaleActive = document.querySelector('[data-timeline-scale="day"]')?.classList.contains('is-active');
+            const dayScroller = document.querySelector('.timeline-waveform-scroll');
+            dayScroller.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 120, clientX: monthRect.left + monthRect.width * .65 }));
+            await waitForTimelineScope('year');
+            const returnedToMonthScale = timelineTrackView().scope === 'year' && document.querySelector('[data-timeline-scale="month"]')?.classList.contains('is-active');
             const restored = await window.siteNest.updateTimelineSettings({ selectedTrackId: 'work', lastTrackId: 'work', viewMode: 'timeline' });
             applyTimelineSnapshot(restored);
             const taskResult = await window.siteNest.addTask({ title: '转为时间轴草稿', workspaceId: 'work', status: 'done', notes: '任务备注' });
@@ -8544,13 +9184,24 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
             const countAfterDraft = (await window.siteNest.getTimeline({ year: 2026, trackId: 'work' })).events.length;
             const search = await window.siteNest.searchTimeline('工作成就', 5);
             const emptyYear = await window.siteNest.getTimeline({ year: 2027, trackId: 'work' });
+            const capturePersonal = await window.siteNest.updateTimelineSettings({ selectedTrackId: 'personal', lastTrackId: 'personal', viewMode: 'timeline' });
+            applyTimelineSnapshot(capturePersonal);
+            await setTimelineTrackView({ selectedMonth: 8, scope: 'month' });
+            const captureNode = document.querySelector('.timeline-waveform-node[data-timeline-event-id]');
+            if (captureNode) openTimelineEventDetail(timelineEventForId(captureNode.dataset.timelineEventId), captureNode);
             return {
               beforeTracks: before.tracks.map((item) => item.id),
-              workEventCount: timelineState.events.length,
+              workEventCount,
               workNodeCount,
               personalNodeCount,
               workOnly,
               personalOnly,
+              personalDetail,
+              dayScope,
+              selectedMonth,
+              dayLabels,
+              dayScaleActive,
+              returnedToMonthScale,
               workPath,
               listRowCount,
               draft,
@@ -8559,13 +9210,134 @@ GM_registerMenuCommand('标记页面', () => { document.body.dataset.menuCommand
               searchId: search.events[0]?.id || null,
               addedId: day.event.id,
               emptyYearCount: emptyYear.events.length,
-              reviewTotal: timelineState.review.stats.total,
+              reviewTotal,
               route: currentRoute,
               view: currentTaskView
             };
           })()`);
           console.log(JSON.stringify({ timelineProbe: { ...result, pageDraft } }));
           await new Promise((resolve) => setTimeout(resolve, 700));
+        } else if (CAPTURE_ROUTE === "site-library-probe" && process.env.QIYE_TEST_USER_DATA) {
+          getCheckinScheduler().stop();
+          const result = await mainWindow.webContents.executeJavaScript(`(async () => {
+            navigateTo('sites');
+            const originalSites = JSON.stringify(appState.sites.map(({ id, url, browserProfileId }) => ({ id, url, browserProfileId })));
+            const wait = async (condition) => { for (let i = 0; i < 100; i += 1) { if (condition()) return; await new Promise(r => setTimeout(r, 25)); } throw new Error('站点分组界面等待超时'); };
+            document.getElementById('createSiteLibraryGroup').click();
+            document.getElementById('siteLibraryGroupName').value = '社区交流';
+            document.getElementById('siteLibraryGroupForm').requestSubmit();
+            await wait(() => siteLibrarySettings().groups.length > 0);
+            const groupId = siteLibrarySettings().groups[0].id;
+            const first = appState.sites[0];
+            const select = document.querySelector('[data-library-site-id="' + first.id + '"] .site-library-move');
+            select.value = groupId;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            await wait(() => siteLibrarySettings().assignments[first.id] === groupId);
+            document.querySelector('[data-site-library-group="' + groupId + '"]').click();
+            const filteredCount = document.querySelectorAll('.site-library-card').length;
+            document.querySelector('[data-site-library-view="list"]').click();
+            await wait(() => siteLibrarySettings().view === 'list');
+            const listMode = dom.siteLibraryGrid.classList.contains('is-list');
+            await organizeSiteLibrary({ action: 'rename', groupId, name: '常用社区' });
+            const renamed = document.getElementById('siteLibrarySelection').textContent;
+            await organizeSiteLibrary({ action: 'delete', groupId });
+            const ungroupedAfterDelete = !siteLibrarySettings().assignments[first.id];
+            const unchanged = JSON.stringify(appState.sites.map(({ id, url, browserProfileId }) => ({ id, url, browserProfileId }))) === originalSites;
+            await organizeSiteLibrary({ action: 'create', name: '社区交流' });
+            await organizeSiteLibrary({ action: 'create', name: '工作工具' });
+            await organizeSiteLibrary({ action: 'create', name: '学习资料' });
+            const demoGroup = siteLibrarySettings().groups[0].id;
+            await organizeSiteLibrary({ action: 'assign', siteId: first.id, groupId: demoGroup });
+            await organizeSiteLibrary({ action: 'view', view: 'grid' });
+            selectedSiteLibraryGroup = siteLibrarySettings().groups[2].id;
+            renderSiteLibrary();
+            if (!document.querySelector('.site-library-empty')?.textContent.includes('这个分组还没有站点')) throw new Error('空分组说明未显示');
+            selectedSiteLibraryGroup = 'all';
+            renderSiteLibrary();
+            await organizeSiteLibrary({ action: 'collapse', groupId: demoGroup });
+            dom.siteSearch.value = first.name;
+            dom.siteSearch.dispatchEvent(new Event('input', { bubbles: true }));
+            if (document.querySelectorAll('.site-library-card').length !== 1 || document.querySelector('.site-library-group-grid').hidden) throw new Error('搜索应展开匹配分组');
+            dom.siteSearch.value = '';
+            await organizeSiteLibrary({ action: 'collapse', groupId: demoGroup });
+            await new Promise(resolve => setTimeout(resolve, 700));
+            const overflow = document.getElementById('sitesPage').scrollWidth > document.getElementById('sitesPage').clientWidth;
+            return { filteredCount, listMode, renamed, ungroupedAfterDelete, unchanged, groups: siteLibrarySettings().groups.length, overflow };
+          })()`);
+          console.log(JSON.stringify({ siteLibraryProbe: result }));
+        } else if (CAPTURE_ROUTE === "checkin-settings-probe" && process.env.QIYE_TEST_USER_DATA) {
+          const scheduler = getCheckinScheduler();
+          scheduler.stop();
+          scheduler.stopped = false;
+          scheduler.runners.nodeseek = async () => ({ status: "success", message: "本地回归：已确认签到" });
+          const result = await mainWindow.webContents.executeJavaScript(`(async () => {
+            await window.siteNest.updateCheckin('naixi', { enabled: false });
+            await window.siteNest.updateCheckin('nodeseek', { enabled: false });
+            navigateTo('automations');
+            renderCheckinAutomations(await window.siteNest.getAutomationStatus());
+            const card = document.querySelector('[data-checkin-id="nodeseek"]');
+            const time = card.querySelector('[data-checkin-setting="time"]');
+            time.value = '09:45';
+            time.dispatchEvent(new Event('change', { bubbles: true }));
+            const wait = async (condition) => {
+              for (let i = 0; i < 100; i += 1) { if (condition()) return; await new Promise(resolve => setTimeout(resolve, 30)); }
+              throw new Error('签到控件状态等待超时');
+            };
+            await wait(() => !time.disabled && appState.automations.nodeseek.time === '09:45');
+            const enabled = card.querySelector('[data-checkin-setting="enabled"]');
+            enabled.checked = true;
+            enabled.dispatchEvent(new Event('change', { bubbles: true }));
+            await wait(() => !enabled.disabled && appState.automations.nodeseek.enabled);
+            card.querySelector('[data-checkin-run]').click();
+            await wait(() => appState.automations.nodeseek.status === 'success');
+            const snapshot = await window.siteNest.getAutomationStatus();
+            return { time: snapshot.nodeseek.time, enabled: snapshot.nodeseek.enabled, success: snapshot.nodeseek.status, runCount: snapshot.nodeseek.runs.length, naixiEnabled: snapshot.naixi.enabled, rate: dom.automationTodayRate.textContent, runLabel: card.querySelector('[data-checkin-run]').textContent };
+          })()`);
+          console.log(JSON.stringify({ checkinSettingsProbe: result }));
+        } else if (CAPTURE_ROUTE === "browser-extension-probe") {
+          if (!EXTENSION_PROBE_PATH || !TAB_PROBE_BASE_URL) {
+            throw new Error("Browser extension probe requires fixture path and URL");
+          }
+          const targetSession = getBrowserSession(DEFAULT_BROWSER_PROFILE_ID);
+          await targetSession.readyPromise;
+          const layer = ElectronChromeExtensions.fromSession(targetSession);
+          let popupCreated = false;
+          layer?.once("browser-action-popup-created", () => { popupCreated = true; });
+          const imported = await getBrowserExtensionManager().importDirectory(
+            DEFAULT_BROWSER_PROFILE_ID,
+            EXTENSION_PROBE_PATH,
+          );
+          await mainWindow.webContents.executeJavaScript(`showSite({
+            id: 'browser-extension-fixture',
+            name: 'Extension fixture',
+            shortName: 'EX',
+            workspaceId: 'personal',
+            browserProfileId: 'default',
+            url: ${JSON.stringify(TAB_PROBE_BASE_URL)},
+            color: '#5b7cfa'
+          })`);
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          const context = activeBrowserContext();
+          const pageMarker = await context.view.webContents.executeJavaScript(
+            "document.documentElement.dataset.qiyeExtensionFixture || ''",
+          );
+          const toolbar = await mainWindow.webContents.executeJavaScript(`(async () => {
+            await refreshBrowserExtensionActions();
+            const button = document.querySelector('#browserExtensionActions button');
+            if (button) button.click();
+            return {
+              actionCount: document.querySelectorAll('#browserExtensionActions button').length,
+              toolbarHidden: document.getElementById('browserExtensionActions').hidden
+            };
+          })()`);
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          console.log(JSON.stringify({ browserExtensionProbe: {
+            imported: imported.extensions.length,
+            status: imported.extensions[0]?.status,
+            pageMarker,
+            popupCreated,
+            ...toolbar,
+          } }));
         } else if (CAPTURE_ROUTE === "state-probe") {
           const result = await mainWindow.webContents.executeJavaScript(`(async () => {
             const state = await window.siteNest.getState();
@@ -8726,7 +9498,7 @@ GM_addStyle('article { line-height: 1.7; }');`;
           await new Promise((resolve) => setTimeout(resolve, 600));
         } else if (CAPTURE_ROUTE.startsWith("automations-")) {
           const tab = CAPTURE_ROUTE.slice("automations-".length);
-          if (!["scripts", "assistants", "schedules", "workflows", "logs", "extension"].includes(tab)) {
+          if (!["scripts", "extensions", "assistants", "schedules", "workflows", "logs", "extension"].includes(tab)) {
             throw new Error(`Unknown automation capture tab: ${tab}`);
           }
           await mainWindow.webContents.executeJavaScript(
@@ -8759,7 +9531,7 @@ GM_addStyle('article { line-height: 1.7; }');`;
           const image = await mainWindow.webContents.capturePage();
           await fsp.mkdir(path.dirname(path.resolve(CAPTURE_PATH)), { recursive: true });
           await fsp.writeFile(path.resolve(CAPTURE_PATH), image.toPNG());
-          if (["site", "nodeseek-login", "nodeseek-reset"].includes(CAPTURE_ROUTE) && siteView) {
+          if (["site", "nodeseek-login", "nodeseek-reset", "nodeseek-refresh-probe", "nodeseek-forbidden-probe"].includes(CAPTURE_ROUTE) && siteView) {
             const siteCapture = await siteView.webContents.capturePage();
             const parsed = path.parse(path.resolve(CAPTURE_PATH));
             await fsp.writeFile(
@@ -8801,6 +9573,7 @@ if (!hasSingleInstanceLock) {
 
   app.whenReady().then(() => {
     app.setAppUserModelId(APP_ID);
+    ElectronChromeExtensions.handleCRXProtocol(session.defaultSession);
     registerIpc();
     createMainWindow();
     void getState().then((state) => {
@@ -8822,7 +9595,7 @@ if (!hasSingleInstanceLock) {
     void initializeWeatherService().catch((error) => {
       console.error("Unable to initialize weather service:", error?.message || error);
     });
-    void scheduleNaixiAutomation().catch((error) => {
+    void scheduleCheckinAutomations().catch((error) => {
       console.error("Unable to schedule automation:", error?.message || error);
     });
   });
@@ -8927,7 +9700,8 @@ app.on("before-quit", (event) => {
   trayService?.destroy();
   webViewLifecycleManager?.stop();
   pageResourceService?.stopNetworkDetection("app-quit");
-  if (automationTimer) clearTimeout(automationTimer);
+  checkinScheduler?.stop();
+  if (nodeSeekCheckinWindow && !nodeSeekCheckinWindow.isDestroyed()) nodeSeekCheckinWindow.destroy();
   if (automationWindow && !automationWindow.isDestroyed()) {
     automationWindow.destroy();
   }

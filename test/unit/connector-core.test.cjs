@@ -298,7 +298,7 @@ test("v10 migration keeps sites separate from sessions and is idempotent", () =>
   const initial = createInitialState({ now: NOW, defaultSites: [
     { id: "site-a", name: "站点 A", url: "https://a.example/", workspaceId: "work" },
   ] });
-  assert.equal(initial.version, 18);
+  assert.equal(initial.version, 19);
   assert.equal(initial.sites.length, 1);
   assert.equal(initial.workspaceBrowserStates.work.tabs.length, 0);
   const { companion, ...initialUiSettings } = initial.uiSettings;
@@ -308,6 +308,7 @@ test("v10 migration keeps sites separate from sessions and is idempotent", () =>
     contextAssistantCollapsed: false,
     usageTrackingEnabled: true,
     sitePopupPolicies: [],
+    siteLibrary: { groups: [], assignments: {}, collapsed: [], view: "grid" },
     translation: {
       providerId: "openai-compatible",
       publicConfig: { baseUrl: "https://api.deepseek.com", model: "deepseek-v4-flash" },
@@ -355,6 +356,7 @@ test("session visibility and context-assistant preferences survive state normali
     contextAssistantCollapsed: true,
     usageTrackingEnabled: true,
     sitePopupPolicies: [],
+    siteLibrary: { groups: [], assignments: {}, collapsed: [], view: "grid" },
     translation: {
       providerId: "openai-compatible",
       publicConfig: { baseUrl: "https://api.deepseek.com", model: "deepseek-v4-flash" },

@@ -11,7 +11,7 @@ const NOW = "2026-08-31T00:00:00.000Z";
 
 test("current schema retains empty habit and usage collections without creating fake goals", () => {
   const state = createInitialState({ now: NOW, defaultSites: [] });
-  assert.equal(CURRENT_SCHEMA_VERSION, 18);
+  assert.equal(CURRENT_SCHEMA_VERSION, 19);
   assert.deepEqual(state.habits, []);
   assert.deepEqual(state.habitCheckIns, []);
   assert.deepEqual(state.habitReminders, []);
@@ -63,7 +63,7 @@ test("v10 migrates directly to the current schema and stays idempotent with loca
     }],
   };
   const once = migrateState(raw, { now: NOW });
-  assert.equal(once.state.version, 18);
+  assert.equal(once.state.version, 19);
   assert.equal(once.state.habits[0].reminderTime, "20:30");
   assert.equal(once.state.habitCheckIns[0].localDate, "2026-08-30");
   assert.equal(once.state.rewardLedger[0].amount, 1);

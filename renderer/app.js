@@ -177,6 +177,7 @@ const dom = {
   browserSiteLogo: document.getElementById("browserSiteLogo"),
   browserSiteName: document.getElementById("browserSiteName"),
   browserSiteStatus: document.getElementById("browserSiteStatus"),
+  browserSiteNotice: document.getElementById("browserSiteNotice"),
   siteLoginButton: document.getElementById("siteLoginButton"),
   repairNetworkButton: document.getElementById("repairNetworkButton"),
   resetNodeSeekSession: document.getElementById("resetNodeSeekSession"),
@@ -186,6 +187,7 @@ const dom = {
   browserReload: document.getElementById("browserReload"),
   browserSecurityNote: document.getElementById("browserSecurityNote"),
   browserSecurityLabel: document.getElementById("browserSecurityLabel"),
+  browserExtensionActions: document.getElementById("browserExtensionActions"),
   translatePageButton: document.getElementById("translatePageButton"),
   addressField: document.getElementById("addressField"),
   addressInput: document.getElementById("addressInput"),
@@ -286,16 +288,28 @@ const dom = {
   timelineTypeFilter: document.getElementById("timelineTypeFilter"),
   timelineSearchInput: document.getElementById("timelineSearchInput"),
   timelineViewSwitch: document.getElementById("timelineViewSwitch"),
+  timelineScaleSwitch: document.getElementById("timelineScaleSwitch"),
+  timelineZoomHint: document.getElementById("timelineZoomHint"),
   timelineReviewButton: document.getElementById("timelineReviewButton"),
   timelineExportMarkdown: document.getElementById("timelineExportMarkdown"),
   timelineExportJson: document.getElementById("timelineExportJson"),
   timelineExportSvg: document.getElementById("timelineExportSvg"),
-  timelineBackToYear: document.getElementById("timelineBackToYear"),
   timelineAddButton: document.getElementById("timelineAddButton"),
   timelineMonthNav: document.getElementById("timelineMonthNav"),
   timelineResultSummary: document.getElementById("timelineResultSummary"),
   timelineCanvas: document.getElementById("timelineCanvas"),
   timelineList: document.getElementById("timelineList"),
+  timelineDetailLayer: document.getElementById("timelineDetailLayer"),
+  timelineDetailScrim: document.getElementById("timelineDetailScrim"),
+  timelineDetailCard: document.getElementById("timelineDetailCard"),
+  timelineDetailEyebrow: document.getElementById("timelineDetailEyebrow"),
+  timelineDetailColor: document.getElementById("timelineDetailColor"),
+  timelineDetailTitle: document.getElementById("timelineDetailTitle"),
+  timelineDetailWhen: document.getElementById("timelineDetailWhen"),
+  timelineDetailContent: document.getElementById("timelineDetailContent"),
+  timelineDetailEdit: document.getElementById("timelineDetailEdit"),
+  timelineDetailDelete: document.getElementById("timelineDetailDelete"),
+  timelineDetailClose: document.getElementById("timelineDetailClose"),
   timelineEventModal: document.getElementById("timelineEventModal"),
   timelineEventForm: document.getElementById("timelineEventForm"),
   timelineEventModalTitle: document.getElementById("timelineEventModalTitle"),
@@ -421,6 +435,13 @@ const dom = {
   companionSettingsStatus: document.getElementById("companionSettingsStatus"),
   companionEnabledSetting: document.getElementById("companionEnabledSetting"),
   companionFocusSeconds: document.getElementById("companionFocusSeconds"),
+  companionMemoryEnabled: document.getElementById("companionMemoryEnabled"),
+  companionMemoryMaxTurns: document.getElementById("companionMemoryMaxTurns"),
+  companionMemorySyncEnabled: document.getElementById("companionMemorySyncEnabled"),
+  companionMemoryAutoCapture: document.getElementById("companionMemoryAutoCapture"),
+  companionMemoryStatus: document.getElementById("companionMemoryStatus"),
+  companionMemoryFacts: document.getElementById("companionMemoryFacts"),
+  clearCompanionMemory: document.getElementById("clearCompanionMemory"),
   companionWeatherEnabled: document.getElementById("companionWeatherEnabled"),
   companionWeatherCity: document.getElementById("companionWeatherCity"),
   companionWeatherPollMinutes: document.getElementById("companionWeatherPollMinutes"),
@@ -494,6 +515,10 @@ const dom = {
   naixiLastRun: document.getElementById("naixiLastRun"),
   runNaixiAutomation: document.getElementById("runNaixiAutomation"),
   automationTabs: document.getElementById("automationTabs"),
+  browserExtensionProfile: document.getElementById("browserExtensionProfile"),
+  browserExtensionList: document.getElementById("browserExtensionList"),
+  importBrowserExtension: document.getElementById("importBrowserExtension"),
+  openBrowserExtensionsFolder: document.getElementById("openBrowserExtensionsFolder"),
   userScriptList: document.getElementById("userScriptList"),
   userScriptExecutionList: document.getElementById("userScriptExecutionList"),
   importUserScriptFile: document.getElementById("importUserScriptFile"),
@@ -562,6 +587,13 @@ const dom = {
   assistantList: document.getElementById("assistantList"),
   executionLogList: document.getElementById("executionLogList"),
   refreshExecutionLogs: document.getElementById("refreshExecutionLogs"),
+  executionLogStartDate: document.getElementById("executionLogStartDate"),
+  executionLogEndDate: document.getElementById("executionLogEndDate"),
+  clearExecutionLogDateFilter: document.getElementById("clearExecutionLogDateFilter"),
+  executionLogResultCount: document.getElementById("executionLogResultCount"),
+  executionLogPreviousPage: document.getElementById("executionLogPreviousPage"),
+  executionLogNextPage: document.getElementById("executionLogNextPage"),
+  executionLogPageInfo: document.getElementById("executionLogPageInfo"),
   browserContent: document.getElementById("browserContent"),
   pageActionsButton: document.getElementById("pageActionsButton"),
   browserAudioButton: document.getElementById("browserAudioButton"),
@@ -651,6 +683,10 @@ let currentSite = null;
 let currentAutomationTab = "checkins";
 let assistantCache = [];
 let executionLogCache = [];
+let executionLogStartDate = "";
+let executionLogEndDate = "";
+let executionLogPage = 1;
+const EXECUTION_LOG_PAGE_SIZE = 10;
 let pageActionSnapshot = null;
 let pageActionPanelOpen = false;
 let activeRightPanel = null;
@@ -694,6 +730,9 @@ let timelineState = {
 let timelineFocusEventId = null;
 let timelineMonthNavDrag = null;
 let timelineSearchTimer = 0;
+let activeTimelineDetailId = null;
+let activeTimelineDetailAnchor = null;
+let timelineScaleChangePending = false;
 let userScriptState = { scripts: [], executions: [], versions: [] };
 let contentTagState = {
   groups: [],
@@ -735,6 +774,15 @@ let browserSnapshot = {
   securityState: "unknown",
   error: "",
 };
+let browserExtensionState = {
+  profileId: "default",
+  profiles: [],
+  extensions: [],
+  loading: false,
+  error: "",
+};
+let browserExtensionActionSequence = 0;
+const observedBrowserExtensionPartitions = new Set();
 let workspaceSwitchSequence = 0;
 let workspacePresentationSequence = 0;
 let workspaceSwitchChain = Promise.resolve();
@@ -758,6 +806,7 @@ let googleSyncState = {
 };
 let googleSyncBusyAction = "";
 let googleSyncPopoverOpen = false;
+let companionMemoryView = null;
 let shortcutSnapshot = { platform: "windows", bindings: [], categories: [], conflicts: [] };
 let shortcutCaptureActionId = "";
 let zohoDashboard = null;
@@ -797,7 +846,7 @@ const SETTINGS_SECTIONS = Object.freeze([
   { id: "shortcuts", title: "快捷键", kicker: "SHORTCUTS", icon: "settings", description: "按功能分组管理当前平台的应用快捷键。" },
   { id: "browsing", title: "浏览与性能", kicker: "BROWSING", icon: "window", description: "网页内存、新窗口、登录弹窗与浏览身份。" },
   { id: "translation", title: "翻译与 DeepSeek", kicker: "TRANSLATION", icon: "language", description: "划词翻译、DeepSeek 查询、整页翻译与隐私边界。" },
-  { id: "notifications", title: "日程与通知", kicker: "NOTIFICATIONS", icon: "calendar", description: "桌面提醒、托盘和随系统启动。" },
+  { id: "notifications", title: "日程与小序", kicker: "SCHEDULES & XIAOXU", icon: "calendar", description: "日程提醒、托盘和小序伴随助手。" },
   { id: "connections", title: "连接与集成", kicker: "CONNECTIONS", icon: "workflow", description: "Zoho Desk 与预留的只读连接器。" },
   { id: "accounts", title: "账号与同步", kicker: "ACCOUNTS", icon: "cloud", description: "Google 数据同步和 Chrome 本地书签。" },
   { id: "data", title: "数据与备份", kicker: "LOCAL DATA", icon: "database", description: "本地数据目录和浏览会话边界。" },
@@ -2331,6 +2380,7 @@ function normalizeWorkspaceBrowserState(value, workspaceId = activeWorkspaceId()
       workspaceId: String(tab.workspaceId || workspaceId),
       siteId: tab.siteId ? String(tab.siteId) : null,
       browserProfileId: String(tab.browserProfileId || "default"),
+      partition: String(tab.partition || ""),
       title: String(tab.title || ""),
       url: String(tab.url || tab.currentURL || ""),
       normalizedUrl: String(tab.normalizedUrl || tab.url || tab.currentURL || ""),
@@ -3729,41 +3779,25 @@ function automationExecutionTimestamp(log) {
 function renderAutomationMetrics(naixi = appState.automations?.naixi) {
   if (!naixi || !dom.automationTodayRate) return;
   const today = localDateKey(new Date());
-  const enabled = Boolean(naixi.enabled);
-  const completedToday = naixi.lastSuccessDate === today;
+  const configs = Array.from(document.querySelectorAll("[data-checkin-id]")).map((card) => ({ id: card.dataset.checkinId, ...appState.automations?.[card.dataset.checkinId] }));
+  const enabled = configs.filter((config) => config.enabled);
+  const completed = enabled.filter((config) => config.lastSuccessDate === today);
   const managedCount = document.querySelectorAll('[data-managed-automation="true"]').length;
   dom.managedAutomationCount.textContent = String(managedCount);
-  dom.automationTodayRate.textContent = enabled ? (completedToday ? "100%" : "0%") : "—";
-
-  if (!enabled) {
-    dom.automationTodayRateText.textContent = "没有启用自动任务";
-  } else if (completedToday) {
-    dom.automationTodayRateText.textContent = "1/1 已全部完成";
-  } else if (naixi.status === "running") {
-    dom.automationTodayRateText.textContent = "正在执行今日任务";
-  } else if (naixi.status === "needs-login") {
-    dom.automationTodayRateText.textContent = "需要重新登录";
-  } else if (naixi.status === "needs-action") {
-    dom.automationTodayRateText.textContent = "等待人工处理";
-  } else if (naixi.status === "error") {
-    dom.automationTodayRateText.textContent = "今日任务未完成";
-  } else {
-    dom.automationTodayRateText.textContent = `等待 ${naixi.time || "08:30"} 执行`;
-  }
+  dom.automationTodayRate.textContent = enabled.length ? `${Math.round(completed.length / enabled.length * 100)}%` : "—";
+  dom.automationTodayRateText.textContent = enabled.length ? `${completed.length}/${enabled.length} 已完成 · 按各自时间执行` : "没有启用自动任务";
 
   const todayLogs = executionLogCache.filter((log) =>
     localDateKey(automationExecutionTimestamp(log)) === today,
   );
-  const hasNaixiLog = todayLogs.some((log) =>
-    log?.source === "checkin" || log?.automationId === "naixi-forum",
-  );
-  const naixiTimestamp = naixi.lastRunAt || naixi.lastSuccessAt;
-  if (!hasNaixiLog && localDateKey(naixiTimestamp) === today) {
-    todayLogs.push({
-      timestamp: naixiTimestamp,
-      status: completedToday ? "success" : naixi.status,
-      source: "checkin",
-    });
+  for (const config of configs) {
+    for (const run of config.runs || []) {
+      if (localDateKey(run.timestamp) === today && !todayLogs.some((log) => log.automationId === config.id && automationExecutionTimestamp(log) === run.timestamp)) todayLogs.push(run);
+    }
+    const timestamp = config.lastRunAt || config.lastSuccessAt;
+    if (localDateKey(timestamp) === today && !todayLogs.some((log) => log.automationId === config.id && automationExecutionTimestamp(log) === timestamp)) {
+      todayLogs.push({ timestamp, automationId: config.id, status: config.lastSuccessDate === today ? "success" : config.status, source: "checkin" });
+    }
   }
 
   const successStatuses = new Set(["success", "completed"]);
@@ -3780,20 +3814,31 @@ function renderAutomationMetrics(naixi = appState.automations?.naixi) {
 }
 
 function renderNaixiAutomation(naixi) {
-  if (!naixi) return;
-  appState.automations = { ...(appState.automations || {}), naixi };
-  dom.naixiAutoEnabled.checked = Boolean(naixi.enabled);
-  dom.naixiScheduleTime.value = naixi.time || "08:30";
-  renderAutomationMetrics(naixi);
+  if (naixi) renderCheckinAutomations({ naixi });
+}
 
-  const headerDot = document.createElement("span");
-  headerDot.className = "pulse-dot";
-  dom.automationHeaderStatus.classList.toggle("is-disabled", !naixi.enabled);
-  dom.automationHeaderStatus.replaceChildren(
-    headerDot,
-    document.createTextNode(naixi.enabled ? "自动签到已开启" : "自动签到已关闭"),
-  );
-
+function renderCheckinAutomations(snapshot = {}) {
+  const { definitions, ...configs } = snapshot;
+  appState.automations = { ...(appState.automations || {}), ...configs };
+  // Registered future adapters reuse the same card, controls and event handlers.
+  for (const definition of definitions || []) {
+    if (Array.from(document.querySelectorAll("[data-checkin-id]")).some((card) => card.dataset.checkinId === definition.id)) continue;
+    const template = document.querySelector('[data-checkin-id="naixi"]');
+    const card = template.cloneNode(true);
+    card.dataset.checkinId = definition.id;
+    card.querySelectorAll("[id], [data-action-id]").forEach((element) => { element.removeAttribute("id"); element.removeAttribute("data-action-id"); });
+    card.querySelector("h3").textContent = definition.name;
+    card.querySelector(".automation-site-logo").textContent = definition.logo;
+    card.querySelector(".automation-site-logo").style.setProperty("--site-color", definition.color);
+    card.querySelector("[data-checkin-run]").dataset.checkinRun = definition.id;
+    card.querySelector("[data-checkin-run]").dataset.actionId = `automation.${definition.id}.run`;
+    const open = card.querySelector("[data-open-url]");
+    open.dataset.openUrl = definition.url;
+    open.dataset.openName = definition.name;
+    open.dataset.openColor = definition.color;
+    card.querySelector('[data-checkin-setting="time"]').setAttribute("aria-label", `${definition.name}时间`);
+    template.parentElement.insertBefore(card, template.nextSibling);
+  }
   const statusLabels = {
     idle: "等待检查",
     running: "正在签到",
@@ -3803,28 +3848,31 @@ function renderNaixiAutomation(naixi) {
     error: "执行失败",
     disabled: "已关闭",
   };
-  dom.naixiAutomationBadge.textContent = statusLabels[naixi.status] || "等待检查";
-  dom.naixiAutomationBadge.className = "status-pill";
-  if (naixi.status === "success") {
-    dom.naixiAutomationBadge.classList.add("status-pill--ready");
-  } else if (naixi.status === "running") {
-    dom.naixiAutomationBadge.classList.add("status-pill--safe");
-  } else if (["needs-login", "needs-action"].includes(naixi.status)) {
-    dom.naixiAutomationBadge.classList.add("status-pill--preview");
-  } else if (naixi.status === "error") {
-    dom.naixiAutomationBadge.classList.add("status-pill--error");
-  }
-  dom.naixiAutomationMessage.textContent =
-    naixi.message || "使用栖页中已保存的登录会话自动完成每日签到。";
-  dom.naixiLastRun.replaceChildren(
-    createIconElement("clock", "automation-meta-icon"),
-    document.createTextNode(`上次运行：${formatAutomationTime(naixi.lastRunAt)}`),
-  );
-  dom.runNaixiAutomation.disabled = naixi.status === "running";
-  dom.runNaixiAutomation.replaceChildren(
-    createIconElement(naixi.status === "running" ? "reload" : "spark"),
-    document.createTextNode(naixi.status === "running" ? "正在签到" : "立即签到"),
-  );
+  let enabledCount = 0;
+  document.querySelectorAll("[data-checkin-id]").forEach((card) => {
+    const config = appState.automations[card.dataset.checkinId];
+    if (!config) return;
+    if (config.enabled) enabledCount += 1;
+    card.querySelector('[data-checkin-setting="enabled"]').checked = Boolean(config.enabled);
+    card.querySelector('[data-checkin-setting="time"]').value = config.time || "08:30";
+    const currentStatus = config.status === "success" && config.lastSuccessDate !== localDateKey(new Date()) ? "idle" : config.status;
+    const badge = card.querySelector('[data-checkin-field="badge"]');
+    badge.textContent = statusLabels[currentStatus] || "等待检查";
+    badge.className = `status-pill${currentStatus === "success" ? " status-pill--ready" : currentStatus === "error" ? " status-pill--error" : ["needs-action", "needs-login"].includes(currentStatus) ? " status-pill--preview" : ""}`;
+    card.querySelector('[data-checkin-field="message"]').textContent = currentStatus === "idle" ? "按设定时间检查当天签到；只在栖页运行期间执行。" : (config.message || "等待检查");
+    card.querySelector('[data-checkin-field="lastRun"]').replaceChildren(
+      createIconElement("clock", "automation-meta-icon"),
+      document.createTextNode(`上次运行：${formatAutomationTime(config.lastRunAt)}`),
+    );
+    const run = card.querySelector("[data-checkin-run]");
+    run.disabled = config.status === "running";
+    run.replaceChildren(createIconElement(config.status === "running" ? "reload" : "spark"), document.createTextNode(config.status === "running" ? "正在签到" : "立即签到"));
+  });
+  const dot = document.createElement("span");
+  dot.className = "pulse-dot";
+  dom.automationHeaderStatus.classList.toggle("is-disabled", !enabledCount);
+  dom.automationHeaderStatus.replaceChildren(dot, document.createTextNode(enabledCount ? `自动签到已开启 (${enabledCount})` : "自动签到已关闭"));
+  renderAutomationMetrics();
 }
 
 function renderWorkspaceSwitcher() {
@@ -3993,6 +4041,7 @@ function parseSettingsRoute(rawRoute) {
 
 function navigateTo(route, options = {}) {
   workspacePresentationSequence += 1;
+  closeTimelineDetail();
   const requestedRoute = String(route || "home");
   const settingsTarget = parseSettingsRoute(requestedRoute);
   const chromeBookmarksTarget = settingsTarget?.panel === "chrome-bookmarks";
@@ -4032,10 +4081,11 @@ function navigateTo(route, options = {}) {
   if (route === "automations") {
     selectAutomationTab(currentAutomationTab, { load: false });
     void window.siteNest?.getAutomationStatus().then((status) =>
-      renderNaixiAutomation(status?.naixi),
+      renderCheckinAutomations(status),
     );
     if (currentAutomationTab === "assistants") void loadAssistants();
     if (currentAutomationTab === "scripts") void loadUserScripts();
+    if (currentAutomationTab === "extensions") void loadBrowserExtensions();
     if (["checkins", "logs"].includes(currentAutomationTab)) void loadExecutionLogs();
   }
   updateActiveNavigation();
@@ -4261,7 +4311,29 @@ function openSiteContextMenu(site, anchor = {}) {
     contextMenuButton("在独立窗口打开", "external", () =>
       duplicateSiteAsTab(site, { detach: true, anchor }),
     ),
+    contextMenuButton("上移站点", "arrow-up", async () => {
+      try {
+        const result = await window.siteNest.reorderSite({ id: site.id, direction: -1 });
+        appState = result.state;
+        renderAll();
+      } catch (error) { showToast("无法移动站点", error.message, "error"); }
+    }),
+    contextMenuButton("下移站点", "arrow-down", async () => {
+      try {
+        const result = await window.siteNest.reorderSite({ id: site.id, direction: 1 });
+        appState = result.state;
+        renderAll();
+      } catch (error) { showToast("无法移动站点", error.message, "error"); }
+    }),
   );
+  if (site.source !== "built-in") dom.appContextMenu.append(contextMenuButton("删除站点", "trash", async () => {
+    if (!window.confirm(`删除“${site.name}”？网站账号与网页数据不会被删除。`)) return;
+    try {
+      const result = await window.siteNest.deleteSite(site.id);
+      appState = result.state;
+      renderAll();
+    } catch (error) { showToast("无法删除站点", error.message, "error"); }
+  }));
   dom.appContextMenu.hidden = false;
   positionAppContextMenu(anchor);
 }
@@ -4893,6 +4965,7 @@ function timelineDefaultTrack(workspaceId) {
 }
 
 function openTimelineEventModal(event = null, draft = {}) {
+  closeTimelineDetail();
   const value = event || draft || {};
   const workspaceId = value.workspaceId || activeWorkspaceId();
   const precision = value.datePrecision || "day";
@@ -5185,14 +5258,78 @@ function createTimelineEventCard(event) {
       : `关联 ${event.relatedTaskIds.length} 个日程`;
     card.appendChild(source);
   }
-  card.addEventListener("click", () => openTimelineEventModal(event));
+  card.addEventListener("click", (clickEvent) => openTimelineEventDetail(event, clickEvent.currentTarget));
   card.addEventListener("keydown", (keyEvent) => {
     if (["Enter", " "].includes(keyEvent.key)) {
       keyEvent.preventDefault();
-      openTimelineEventModal(event);
+      openTimelineEventDetail(event, card);
     }
   });
   return card;
+}
+
+function closeTimelineDetail() {
+  if (!dom.timelineDetailLayer) return;
+  activeTimelineDetailId = null;
+  activeTimelineDetailAnchor = null;
+  dom.timelineDetailLayer.classList.remove("is-open");
+  dom.timelineDetailLayer.setAttribute("aria-hidden", "true");
+  dom.timelineDetailCard?.style.removeProperty("--task-detail-left");
+  dom.timelineDetailCard?.style.removeProperty("--task-detail-top");
+}
+
+function addTimelineDetailRow(label, value) {
+  if (!value) return;
+  const row = document.createElement("dl");
+  row.className = "task-detail-row";
+  const term = document.createElement("dt");
+  term.textContent = label;
+  const detail = document.createElement("dd");
+  detail.textContent = value;
+  row.append(term, detail);
+  dom.timelineDetailContent.appendChild(row);
+}
+
+function renderTimelineDetail() {
+  const event = timelineEventForId(activeTimelineDetailId);
+  if (!event) {
+    closeTimelineDetail();
+    return;
+  }
+  const isWork = event.trackId === "work";
+  dom.timelineDetailEyebrow.textContent = isWork ? "工作记录" : "个人记录";
+  dom.timelineDetailColor.style.setProperty("--schedule-color", isWork ? "#25806b" : "#7758a5");
+  dom.timelineDetailTitle.textContent = event.title;
+  dom.timelineDetailWhen.textContent = timelineDateLabel(event);
+  dom.timelineDetailContent.replaceChildren();
+  addTimelineDetailRow("类型", `${TIMELINE_TYPE_LABELS[event.type] || "其他"} · ${TIMELINE_IMPORTANCE_LABELS[event.importance] || "普通"}`);
+  addTimelineDetailRow("摘要", event.summary);
+  addTimelineDetailRow("背景", event.background);
+  addTimelineDetailRow("行动", event.action);
+  addTimelineDetailRow("结果", event.result);
+  addTimelineDetailRow("影响", event.impact);
+  addTimelineDetailRow("影响走势", `${TIMELINE_DIRECTION_LABELS[event.impactDirection] || "平稳"} · ${event.impactLevel || 1} 级`);
+  addTimelineDetailRow("证据", event.evidence);
+  addTimelineDetailRow("轨道", timelineTrackName(event.trackId));
+  addTimelineDetailRow("空间", workspaceName(event.workspaceId));
+  addTimelineDetailRow("标签", [
+    ...(event.tags || []),
+    ...(event.tagIds || []).map((tagId) => contentTagState.tags.find((tag) => tag.id === tagId)?.canonicalName || ""),
+  ].filter(Boolean).join("、") || "无标签");
+  addTimelineDetailRow("来源", event.sourceTitle || event.sourceHostname || (event.relatedTaskIds?.length ? `关联 ${event.relatedTaskIds.length} 个日程` : "手动记录"));
+}
+
+function openTimelineEventDetail(event, anchor = null) {
+  if (!event || !dom.timelineDetailLayer) return;
+  activeTimelineDetailId = event.id;
+  activeTimelineDetailAnchor = anchor;
+  renderTimelineDetail();
+  dom.timelineDetailLayer.classList.add("is-open");
+  dom.timelineDetailLayer.setAttribute("aria-hidden", "false");
+  requestAnimationFrame(() => {
+    positionAnchoredDetail(dom.timelineDetailCard, dom.timelineDetailLayer, activeTimelineDetailAnchor);
+    dom.timelineDetailClose.focus();
+  });
 }
 
 function renderTimelineCluster(events, anchor) {
@@ -5214,6 +5351,7 @@ function renderTimelineCluster(events, anchor) {
 }
 
 function renderTimelineCanvas(events) {
+  closeTimelineDetail();
   dom.timelineCanvas.replaceChildren();
   const settings = timelineState.settings;
   const view = timelineTrackView();
@@ -5250,14 +5388,14 @@ function renderTimelineCanvas(events) {
   svg.appendChild(path);
   const labelCount = scope === "month" ? timelineDaysInMonth(year, month) : 12;
   Array.from({ length: labelCount }, (_item, index) => {
-    if (scope === "month" && index % 2 !== 0 && index !== labelCount - 1) return;
     const position = scope === "month" ? index / Math.max(1, labelCount - 1) : (index + 0.5) / 12;
     const label = document.createElementNS(svgNs, "text");
-    label.textContent = scope === "month" ? String(index + 1) : `${index + 1} 月`;
+    label.textContent = scope === "month" ? `${month}/${index + 1}` : `${index + 1} 月`;
     label.setAttribute("x", x(position).toFixed(2));
     label.setAttribute("y", "397");
     label.setAttribute("text-anchor", "middle");
     label.classList.add("timeline-waveform-label");
+    if (scope === "month") label.classList.add("timeline-waveform-label--day");
     if (scope === "year") {
       label.setAttribute("tabindex", "0");
       label.setAttribute("role", "button");
@@ -5298,7 +5436,7 @@ function renderTimelineCanvas(events) {
       group.appendChild(count);
     }
     const activate = () => cluster.events.length === 1
-      ? openTimelineEventModal(cluster.events[0])
+      ? openTimelineEventDetail(cluster.events[0], group)
       : renderTimelineCluster(cluster.events, group);
     group.addEventListener("click", activate);
     group.addEventListener("keydown", (event) => {
@@ -5308,6 +5446,25 @@ function renderTimelineCanvas(events) {
   });
   const scroller = document.createElement("div");
   scroller.className = "timeline-waveform-scroll";
+  scroller.tabIndex = 0;
+  scroller.setAttribute("aria-label", `${svg.getAttribute("aria-label")}；滚轮可在月与日之间缩放`);
+  scroller.title = "滚轮向上：从月放大到日；滚轮向下：返回月";
+  scroller.addEventListener("wheel", (wheelEvent) => {
+    if (timelineScaleChangePending || Math.abs(wheelEvent.deltaY) < 4) return;
+    if (scope === "year" && wheelEvent.deltaY < 0) {
+      const rect = svg.getBoundingClientRect();
+      const renderedX = (wheelEvent.clientX - rect.left) / Math.max(1, rect.width) * width;
+      const plotPosition = Math.max(0, Math.min(0.9999, (renderedX - left) / Math.max(1, width - left - right)));
+      const targetMonth = Math.max(1, Math.min(12, Math.floor(plotPosition * 12) + 1));
+      wheelEvent.preventDefault();
+      timelineScaleChangePending = true;
+      void setTimelineTrackView({ selectedMonth: targetMonth, scope: "month" }).finally(() => { timelineScaleChangePending = false; });
+    } else if (scope === "month" && wheelEvent.deltaY > 0) {
+      wheelEvent.preventDefault();
+      timelineScaleChangePending = true;
+      void setTimelineTrackView({ selectedMonth: month, scope: "year" }).finally(() => { timelineScaleChangePending = false; });
+    }
+  }, { passive: false });
   scroller.appendChild(svg);
   dom.timelineCanvas.appendChild(scroller);
   if (!waveform.events.length) {
@@ -5319,6 +5476,7 @@ function renderTimelineCanvas(events) {
 }
 
 function renderTimelineList(events) {
+  closeTimelineDetail();
   dom.timelineList.replaceChildren();
   const header = document.createElement("div");
   header.className = "timeline-list-header";
@@ -5338,6 +5496,8 @@ function renderTimelineList(events) {
   events.forEach((event) => {
     const row = document.createElement("article");
     row.className = "timeline-list-row";
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
     row.dataset.timelineEventId = event.id;
     if (event.id === timelineFocusEventId) row.classList.add("is-focused");
     const values = [
@@ -5358,8 +5518,19 @@ function renderTimelineList(events) {
     const edit = document.createElement("button");
     edit.type = "button";
     edit.textContent = "编辑";
-    edit.addEventListener("click", () => openTimelineEventModal(event));
+    edit.addEventListener("click", (clickEvent) => {
+      clickEvent.stopPropagation();
+      openTimelineEventModal(event);
+    });
     row.appendChild(edit);
+    row.addEventListener("click", (clickEvent) => openTimelineEventDetail(event, clickEvent.currentTarget));
+    row.addEventListener("keydown", (keyEvent) => {
+      if (keyEvent.target !== row) return;
+      if (["Enter", " "].includes(keyEvent.key)) {
+        keyEvent.preventDefault();
+        openTimelineEventDetail(event, row);
+      }
+    });
     dom.timelineList.appendChild(row);
   });
 }
@@ -5379,13 +5550,23 @@ function renderTimeline() {
   dom.timelineViewSwitch.querySelectorAll("[data-timeline-view]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.timelineView === settings.viewMode);
   });
+  dom.timelineScaleSwitch.querySelectorAll("[data-timeline-scale]").forEach((button) => {
+    const activeScale = trackView.scope === "month" ? "day" : "month";
+    const active = button.dataset.timelineScale === activeScale;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+    button.disabled = settings.viewMode === "list";
+  });
+  dom.timelineZoomHint.textContent = trackView.scope === "month"
+    ? `${trackView.selectedMonth} 月按日查看 · 滚轮向下返回月`
+    : "图表内滚轮向上可放大到日";
+  dom.timelineZoomHint.classList.toggle("is-hidden", settings.viewMode === "list");
   const events = filteredTimelineEvents();
-  const scopeLabel = trackView.scope === "month" ? `${trackView.selectedMonth} 月` : "年度";
+  const scopeLabel = trackView.scope === "month" ? `${trackView.selectedMonth} 月 · 日刻度` : "月刻度";
   dom.timelineResultSummary.textContent = timelineState.loading
     ? "正在读取本机时间轴…"
     : `${timelineState.loadedYear || trackView.selectedYear || settings.selectedYear} 年 · ${settings.selectedTrackId === "work" ? "工作" : "个人"} · ${scopeLabel} · ${events.length} 条记录`;
-  dom.timelineBackToYear.classList.toggle("is-hidden", trackView.scope !== "month");
-  dom.timelineMonthNav.classList.toggle("is-hidden", trackView.scope === "month");
+  dom.timelineMonthNav.classList.toggle("is-hidden", settings.viewMode === "list");
   dom.timelineCanvas.hidden = settings.viewMode === "list";
   dom.timelineList.hidden = settings.viewMode !== "list";
   if (settings.viewMode === "list") renderTimelineList(events);
@@ -5805,12 +5986,12 @@ function closeTaskDetail() {
   dom.taskDetailCard?.style.removeProperty("--task-detail-top");
 }
 
-function positionTaskDetail(anchor = activeTaskDetailAnchor) {
-  if (!dom.taskDetailCard || !dom.taskDetailLayer?.classList.contains("is-open")) return;
+function positionAnchoredDetail(card, layer, anchor) {
+  if (!card || !layer?.classList.contains("is-open")) return;
   const margin = 14;
   const gap = 10;
-  const width = dom.taskDetailCard.offsetWidth || 380;
-  const height = dom.taskDetailCard.offsetHeight || 460;
+  const width = card.offsetWidth || 380;
+  const height = card.offsetHeight || 460;
   const viewportWidth = document.documentElement.clientWidth;
   const viewportHeight = document.documentElement.clientHeight;
   const anchorRect = anchor?.isConnected && typeof anchor.getBoundingClientRect === "function"
@@ -5828,8 +6009,12 @@ function positionTaskDetail(anchor = activeTaskDetailAnchor) {
   }
   left = Math.max(margin, Math.min(left, viewportWidth - width - margin));
   top = Math.max(margin, Math.min(top, viewportHeight - height - margin));
-  dom.taskDetailCard.style.setProperty("--task-detail-left", `${Math.round(left)}px`);
-  dom.taskDetailCard.style.setProperty("--task-detail-top", `${Math.round(top)}px`);
+  card.style.setProperty("--task-detail-left", `${Math.round(left)}px`);
+  card.style.setProperty("--task-detail-top", `${Math.round(top)}px`);
+}
+
+function positionTaskDetail(anchor = activeTaskDetailAnchor) {
+  positionAnchoredDetail(dom.taskDetailCard, dom.taskDetailLayer, anchor);
 }
 
 function addTaskDetailRow(label, value) {
@@ -6214,6 +6399,75 @@ function renderCompanionSettings() {
   const wellness = settings.wellness || {};
   dom.companionEnabledSetting.checked = settings.enabled === true;
   dom.companionFocusSeconds.value = String(settings.focusDockSeconds || 30);
+  dom.companionMemoryEnabled.checked = settings.memory?.enabled === true;
+  dom.companionMemoryMaxTurns.value = String(settings.memory?.maxTurns || 100);
+  dom.companionMemorySyncEnabled.checked = settings.memory?.syncEnabled !== false;
+  dom.companionMemoryAutoCapture.checked = settings.memory?.autoCapture !== false;
+  const memoryCount = Number.isFinite(companionMemoryView?.count)
+    ? companionMemoryView.count
+    : Array.isArray(appState.companionConversationEntries) ? appState.companionConversationEntries.length : 0;
+  const facts = Array.isArray(companionMemoryView?.facts)
+    ? companionMemoryView.facts
+    : Array.isArray(appState.companionMemoryFacts) ? appState.companionMemoryFacts : [];
+  const conversationTurns = Math.ceil(memoryCount / 2);
+  dom.companionMemoryStatus.textContent = conversationTurns || facts.length
+    ? `已保存 ${conversationTurns} 轮对话 · ${facts.length} 条长期记忆`
+    : "尚未保存对话或长期记忆";
+  dom.clearCompanionMemory.disabled = memoryCount === 0 && facts.length === 0;
+  dom.companionMemoryMaxTurns.disabled = settings.memory?.enabled !== true;
+  dom.companionMemorySyncEnabled.disabled = settings.memory?.enabled !== true;
+  dom.companionMemoryAutoCapture.disabled = settings.memory?.enabled !== true;
+  dom.companionMemoryFacts.replaceChildren();
+  if (!facts.length) {
+    const empty = document.createElement("small");
+    empty.className = "companion-memory-empty";
+    empty.textContent = "还没有长期记忆。你可以在对话中说“记住：……”";
+    dom.companionMemoryFacts.appendChild(empty);
+  } else {
+    for (const fact of [...facts].reverse()) {
+      const row = document.createElement("article");
+      row.className = "companion-memory-fact";
+      const content = document.createElement("span");
+      content.className = "companion-memory-fact-content";
+      content.textContent = fact.sensitive ? "••••••••（点击显示）" : fact.content;
+      if (fact.sensitive) {
+        content.role = "button";
+        content.tabIndex = 0;
+        const reveal = () => {
+          const visible = content.dataset.visible === "true";
+          content.dataset.visible = visible ? "false" : "true";
+          content.textContent = visible ? "••••••••（点击显示）" : fact.content;
+        };
+        content.addEventListener("click", reveal);
+        content.addEventListener("keydown", (event) => {
+          if (!["Enter", " "].includes(event.key)) return;
+          event.preventDefault();
+          reveal();
+        });
+      }
+      const meta = document.createElement("small");
+      meta.textContent = `个人 · ${fact.source === "automatic" ? "自动记录" : "明确记住"}${fact.sensitive ? " · 敏感" : ""}`;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "text-button text-button--quiet";
+      remove.textContent = "删除";
+      remove.addEventListener("click", async () => {
+        remove.disabled = true;
+        try {
+          const result = await window.siteNest.deleteCompanionMemoryFact(fact.id);
+          if (!result?.ok) throw new Error(result?.error?.message || "无法删除长期记忆");
+          appState = result.state || appState;
+          companionMemoryView = result.memory || null;
+          renderCompanionSettings();
+        } catch (error) {
+          remove.disabled = false;
+          showToast("无法删除长期记忆", error?.message || "请稍后重试", "error");
+        }
+      });
+      row.append(content, meta, remove);
+      dom.companionMemoryFacts.appendChild(row);
+    }
+  }
   dom.companionWeatherEnabled.checked = settings.weather?.enabled === true;
   dom.companionWeatherCity.value = settings.weather?.city || "";
   dom.companionWeatherPollMinutes.value = String(settings.weather?.pollMinutes || 30);
@@ -7171,16 +7425,77 @@ function isZohoDeskSite(site) {
   }
 }
 
+let selectedSiteLibraryGroup = "all";
+let editingSiteLibraryGroup = null;
+
+function siteLibrarySettings() {
+  return appState.uiSettings?.siteLibrary || { groups: [], assignments: {}, collapsed: [], view: "grid" };
+}
+
+async function organizeSiteLibrary(input) {
+  const result = await window.siteNest.organizeSites(input);
+  appState = result.state;
+  renderSiteLibrary();
+  return result;
+}
+
+function openSiteLibraryGroupEditor(group = null) {
+  editingSiteLibraryGroup = group?.id || null;
+  document.getElementById("siteLibraryGroupTitle").textContent = group ? "重命名分组" : "新建分组";
+  document.getElementById("siteLibraryGroupName").value = group?.name || "";
+  openModal(document.getElementById("siteLibraryGroupModal"));
+  requestAnimationFrame(() => document.getElementById("siteLibraryGroupName").focus());
+}
+
+function renderSiteLibraryNavigation(scope) {
+  const settings = siteLibrarySettings();
+  if (selectedSiteLibraryGroup !== "all" && selectedSiteLibraryGroup !== "ungrouped" && !settings.groups.some((group) => group.id === selectedSiteLibraryGroup)) selectedSiteLibraryGroup = "all";
+  const nav = document.getElementById("siteLibraryGroups");
+  nav.replaceChildren();
+  document.getElementById("siteLibraryGroupCount").textContent = settings.groups.length;
+  const groups = [{ id: "all", name: "全部站点" }, { id: "ungrouped", name: "未分组" }, ...settings.groups];
+  for (const group of groups) {
+    const row = document.createElement("div");
+    row.className = "site-library-group-nav-row";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "site-library-group-filter";
+    button.dataset.siteLibraryGroup = group.id;
+    button.setAttribute("aria-pressed", String(selectedSiteLibraryGroup === group.id));
+    const label = document.createElement("span");
+    label.textContent = group.name;
+    label.title = group.name;
+    const count = document.createElement("small");
+    count.textContent = scope.filter((site) => group.id === "all" || (settings.assignments[site.id] || "ungrouped") === group.id).length;
+    button.append(createIconElement(group.id === "all" ? "grid" : "folder"), label, count);
+    button.addEventListener("click", () => { selectedSiteLibraryGroup = group.id; renderSiteLibrary(); });
+    row.append(button);
+    if (!["all", "ungrouped"].includes(group.id)) {
+      row.append(createSiteAction("edit", `重命名 ${group.name}`, async () => openSiteLibraryGroupEditor(group)));
+      row.append(createSiteAction("trash", `删除分组 ${group.name}`, async () => {
+        if (!window.confirm(`删除“${group.name}”分组？其中的站点会移回未分组，不会删除站点。`)) return;
+        await organizeSiteLibrary({ action: "delete", groupId: group.id });
+      }, { danger: true }));
+    }
+    nav.append(row);
+  }
+  document.getElementById("siteLibrarySelection").textContent = groups.find((group) => group.id === selectedSiteLibraryGroup)?.name || "全部站点";
+  document.querySelectorAll("[data-site-library-view]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.siteLibraryView === settings.view)));
+}
+
 function filteredSites() {
   const query = dom.siteSearch.value.trim().toLocaleLowerCase("zh-CN");
   const filter = dom.siteFilter.value;
   const workspaceFilter = dom.siteWorkspaceFilter.value;
   const scope = workspaceFilter === "all" ? appState.sites : sitesForWorkspace();
   return scope.filter((site) => {
+    const library = siteLibrarySettings();
+    if (selectedSiteLibraryGroup !== "all" && (library.assignments[site.id] || "ungrouped") !== selectedSiteLibraryGroup) return false;
     if (filter === "pinned" && !isSitePinned(site)) return false;
     if (filter === "custom" && site.source === "built-in") return false;
     if (!query) return true;
-    const haystack = `${site.name} ${site.url} ${site.description || ""}`.toLocaleLowerCase("zh-CN");
+    const groupName = library.groups.find((group) => group.id === library.assignments[site.id])?.name || "";
+    const haystack = `${site.name} ${site.url} ${site.description || ""} ${groupName}`.toLocaleLowerCase("zh-CN");
     return haystack.includes(query);
   });
 }
@@ -7209,24 +7524,27 @@ function createSiteAction(icon, title, handler, options = {}) {
 }
 
 function renderSiteLibrary() {
+  renderSiteLibraryNavigation(dom.siteWorkspaceFilter.value === "all" ? appState.sites : sitesForWorkspace());
   const matches = filteredSites();
   const allWorkspaces = dom.siteWorkspaceFilter.value === "all";
   const scope = allWorkspaces ? appState.sites : sitesForWorkspace();
-  const queryActive = Boolean(dom.siteSearch.value.trim() || dom.siteFilter.value !== "all");
+  const queryActive = Boolean(dom.siteSearch.value.trim() || dom.siteFilter.value !== "all" || selectedSiteLibraryGroup !== "all");
   const scopeLabel = allWorkspaces ? "全部空间" : workspaceName(activeWorkspaceId());
   dom.siteLibraryTotal.textContent = queryActive
     ? `${scopeLabel} · ${matches.length} / ${scope.length} 个站点`
     : `${scopeLabel} · ${scope.length} 个站点`;
   dom.siteLibraryGrid.replaceChildren();
+  dom.siteLibraryGrid.classList.toggle("is-list", siteLibrarySettings().view === "list");
 
   if (!matches.length) {
     const empty = document.createElement("div");
     empty.className = "site-library-empty";
+    const emptyGroup = selectedSiteLibraryGroup !== "all" && !dom.siteSearch.value.trim() && dom.siteFilter.value === "all";
     empty.appendChild(createIconElement(scope.length ? "search" : "globe", "empty-state-icon"));
     const title = document.createElement("strong");
-    title.textContent = scope.length ? "没有匹配的站点" : "当前范围还没有站点";
+    title.textContent = emptyGroup ? "这个分组还没有站点" : scope.length ? "没有匹配的站点" : "当前范围还没有站点";
     const detail = document.createElement("small");
-    detail.textContent = scope.length
+    detail.textContent = emptyGroup ? "在全部站点中用卡片底部的分组菜单移入站点；新建站点后也可以归入此组。" : scope.length
       ? "换个关键词或清除筛选后再试。"
       : `把网站添加到${workspaceName(activeWorkspaceId())}空间，之后可以从这里集中管理。`;
     const action = document.createElement("button");
@@ -7237,6 +7555,7 @@ function renderSiteLibrary() {
       action.addEventListener("click", () => {
         dom.siteSearch.value = "";
         dom.siteFilter.value = "all";
+        selectedSiteLibraryGroup = "all";
         renderSiteLibrary();
       });
     } else {
@@ -7248,11 +7567,34 @@ function renderSiteLibrary() {
     return;
   }
 
+  const groupContainers = new Map();
+  const library = siteLibrarySettings();
+  for (const group of [...library.groups, { id: "ungrouped", name: "未分组" }]) {
+    const count = matches.filter((site) => (library.assignments[site.id] || "ungrouped") === group.id).length;
+    if (!count) continue;
+    const section = document.createElement("section");
+    section.className = "site-library-group-section";
+    const collapsed = library.collapsed.includes(group.id) && !dom.siteSearch.value.trim();
+    const heading = document.createElement("button");
+    heading.type = "button";
+    heading.className = "site-library-group-heading";
+    heading.setAttribute("aria-expanded", String(!collapsed));
+    heading.append(createIconElement(collapsed ? "chevron-right" : "chevron-down"), document.createTextNode(`${group.name} · ${count}`));
+    heading.addEventListener("click", async () => {
+      try { await organizeSiteLibrary({ action: "collapse", groupId: group.id }); }
+      catch (error) { showToast("无法更新分组", error.message, "error"); }
+    });
+    const grid = document.createElement("div");
+    grid.className = "site-library-group-grid";
+    grid.hidden = collapsed;
+    section.append(heading, grid);
+    dom.siteLibraryGrid.append(section);
+    groupContainers.set(group.id, grid);
+  }
   for (const site of matches) {
-    const orderedWorkspaceSites = sitesForWorkspace(siteWorkspaceId(site));
-    const siteIndex = orderedWorkspaceSites.findIndex((item) => item.id === site.id);
     const card = document.createElement("article");
     card.className = "site-library-card";
+    card.dataset.librarySiteId = site.id;
     card.style.setProperty("--site-color", site.color || colorFromString(site.url));
 
     const openButton = document.createElement("button");
@@ -7316,37 +7658,34 @@ function renderSiteLibrary() {
     pinButton.classList.toggle("is-active", isSitePinned(site));
     actions.appendChild(pinButton);
 
-    actions.appendChild(createSiteAction("arrow-up", "上移", async () => {
-      const result = await window.siteNest.reorderSite({ id: site.id, direction: -1 });
-      appState = result.state;
-      renderAll();
-    }, { disabled: siteIndex <= 0 }));
-    actions.appendChild(createSiteAction("arrow-down", "下移", async () => {
-      const result = await window.siteNest.reorderSite({ id: site.id, direction: 1 });
-      appState = result.state;
-      renderAll();
-    }, { disabled: siteIndex < 0 || siteIndex >= orderedWorkspaceSites.length - 1 }));
-
     actions.appendChild(createSiteAction("edit", "编辑站点", async () => {
       openEditSiteModal(site);
     }));
-    if (site.source !== "built-in") {
-      actions.appendChild(createSiteAction("trash", "删除站点", async () => {
-        if (!window.confirm(`确定要从栖页删除“${site.name}”吗？\n网站账号与网页数据不会被删除。`)) return;
-        try {
-          const result = await window.siteNest.deleteSite(site.id);
-          appState = result.state;
-          renderAll();
-          showToast("站点已删除", site.name);
-        } catch (error) {
-          showToast("无法删除站点", error?.message || "请稍后重试", "error");
-        }
-      }, { danger: true }));
-    }
+    const more = createSiteAction("more", "更多操作：排序、删除", async () => {
+      const rect = more.getBoundingClientRect();
+      openSiteContextMenu(site, { clientX: rect.left, clientY: rect.bottom, element: more });
+    });
+    actions.append(more);
 
-    footer.append(lastOpened, actions);
+    const move = document.createElement("select");
+    move.className = "site-library-move";
+    move.setAttribute("aria-label", `移动 ${site.name} 到分组`);
+    for (const group of [{ id: "", name: "未分组" }, ...library.groups]) {
+      const option = document.createElement("option");
+      option.value = group.id;
+      option.textContent = group.name;
+      move.append(option);
+    }
+    move.value = library.assignments[site.id] || "";
+    move.addEventListener("change", async () => {
+      move.disabled = true;
+      try { await organizeSiteLibrary({ action: "assign", siteId: site.id, groupId: move.value }); }
+      catch (error) { move.value = library.assignments[site.id] || ""; move.disabled = false; showToast("无法移动站点", error.message, "error"); }
+    });
+    lastOpened.title = `上次打开：${formatSiteLastOpened(site.lastOpenedAt)}`;
+    footer.append(move, lastOpened, actions);
     card.append(openButton, footer);
-    dom.siteLibraryGrid.appendChild(card);
+    groupContainers.get(library.assignments[site.id] || "ungrouped").appendChild(card);
   }
 }
 
@@ -7557,7 +7896,7 @@ function renderAll() {
   renderSiteLibrary();
   updateBookmarkSummary();
   updateFolderOptions();
-  renderNaixiAutomation(appState.automations?.naixi);
+  renderCheckinAutomations(appState.automations);
   renderAssistants(assistantCache);
   renderExecutionLogs(executionLogCache);
   renderGoogleSync();
@@ -8293,10 +8632,217 @@ async function loadPageResources() {
   return pageResourceState;
 }
 
+function browserExtensionStatus(extension) {
+  if (extension.status === "loaded") return { label: "已加载", tone: "ready" };
+  if (extension.status === "disabled") return { label: "已停用", tone: "preview" };
+  return { label: "加载失败", tone: "error" };
+}
+
+function renderBrowserExtensions(snapshot = browserExtensionState) {
+  browserExtensionState = { ...browserExtensionState, ...snapshot, loading: false };
+  const profiles = Array.isArray(browserExtensionState.profiles) ? browserExtensionState.profiles : [];
+  const selectedProfileId = browserExtensionState.profileId || "default";
+  if (dom.browserExtensionProfile) {
+    const previousOptions = Array.from(dom.browserExtensionProfile.options).map((option) => option.value).join("|");
+    const nextOptions = profiles.map((profile) => profile.id).join("|");
+    if (previousOptions !== nextOptions) {
+      dom.browserExtensionProfile.replaceChildren(...profiles.map((profile) => {
+        const option = document.createElement("option");
+        option.value = profile.id;
+        option.textContent = `${profile.name}${profile.sensitive ? "（敏感）" : ""}`;
+        return option;
+      }));
+    }
+    dom.browserExtensionProfile.value = selectedProfileId;
+  }
+  if (!dom.browserExtensionList) return;
+  dom.browserExtensionList.replaceChildren();
+  if (browserExtensionState.error) {
+    const error = document.createElement("div");
+    error.className = "automation-empty-state browser-extension-error";
+    const title = document.createElement("strong");
+    title.textContent = "无法读取扩展";
+    const detail = document.createElement("small");
+    detail.textContent = browserExtensionState.error;
+    error.append(createIconElement("alert"), title, detail);
+    dom.browserExtensionList.appendChild(error);
+    return;
+  }
+  const extensions = Array.isArray(browserExtensionState.extensions) ? browserExtensionState.extensions : [];
+  if (!extensions.length) {
+    const empty = document.createElement("div");
+    empty.className = "automation-empty-state";
+    const title = document.createElement("strong");
+    title.textContent = "尚未导入扩展";
+    const detail = document.createElement("small");
+    detail.textContent = "在 Chrome 扩展目录中选择具体版本文件夹（其中必须包含 manifest.json）。";
+    empty.append(createIconElement("chrome"), title, detail);
+    dom.browserExtensionList.appendChild(empty);
+    return;
+  }
+  for (const extension of extensions) {
+    const card = document.createElement("article");
+    card.className = "browser-extension-card";
+    const mark = document.createElement("span");
+    mark.className = "browser-extension-mark";
+    mark.textContent = String(extension.name || "扩").slice(0, 1).toUpperCase();
+    const body = document.createElement("div");
+    body.className = "browser-extension-copy";
+    const titleRow = document.createElement("div");
+    titleRow.className = "browser-extension-title-row";
+    const title = document.createElement("strong");
+    title.textContent = extension.name || extension.id;
+    const version = document.createElement("span");
+    version.className = "browser-extension-version";
+    version.textContent = `v${extension.version || "?"} · MV${extension.manifestVersion || "?"}`;
+    const status = browserExtensionStatus(extension);
+    const badge = document.createElement("span");
+    badge.className = `status-pill status-pill--${status.tone}`;
+    badge.textContent = status.label;
+    titleRow.append(title, version, badge);
+    const description = document.createElement("p");
+    description.textContent = extension.error || extension.description || "此扩展未提供说明。";
+    const permissions = document.createElement("small");
+    permissions.className = "browser-extension-permissions";
+    const permissionList = Array.isArray(extension.permissions) ? extension.permissions : [];
+    permissions.textContent = permissionList.length
+      ? `权限：${permissionList.slice(0, 8).join("、")}${permissionList.length > 8 ? ` 等 ${permissionList.length} 项` : ""}`
+      : "清单未声明额外权限";
+    body.append(titleRow, description, permissions);
+    const actions = document.createElement("div");
+    actions.className = "browser-extension-card-actions";
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = extension.enabled ? "secondary-button compact-button" : "primary-button compact-button";
+    toggle.textContent = extension.enabled ? "停用" : "启用";
+    toggle.addEventListener("click", async () => {
+      toggle.disabled = true;
+      try {
+        renderBrowserExtensions(await window.siteNest.setBrowserExtensionEnabled(
+          selectedProfileId,
+          extension.id,
+          !extension.enabled,
+        ));
+        await refreshBrowserExtensionActions();
+      } catch (error) {
+        showToast("扩展状态修改失败", error?.message || "请稍后重试", "error");
+      } finally {
+        toggle.disabled = false;
+      }
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "ghost-button compact-button browser-extension-remove";
+    remove.textContent = "卸载";
+    remove.addEventListener("click", async () => {
+      remove.disabled = true;
+      try {
+        const result = await window.siteNest.removeBrowserExtension(selectedProfileId, extension.id);
+        renderBrowserExtensions(result);
+        await refreshBrowserExtensionActions();
+      } catch (error) {
+        showToast("扩展卸载失败", error?.message || "请稍后重试", "error");
+      } finally {
+        remove.disabled = false;
+      }
+    });
+    actions.append(toggle, remove);
+    card.append(mark, body, actions);
+    dom.browserExtensionList.appendChild(card);
+  }
+}
+
+async function loadBrowserExtensions(profileId = dom.browserExtensionProfile?.value || browserExtensionState.profileId || "default") {
+  if (typeof window.siteNest?.listBrowserExtensions !== "function") return browserExtensionState;
+  browserExtensionState = { ...browserExtensionState, profileId, loading: true, error: "" };
+  try {
+    const snapshot = await window.siteNest.listBrowserExtensions(profileId);
+    renderBrowserExtensions(snapshot);
+  } catch (error) {
+    renderBrowserExtensions({ profileId, extensions: [], error: error?.message || "扩展组件初始化失败" });
+  }
+  return browserExtensionState;
+}
+
+function renderBrowserExtensionActions(state, tab, partition) {
+  if (!dom.browserExtensionActions) return;
+  dom.browserExtensionActions.replaceChildren();
+  const actions = Array.isArray(state?.actions) ? state.actions : [];
+  for (const action of actions) {
+    const tabState = action.tabs?.[tab.webContentsId] || {};
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "toolbar-button browser-extension-action";
+    button.title = tabState.title || action.title || "浏览器扩展";
+    const image = document.createElement("img");
+    image.alt = "";
+    image.src = `crx://extension-icon/${encodeURIComponent(action.id)}/32/2?tabId=${tab.webContentsId}&partition=${encodeURIComponent(partition)}`;
+    image.addEventListener("error", () => {
+      image.remove();
+      button.textContent = String(button.title || "扩").slice(0, 1);
+    }, { once: true });
+    button.appendChild(image);
+    if (tabState.text || action.text) {
+      const badge = document.createElement("span");
+      badge.className = "browser-extension-action-badge";
+      badge.textContent = String(tabState.text || action.text).slice(0, 4);
+      badge.style.backgroundColor = tabState.color || action.color || "#cf4b43";
+      button.appendChild(badge);
+    }
+    const activate = (eventType) => {
+      const rect = button.getBoundingClientRect();
+      return window.siteNest.activateBrowserExtensionAction(partition, {
+        eventType,
+        extensionId: action.id,
+        tabId: tab.webContentsId,
+        anchorRect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+      });
+    };
+    button.addEventListener("click", () => void activate("click").catch((error) =>
+      showToast("扩展无法打开", error?.message || "此扩展与当前运行时不兼容", "error")));
+    button.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      void activate("contextmenu").catch((error) =>
+        showToast("扩展菜单无法打开", error?.message || "请稍后重试", "error"));
+    });
+    dom.browserExtensionActions.appendChild(button);
+  }
+  dom.browserExtensionActions.hidden = actions.length === 0;
+}
+
+async function refreshBrowserExtensionActions() {
+  const sequence = ++browserExtensionActionSequence;
+  const tab = activeBrowserTab(browserSnapshot);
+  const partition = tab?.partition;
+  if (!tab?.webContentsId || !partition || typeof window.siteNest?.getBrowserExtensionActions !== "function") {
+    if (dom.browserExtensionActions) {
+      dom.browserExtensionActions.hidden = true;
+      dom.browserExtensionActions.replaceChildren();
+    }
+    return;
+  }
+  try {
+    if (!observedBrowserExtensionPartitions.has(partition)) {
+      await window.siteNest.observeBrowserExtensionActions(partition);
+      observedBrowserExtensionPartitions.add(partition);
+    }
+    const state = await window.siteNest.getBrowserExtensionActions(partition);
+    if (sequence !== browserExtensionActionSequence) return;
+    const current = activeBrowserTab(browserSnapshot);
+    if (current?.webContentsId !== tab.webContentsId || current?.partition !== partition) return;
+    renderBrowserExtensionActions(state, tab, partition);
+  } catch {
+    if (sequence === browserExtensionActionSequence && dom.browserExtensionActions) {
+      dom.browserExtensionActions.hidden = true;
+      dom.browserExtensionActions.replaceChildren();
+    }
+  }
+}
+
 function selectAutomationTab(tab, options = {}) {
-  const aliases = { workflows: "schedules", extension: "scripts" };
+  const aliases = { workflows: "schedules", extension: "extensions" };
   const requested = aliases[tab] || tab;
-  const allowed = new Set(["checkins", "scripts", "assistants", "schedules", "logs"]);
+  const allowed = new Set(["checkins", "scripts", "extensions", "assistants", "schedules", "logs"]);
   currentAutomationTab = allowed.has(requested) ? requested : "checkins";
   dom.automationTabs.querySelectorAll("[data-automation-tab]").forEach((button) => {
     const active = button.dataset.automationTab === currentAutomationTab;
@@ -8310,6 +8856,7 @@ function selectAutomationTab(tab, options = {}) {
   });
   if (options.load === false) return;
   if (currentAutomationTab === "scripts") void loadUserScripts();
+  if (currentAutomationTab === "extensions") void loadBrowserExtensions();
   if (currentAutomationTab === "assistants") void loadAssistants();
   if (["checkins", "logs"].includes(currentAutomationTab)) void loadExecutionLogs();
 }
@@ -8470,6 +9017,8 @@ function executionStatusLabel(status) {
     failure: "失败",
     denied: "已拒绝",
     "not-configured": "未配置",
+    "needs-login": "需要登录",
+    "needs-action": "需要人工处理",
     blocked: "已阻止",
     running: "执行中",
   };
@@ -8480,7 +9029,25 @@ function renderExecutionLogs(logs = executionLogCache) {
   executionLogCache = Array.isArray(logs) ? logs : [];
   renderAutomationMetrics();
   dom.executionLogList.replaceChildren();
-  if (!executionLogCache.length) {
+  const filteredLogs = executionLogCache.filter((log) => {
+    const timestamp = automationExecutionTimestamp(log);
+    const dateKey = timestamp ? localDateKey(timestamp) : "";
+    return (!executionLogStartDate || dateKey >= executionLogStartDate) &&
+      (!executionLogEndDate || dateKey <= executionLogEndDate);
+  });
+  const pageCount = Math.max(1, Math.ceil(filteredLogs.length / EXECUTION_LOG_PAGE_SIZE));
+  executionLogPage = Math.min(Math.max(1, executionLogPage), pageCount);
+  const pageLogs = filteredLogs.slice(
+    (executionLogPage - 1) * EXECUTION_LOG_PAGE_SIZE,
+    executionLogPage * EXECUTION_LOG_PAGE_SIZE,
+  );
+  dom.executionLogResultCount.textContent = filteredLogs.length === executionLogCache.length
+    ? `共 ${filteredLogs.length} 条`
+    : `筛选出 ${filteredLogs.length} / ${executionLogCache.length} 条`;
+  dom.executionLogPageInfo.textContent = `第 ${executionLogPage} / ${pageCount} 页`;
+  dom.executionLogPreviousPage.disabled = executionLogPage <= 1;
+  dom.executionLogNextPage.disabled = executionLogPage >= pageCount;
+  if (!filteredLogs.length) {
     const empty = document.createElement("div");
     empty.className = "automation-empty-state";
     empty.appendChild(createIconElement("clock"));
@@ -8497,7 +9064,7 @@ function renderExecutionLogs(logs = executionLogCache) {
     return;
   }
 
-  for (const log of executionLogCache.slice(0, 200)) {
+  for (const log of pageLogs) {
     const row = document.createElement("article");
     row.className = "execution-log-row";
     const time = document.createElement("time");
@@ -8520,7 +9087,7 @@ function renderExecutionLogs(logs = executionLogCache) {
     main.append(title, site, result);
     const status = document.createElement("span");
     const statusValue = String(log.status || (log.error ? "error" : "success")).toLowerCase();
-    status.className = `status-pill${["error", "failed", "failure", "denied", "not-configured", "blocked"].includes(statusValue) ? " status-pill--error" : " status-pill--ready"}`;
+    status.className = `status-pill${["error", "failed", "failure", "denied", "not-configured", "blocked"].includes(statusValue) ? " status-pill--error" : ["needs-login", "needs-action", "running"].includes(statusValue) ? " status-pill--preview" : " status-pill--ready"}`;
     status.textContent = executionStatusLabel(statusValue);
     row.append(time, main, status);
     dom.executionLogList.appendChild(row);
@@ -8942,7 +9509,7 @@ function renderCompanionWeather(status = companionWeather) {
     const title = document.createElement("strong");
     title.textContent = "天气尚未配置";
     const detail = document.createElement("small");
-    detail.textContent = "在“设置与数据 → 日程与通知”中开启天气并填写城市。";
+    detail.textContent = "在“设置与数据 → 日程与小序”中开启天气并填写城市。";
     empty.append(title, detail);
     dom.companionContent.appendChild(empty);
     return;
@@ -9051,7 +9618,7 @@ function renderCompanionAssistant(status = {}, options = {}) {
   actions.append(ask, summary, explain);
   const result = document.createElement("div");
   result.className = "companion-ai-result";
-  result.textContent = companionAIResult || (status.configured === false ? "DeepSeek 未配置；天气、专注和本地健康提醒仍可正常使用。" : "问答内容只保留在当前面板内，关闭或清除后不写入本地数据。 ");
+  result.textContent = companionAIResult || (status.configured === false ? "DeepSeek 未配置；天气、专注和本地健康提醒仍可正常使用。" : "对话会保存在个人空间，切换网站或下次打开小序时继续显示。 ");
   const resultActions = document.createElement("div");
   resultActions.className = "companion-ai-result-actions";
   const copy = document.createElement("button");
@@ -9064,7 +9631,7 @@ function renderCompanionAssistant(status = {}, options = {}) {
   clear.type = "button";
   clear.className = "text-button";
   clear.textContent = "清除";
-  clear.addEventListener("click", () => { companionAIResult = ""; result.textContent = "内容已清除，未写入本地数据。"; copy.disabled = true; });
+  clear.addEventListener("click", () => { companionAIResult = ""; result.textContent = "当前结果已清除；对话记录仍保存在个人空间。"; copy.disabled = true; });
   const cancel = document.createElement("button");
   cancel.type = "button";
   cancel.className = "text-button";
@@ -9172,12 +9739,24 @@ async function rememberContextAssistantCollapsed(collapsed) {
   }
 }
 
+function renderBrowserSiteNotice() {
+  const message = browserSnapshot.hasOpenPage && browserSnapshot.siteIssue?.startsWith("nodeseek-")
+    ? browserSnapshot.error || ""
+    : "";
+  const changed = dom.browserSiteNotice.textContent !== message;
+  dom.browserSiteNotice.textContent = message;
+  dom.browserSiteNotice.hidden = !message;
+  dom.browserPage.classList.toggle("has-site-notice", Boolean(message));
+  if (changed) requestAnimationFrame(() => requestAnimationFrame(syncBrowserBounds));
+}
+
 function handleBrowserState(next = {}) {
   const nextWorkspaceId = String(next.workspaceId || activeWorkspaceId());
   if (nextWorkspaceId !== activeWorkspaceId()) return;
   const normalized = normalizeWorkspaceBrowserState(next, nextWorkspaceId);
   const previousUrl = browserSnapshot.url;
   browserSnapshot = { ...browserSnapshot, ...normalized };
+  renderBrowserSiteNotice();
   appState.tabGroups = [
     ...(appState.tabGroups || []).filter((group) => group.workspaceId !== nextWorkspaceId),
     ...normalized.tabGroups,
@@ -9197,6 +9776,7 @@ function handleBrowserState(next = {}) {
     },
   };
   renderBrowserTabs(normalized);
+  void refreshBrowserExtensionActions();
   renderCurrentSessions();
 
   if (!normalized.hasOpenPage) {
@@ -9793,12 +10373,29 @@ function bindEvents() {
     if (!button) return;
     void setTimelineSettings({ viewMode: button.dataset.timelineView });
   });
+  dom.timelineScaleSwitch.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-timeline-scale]");
+    if (!button || timelineScaleChangePending) return;
+    const trackView = timelineTrackView();
+    if (button.dataset.timelineScale === "month") {
+      if (trackView.scope === "year") return;
+      void setTimelineTrackView({ selectedMonth: trackView.selectedMonth, scope: "year" });
+      return;
+    }
+    if (trackView.scope === "month") return;
+    const year = Number(trackView.selectedYear || timelineState.loadedYear);
+    const today = new Date();
+    const firstEventMonth = filteredTimelineEvents()
+      .map((item) => timelineDateParts(item.startDate))
+      .find((parts) => parts?.year === year)?.month;
+    const selectedMonth = Number(trackView.selectedMonth) || (today.getFullYear() === year ? today.getMonth() + 1 : firstEventMonth || 1);
+    void setTimelineTrackView({ selectedMonth, scope: "month" });
+  });
   dom.timelineMonthNav.addEventListener("click", (event) => {
     const button = event.target.closest("[data-timeline-month]");
     if (!button) return;
     void setTimelineTrackView({ selectedMonth: Number(button.dataset.timelineMonth), scope: "month" });
   });
-  dom.timelineBackToYear.addEventListener("click", () => void setTimelineTrackView({ selectedMonth: null, scope: "year" }));
   dom.timelineMonthNav.addEventListener("pointerdown", (event) => {
     timelineMonthNavDrag = { pointerId: event.pointerId, x: event.clientX, scrollLeft: dom.timelineMonthNav.scrollLeft };
     dom.timelineMonthNav.classList.add("is-dragging");
@@ -9841,6 +10438,25 @@ function bindEvents() {
       showToast("无法保存时间轴记录", error?.message || "请检查标题和日期", "error");
     } finally {
       submit.disabled = false;
+    }
+  });
+  dom.timelineDetailScrim.addEventListener("click", closeTimelineDetail);
+  dom.timelineDetailClose.addEventListener("click", closeTimelineDetail);
+  dom.timelineDetailEdit.addEventListener("click", () => {
+    const current = timelineEventForId(activeTimelineDetailId);
+    if (current) openTimelineEventModal(current);
+  });
+  dom.timelineDetailDelete.addEventListener("click", async () => {
+    const current = timelineEventForId(activeTimelineDetailId);
+    if (!current || !window.confirm(`删除时间轴记录“${current.title}”？`)) return;
+    try {
+      const snapshot = await window.siteNest.deleteTimelineEvent(current.id);
+      timelineFocusEventId = null;
+      closeTimelineDetail();
+      applyTimelineSnapshot(snapshot);
+      showToast("时间轴记录已删除", current.title);
+    } catch (error) {
+      showToast("无法删除时间轴记录", error?.message || "请稍后重试", "error");
     }
   });
   dom.deleteTimelineEventButton.addEventListener("click", async () => {
@@ -9939,7 +10555,10 @@ function bindEvents() {
       openTaskAsTimelineDraft(task);
     }
   });
-  window.addEventListener("resize", () => positionTaskDetail());
+  window.addEventListener("resize", () => {
+    positionTaskDetail();
+    positionAnchoredDetail(dom.timelineDetailCard, dom.timelineDetailLayer, activeTimelineDetailAnchor);
+  });
   dom.taskForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     let payload;
@@ -9977,6 +10596,13 @@ function bindEvents() {
       enabled: dom.companionEnabledSetting.checked,
       onboardingSeen: true,
       focusDockSeconds: Number(dom.companionFocusSeconds.value),
+      memory: {
+        ...(current.memory || {}),
+        enabled: dom.companionMemoryEnabled.checked,
+        syncEnabled: dom.companionMemorySyncEnabled.checked,
+        maxTurns: Number(dom.companionMemoryMaxTurns.value),
+        autoCapture: dom.companionMemoryAutoCapture.checked,
+      },
       weather: { ...(current.weather || {}), enabled: dom.companionWeatherEnabled.checked, city: dom.companionWeatherCity.value.trim(), locationMode: "manual", pollMinutes: Number(dom.companionWeatherPollMinutes.value) },
       wellness: {
         ...(current.wellness || {}),
@@ -9989,6 +10615,7 @@ function bindEvents() {
     try {
       const result = await window.siteNest.updateUiSettings({ companion });
       appState = result.state || { ...appState, uiSettings: result.uiSettings };
+      companionMemoryView = null;
       renderCompanionSettings();
       renderCompanionShell();
       renderCompanionRuntime(await window.siteNest.getCompanionRuntime());
@@ -9998,6 +10625,20 @@ function bindEvents() {
     } catch (error) {
       showToast("无法保存小序设置", error?.message || "请稍后重试", "error");
     } finally { dom.saveCompanionSettings.disabled = false; }
+  });
+  dom.clearCompanionMemory.addEventListener("click", async () => {
+    dom.clearCompanionMemory.disabled = true;
+    try {
+      const result = await window.siteNest.clearCompanionMemory();
+      if (!result?.ok) throw new Error(result?.error?.message || "无法清除对话记忆");
+      appState = result.state || appState;
+      companionMemoryView = result.memory || null;
+      renderCompanionSettings();
+      showToast("AI 对话与记忆已清除", "本机记录已删除，云端删除会在下次同步时传播");
+    } catch (error) {
+      renderCompanionSettings();
+      showToast("无法清除对话记忆", error?.message || "请稍后重试", "error");
+    }
   });
   dom.saveTaskSettingsButton.addEventListener("click", async () => {
     dom.saveTaskSettingsButton.disabled = true;
@@ -10269,6 +10910,26 @@ function bindEvents() {
     const button = event.target.closest("[data-automation-tab]");
     if (button) selectAutomationTab(button.dataset.automationTab);
   });
+  dom.browserExtensionProfile.addEventListener("change", () =>
+    void loadBrowserExtensions(dom.browserExtensionProfile.value));
+  dom.importBrowserExtension.addEventListener("click", async () => {
+    dom.importBrowserExtension.disabled = true;
+    try {
+      const result = await window.siteNest.importBrowserExtension(dom.browserExtensionProfile.value);
+      renderBrowserExtensions(result);
+      if (!result.canceled) {
+        showToast("扩展已导入", "已复制到栖页本地目录；重新载入相关网页后可完整应用内容脚本");
+        await refreshBrowserExtensionActions();
+      }
+    } catch (error) {
+      showToast("扩展导入失败", error?.message || "请检查所选目录和 manifest.json", "error");
+    } finally {
+      dom.importBrowserExtension.disabled = false;
+    }
+  });
+  dom.openBrowserExtensionsFolder.addEventListener("click", () =>
+    void window.siteNest.openBrowserExtensionsFolder().catch((error) =>
+      showToast("无法打开扩展目录", error?.message || "请稍后重试", "error")));
   dom.openCreatedUserScript.addEventListener("click", () => openUserScriptInstall("createdInApp"));
   dom.openPastedUserScript.addEventListener("click", () => openUserScriptInstall("pasted"));
   dom.openRemoteUserScript.addEventListener("click", () => openUserScriptInstall("remoteUrl"));
@@ -10332,6 +10993,32 @@ function bindEvents() {
     finally { dom.detectNetworkResources.disabled = false; }
   });
   dom.refreshExecutionLogs.addEventListener("click", () => void loadExecutionLogs());
+  dom.executionLogStartDate.addEventListener("change", () => {
+    executionLogStartDate = dom.executionLogStartDate.value;
+    executionLogPage = 1;
+    renderExecutionLogs();
+  });
+  dom.executionLogEndDate.addEventListener("change", () => {
+    executionLogEndDate = dom.executionLogEndDate.value;
+    executionLogPage = 1;
+    renderExecutionLogs();
+  });
+  dom.clearExecutionLogDateFilter.addEventListener("click", () => {
+    executionLogStartDate = "";
+    executionLogEndDate = "";
+    executionLogPage = 1;
+    dom.executionLogStartDate.value = "";
+    dom.executionLogEndDate.value = "";
+    renderExecutionLogs();
+  });
+  dom.executionLogPreviousPage.addEventListener("click", () => {
+    executionLogPage -= 1;
+    renderExecutionLogs();
+  });
+  dom.executionLogNextPage.addEventListener("click", () => {
+    executionLogPage += 1;
+    renderExecutionLogs();
+  });
   [dom.pageImportButton, dom.settingsImportButton].forEach((button) =>
     button.addEventListener("click", () => void openImportModal()),
   );
@@ -10460,6 +11147,22 @@ function bindEvents() {
     renderBookmarks();
   });
   dom.siteSearch.addEventListener("input", renderSiteLibrary);
+  document.getElementById("createSiteLibraryGroup").addEventListener("click", () => openSiteLibraryGroupEditor());
+  document.getElementById("siteLibraryGroupForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = event.target.querySelector('[type="submit"]');
+    button.disabled = true;
+    try {
+      await organizeSiteLibrary({ action: editingSiteLibraryGroup ? "rename" : "create", groupId: editingSiteLibraryGroup, name: document.getElementById("siteLibraryGroupName").value });
+      closeModal(document.getElementById("siteLibraryGroupModal"));
+      showToast("分组已保存");
+    } catch (error) { showToast("无法保存分组", error.message, "error"); }
+    finally { button.disabled = false; }
+  });
+  document.querySelectorAll("[data-site-library-view]").forEach((button) => button.addEventListener("click", async () => {
+    try { await organizeSiteLibrary({ action: "view", view: button.dataset.siteLibraryView }); }
+    catch (error) { showToast("无法保存布局", error.message, "error"); }
+  }));
   dom.siteFilter.addEventListener("change", renderSiteLibrary);
   dom.siteWorkspaceFilter.addEventListener("change", renderSiteLibrary);
 
@@ -10592,43 +11295,41 @@ function bindEvents() {
     void window.siteNest.showAddressContextMenu();
   });
 
-  dom.runNaixiAutomation.addEventListener("click", async () => {
-    dom.runNaixiAutomation.disabled = true;
+  document.querySelector(".automation-list").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-checkin-run]");
+    if (!button || button.disabled) return;
+    const id = button.dataset.checkinRun;
+    button.disabled = true;
     try {
-      const result = await window.siteNest.runNaixiCheckin();
-      renderNaixiAutomation(result);
+      const result = await window.siteNest.runCheckin(id);
+      renderCheckinAutomations({ [id]: result });
       if (result.status === "success") {
-        showToast("奶昔签到已完成", result.message);
+        showToast("签到已完成", result.message);
       } else {
-        showToast("奶昔签到未完成", result.message, "error");
+        showToast("签到未完成", result.message, "error");
       }
     } catch (error) {
       showToast("自动签到失败", error?.message || "请打开签到页检查登录状态", "error");
     } finally {
-      const status = appState.automations?.naixi;
-      dom.runNaixiAutomation.disabled = status?.status === "running";
+      button.disabled = appState.automations?.[id]?.status === "running";
     }
   });
-  dom.naixiAutoEnabled.addEventListener("change", async () => {
+  document.querySelector(".automation-list").addEventListener("change", async (event) => {
+    const input = event.target.closest("[data-checkin-setting]");
+    if (!input) return;
+    const id = input.closest("[data-checkin-id]").dataset.checkinId;
+    const key = input.dataset.checkinSetting;
+    const previous = { ...appState.automations?.[id] };
+    input.disabled = true;
     try {
-      const result = await window.siteNest.updateNaixiAutomation({
-        enabled: dom.naixiAutoEnabled.checked,
-      });
-      renderNaixiAutomation(result);
-      showToast(result.enabled ? "自动签到已开启" : "自动签到已关闭");
+      const result = await window.siteNest.updateCheckin(id, { [key]: key === "enabled" ? input.checked : input.value });
+      renderCheckinAutomations({ [id]: result });
+      showToast("签到设置已保存", `${result.enabled ? "自动执行" : "自动执行已关闭"} · 每天 ${result.time}（栖页运行时）`);
     } catch (error) {
-      showToast("无法更新自动签到", error?.message || "请稍后重试", "error");
-    }
-  });
-  dom.naixiScheduleTime.addEventListener("change", async () => {
-    try {
-      const result = await window.siteNest.updateNaixiAutomation({
-        time: dom.naixiScheduleTime.value,
-      });
-      renderNaixiAutomation(result);
-      showToast("签到时间已更新", `每天 ${result.time}（栖页运行时）`);
-    } catch (error) {
-      showToast("无法更新时间", error?.message || "请输入有效时间", "error");
+      renderCheckinAutomations({ [id]: previous });
+      showToast("无法保存签到设置", error?.message || "请输入有效时间", "error");
+    } finally {
+      input.disabled = false;
     }
   });
 
@@ -10660,6 +11361,9 @@ function bindEvents() {
       const modal = document.querySelector(".modal-backdrop.is-open");
       if (modal) {
         closeModal(modal);
+        return;
+      } else if (dom.timelineDetailLayer?.classList.contains("is-open")) {
+        closeTimelineDetail();
         return;
       } else if (pageActionPanelOpen) {
         setPageActionPanelOpen(false);
@@ -10705,8 +11409,13 @@ function bindEvents() {
 
   new ResizeObserver(syncBrowserBounds).observe(dom.webviewFrame);
   window.siteNest?.onBrowserState(handleBrowserState);
+  window.siteNest?.onBrowserExtensionActionsUpdated?.(() => void refreshBrowserExtensionActions());
   window.siteNest?.onCompanionRuntime?.(renderCompanionRuntime);
   window.siteNest?.onCompanionWeather?.(renderCompanionWeather);
+  window.siteNest?.onCompanionMemoryUpdated?.((memory) => {
+    companionMemoryView = memory || null;
+    renderCompanionSettings();
+  });
   window.siteNest?.onCompanionWeatherAlert?.((event) => {
     const message = event?.message || "天气发生变化";
     showToast("天气提醒", message);
@@ -10777,7 +11486,7 @@ function bindEvents() {
   window.siteNest?.onUserScriptExecution?.(() => {
     if (currentAutomationTab === "scripts") void loadUserScripts();
   });
-  window.siteNest?.onAutomationStatus(({ naixi }) => renderNaixiAutomation(naixi));
+  window.siteNest?.onAutomationStatus((snapshot) => renderCheckinAutomations(snapshot));
 }
 
 async function initialize() {
@@ -10844,4 +11553,4 @@ async function initialize() {
   }
 }
 
-void initialize();
+const appInitialization = initialize();

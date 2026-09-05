@@ -11,7 +11,7 @@ const NOW = "2026-08-31T10:00:00.000Z";
 
 test("current schema retains an empty content-tag catalog without inventing formal UI data", () => {
   const initial = createInitialState({ now: NOW, defaultSites: [] });
-  assert.equal(CURRENT_SCHEMA_VERSION, 18);
+  assert.equal(CURRENT_SCHEMA_VERSION, 19);
   assert.deepEqual(initial.contentTagGroups, []);
   assert.deepEqual(initial.contentTags, []);
   assert.deepEqual(initial.contentTagAliases, []);
@@ -47,7 +47,7 @@ test("v14 migrates content tags idempotently and preserves legacy text and unkno
 
   const once = migrateState(fixture, { now: NOW, defaultSites: [] });
   const twice = migrateState(once.state, { now: NOW, defaultSites: [] });
-  assert.equal(once.state.version, 18);
+  assert.equal(once.state.version, 19);
   assert.equal(once.state.contentTags[0].canonicalName, "SAP Support");
   assert.equal(once.state.contentTags[0].normalizedName, "sap support");
   assert.deepEqual(once.state.localTasks[0].tags, ["旧文本标签"]);

@@ -1,3 +1,20 @@
+const {
+  boundedConversationContext,
+  normalizeMemoryFacts,
+} = require("./memory-model.cjs");
+
+function extractedMemory(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, ""));
+    return String(parsed?.memory || "").trim().slice(0, 1_000);
+  } catch {
+    if (/^(?:none|null|无需记录|不记录)$/iu.test(raw)) return "";
+    return raw.replace(/^memory\s*[:：]\s*/i, "").trim().slice(0, 1_000);
+  }
+}
+
 class CompanionAIService {
   constructor(options = {}) {
     if (!options.translationService) throw new TypeError("translationService is required");
@@ -19,7 +36,23 @@ class CompanionAIService {
       if (task === "ask") {
         const question = String(input.question || "").trim().slice(0, 4_000);
         if (!question) throw Object.assign(new Error("请输入想问小序的问题"), { code: "INVALID_INPUT" });
-        return await this.translationService.queryCompanion("ask", { question }, { signal: controller.signal });
+        const history = boundedConversationContext(input.history, { maxTurns: input.maxTurns, maxCharacters: 30_000 });
+        const memoryFacts = normalizeMemoryFacts(input.memoryFacts).slice(-50);
+        return await this.translationService.queryCompanion("ask", {
+          question,
+          history,
+          memoryFacts,
+          memoryEnabled: input.memoryEnabled === true,
+          memorySyncEnabled: input.memorySyncEnabled === true,
+          maxTurns: input.maxTurns,
+        }, { signal: controller.signal });
+      }
+      if (task === "memory") {
+        const question = String(input.question || "").trim().slice(0, 4_000);
+        const answer = String(input.answer || "").trim().slice(0, 4_000);
+        if (!question) return { memory: "" };
+        const result = await this.translationService.queryCompanion("memory", { question, answer }, { signal: controller.signal });
+        return { memory: extractedMemory(result?.answer) };
       }
       if (task === "summarize") {
         const page = input.page || {};

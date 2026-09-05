@@ -1,0 +1,32 @@
+const { app, BrowserWindow } = require("electron");
+const { nodeSeekPageAction } = require("../../electron/automations/nodeseek.cjs");
+const assert = require("node:assert/strict");
+app.setPath("userData", process.env.QIYE_TEST_USER_DATA);
+app.whenReady().then(async () => {
+  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  const inspect = (click = false) => win.webContents.executeJavaScript(`(${nodeSeekPageAction.toString()})(${click})`);
+  const page = (html) => win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  await page('<button onclick="document.body.innerHTML=\'今日签到获得鸡腿5个，当前排名第820\'">立即签到</button>');
+  assert.equal((await inspect()).hasButton, true);
+  await inspect(true);
+  assert.equal((await inspect()).status, "success");
+  // Real bare 403 and security challenges must never click or count as success.
+  await page('403');
+  assert.equal((await inspect(true)).blocked, true);
+  await page('<p>验证码</p><button>签到</button>');
+  assert.equal((await inspect(true)).blocked, true);
+  await page('<a href="https://www.nodeseek.com/signIn">登录</a><button>签到</button>');
+  assert.equal((await inspect(true)).status, "needs-login");
+  await page('<button style="display:none">签到</button><p>其他用户签到成功</p>');
+  assert.equal((await inspect(true)).hasButton, false);
+  assert.notEqual((await inspect()).status, "success");
+  await page('<a href="https://untrusted.example/">签到</a>');
+  assert.equal((await inspect(true)).hasButton, false);
+  await page('<p>今日签到鸡腿排行榜</p>');
+  assert.notEqual((await inspect()).status, "success");
+  await page('<p>其他用户：今天已经签到</p>');
+  assert.notEqual((await inspect()).status, "success");
+  process.stdout.write("NODESEEK_CHECKIN_DOM_OK\n");
+  win.destroy();
+  app.quit();
+}).catch((error) => { console.error(error); app.exit(1); });

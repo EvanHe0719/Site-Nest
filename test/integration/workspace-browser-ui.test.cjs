@@ -287,7 +287,7 @@ test("top and sidebar session menus share duplicate behavior and target inactive
   assert.ok(result.afterCloseCopy.browserSnapshot.tabs.some((tab) => tab.tabId === result.menu.sourceTabId));
   assert.ok(!result.afterCloseCopy.browserSnapshot.tabs.some((tab) => tab.tabId === result.afterTopCopy.browserSnapshot.activeTabId));
 
-  assert.equal(result.chrome.version, "0.5.9 DEV");
+  assert.equal(result.chrome.version, "0.5.10 DEV");
   assert.equal(result.chrome.hasSidebarChromeNav, false);
   assert.equal(result.chrome.hasSidebarChromeCard, false);
   assert.equal(result.chrome.hasFixedSitesRegion, false);
@@ -456,7 +456,7 @@ test("0.5.5 settings mounts one category, lazy-loads Zoho, searches the registry
   assert.equal(result.initial.section, "general");
   assert.deepEqual(result.initial.mountedSections, ["general"]);
   assert.deepEqual(result.initial.navigation, [
-    "常规", "搜索与新标签页", "快捷键", "浏览与性能", "翻译与 DeepSeek", "日程与通知", "连接与集成", "账号与同步", "数据与备份", "开发与诊断", "关于",
+    "常规", "搜索与新标签页", "快捷键", "浏览与性能", "翻译与 DeepSeek", "日程与小序", "连接与集成", "账号与同步", "数据与备份", "开发与诊断", "关于",
   ]);
   assert.equal(result.initial.zohoMounted, false);
   assert.equal(result.initial.contentOverflowY, "auto");

@@ -43,7 +43,7 @@ function event(overrides = {}) {
 
 test("current schema preserves work and personal timeline tracks exactly once", () => {
   const initial = state();
-  assert.equal(CURRENT_SCHEMA_VERSION, 18);
+  assert.equal(CURRENT_SCHEMA_VERSION, 19);
   assert.deepEqual(initial.timelineTracks.map((track) => track.id), ["work", "personal"]);
   assert.deepEqual(initial.timelineEvents, []);
   assert.equal(initial.timelineUiSettings.selectedYear, 2026);
@@ -218,7 +218,7 @@ test("timeline-export-v1 is stable and strips executable presentation content", 
   });
   assert.equal(exported.exportVersion, "timeline-export-v1");
   assert.equal(exported.appVersion, "0.5.5");
-  assert.equal(exported.schemaVersion, 18);
+  assert.equal(exported.schemaVersion, 19);
   assert.equal(exported.events[0].eventType, "achievement");
   assert.equal(exported.events[0].impactDirection, "neutral");
   assert.equal(exported.events[0].impactLevel, 1);

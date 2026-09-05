@@ -1043,6 +1043,9 @@ function registerHarnessIpc() {
 }
 
 async function waitForRenderer(window) {
+  // State assignment happens before asynchronous settings restoration and rendering finish.
+  // Wait for the actual startup boundary so a late restore cannot steal a scenario's focus.
+  await window.webContents.executeJavaScript("appInitialization");
   await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
     const startedAt = Date.now();
     const check = () => {

@@ -1,4 +1,6 @@
 const { createHash, randomUUID } = require("node:crypto");
+const { normalizeSiteLibrary } = require("./site-library.cjs");
+const { CHECKIN_DEFINITIONS, normalizeCheckin } = require("./automations/checkins.cjs");
 const { normalizeSitePopupPolicies } = require("./browser/window-open-policy-service.cjs");
 const { normalizeBrowserMemorySettings } = require("./browser/webview-lifecycle-manager.cjs");
 const { isSapSessionUrl } = require("./browser/sap-auth-recovery.cjs");
@@ -46,8 +48,9 @@ const {
   normalizeTabGroups,
 } = require("./browser/tab-organization.cjs");
 const { normalizeCompanionRuntimeState, normalizeCompanionSettings } = require("./companion/settings.cjs");
+const { normalizeConversationMemory, normalizeMemoryFacts } = require("./companion/memory-model.cjs");
 
-const CURRENT_SCHEMA_VERSION = 18;
+const CURRENT_SCHEMA_VERSION = 19;
 const MAX_RECENTLY_CLOSED_TABS = 50;
 const DEFAULT_WORKSPACE_ID = "personal";
 const DEFAULT_BROWSER_PROFILE_ID = "default";
@@ -344,6 +347,7 @@ function normalizeUiSettings(value) {
     contextAssistantCollapsed: input.contextAssistantCollapsed === true,
     usageTrackingEnabled: input.usageTrackingEnabled !== false,
     sitePopupPolicies: normalizeSitePopupPolicies(input.sitePopupPolicies),
+    siteLibrary: normalizeSiteLibrary(input.siteLibrary),
     translation: normalizeTranslationSettings(input.translation),
     browserMemory: normalizeBrowserMemorySettings(input.browserMemory),
     search: normalizeSearchSettings(input.search),
@@ -936,15 +940,9 @@ function normalizeSiteOrders(sites, workspaceIds = undefined) {
 
 function defaultAutomations(value) {
   const input = value && typeof value === "object" ? cloneValue(value) : {};
-  const naixi = input.naixi && typeof input.naixi === "object"
-    ? input.naixi
-    : {};
   return {
     ...input,
-    naixi: {
-      ...DEFAULT_NAIXI_AUTOMATION,
-      ...naixi,
-    },
+    ...Object.fromEntries(CHECKIN_DEFINITIONS.map((definition) => [definition.id, normalizeCheckin({ ...(definition.id === "naixi" ? DEFAULT_NAIXI_AUTOMATION : {}), ...input[definition.id] }, definition)])),
   };
 }
 
@@ -1005,6 +1003,8 @@ function createInitialState(options = {}) {
     rewardLedger: [],
     usageDayAggregates: [],
     companionRuntimeState: normalizeCompanionRuntimeState(),
+    companionConversationEntries: [],
+    companionMemoryFacts: [],
     contentTagGroups: [],
     contentTags: [],
     contentTagAliases: [],
@@ -1126,6 +1126,7 @@ function normalizeStateV4(value, options = {}) {
     buildTaskReminders(
       task,
       normalizedTaskReminders.filter((reminder) => reminder.taskId === task.id),
+      { now },
     ),
   );
   const timelineTracks = normalizeTimelineTracks(input.timelineTracks, { now });
@@ -1195,6 +1196,13 @@ function normalizeStateV4(value, options = {}) {
     rewardLedger,
     usageDayAggregates: normalizeUsageDayAggregates(input.usageDayAggregates),
     companionRuntimeState: normalizeCompanionRuntimeState(input.companionRuntimeState),
+    companionConversationEntries: normalizeConversationMemory(
+      Array.isArray(input.companionConversationEntries) && input.companionConversationEntries.length
+        ? input.companionConversationEntries
+        : input.companionRuntimeState?.conversationMemory,
+      { maxTurns: uiSettings.companion.memory.maxTurns },
+    ),
+    companionMemoryFacts: normalizeMemoryFacts(input.companionMemoryFacts),
     ...contentTagState,
     timeZone: String(input.timeZone || deviceTimeZone()).slice(0, 100),
     userScripts,
