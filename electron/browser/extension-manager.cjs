@@ -160,8 +160,17 @@ class BrowserExtensionManager {
 
   async restoreProfile(profileId) {
     const store = await this.readStore();
-    const entries = this.profileEntries(store, profileId);
     let changed = false;
+    const entries = this.profileEntries(store, profileId);
+    if (profileId !== "default") {
+      const globalEntries = this.profileEntries(store, "default")
+        .filter((entry) => entry.enabled && entry.installedPath)
+        .filter((entry) => !entries.some((candidate) => candidate.id === entry.id || candidate.storageKey === entry.storageKey));
+      for (const entry of globalEntries) {
+        entries.push({ ...entry, global: true, importedAt: entry.importedAt, updatedAt: new Date().toISOString() });
+        changed = true;
+      }
+    }
     for (const entry of entries) {
       if (!entry.enabled) continue;
       try {

@@ -5631,7 +5631,12 @@ async function runCompanionAsk(requestId, question) {
   const memoryEnabled = settings.memory.enabled;
   const history = memoryEnabled ? state.companionConversationEntries : [];
   const memoryFacts = memoryEnabled ? selectMemoryFactsForQuestion(state.companionMemoryFacts, question) : [];
-  const weather = (await initializeWeatherService()).status();
+  const weatherService = await initializeWeatherService();
+  const weatherQuestion = /天气|气温|温度|下雨|降雨|明天|后天|预报|风力|湿度/u.test(String(question || ""));
+  if (weatherQuestion && weatherService.status().configured) {
+    await weatherService.refresh({ force: true }).catch(() => undefined);
+  }
+  const weather = weatherService.status();
   const weatherContext = weather.configured && weather.snapshot
     ? {
         city: weather.snapshot.city,
